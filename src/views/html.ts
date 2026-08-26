@@ -10,7 +10,8 @@ export function getWebviewHtml(
     | "commit"
     | "push"
     | "rollback"
-    | "compare",
+    | "compare"
+    | "changes",
   extra?: Record<string, string>,
 ): string {
   const distUri = vscode.Uri.joinPath(extensionUri, "dist", "webview");

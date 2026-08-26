@@ -24,6 +24,7 @@ import type { CommitSelection, DiffFile } from "./git/types";
 import { registerLogHandlers } from "./messages/logHandlers";
 import { MessageRouter } from "./messages/messageRouter";
 import { ErrorCode } from "./messages/protocol";
+import { ChangesWindowManager } from "./views/changesWindowManager";
 import { CommitViewProvider } from "./views/commitViewProvider";
 import {
   ComparePanelManager,
@@ -197,6 +198,13 @@ export async function activate(context: vscode.ExtensionContext) {
     context.extensionUri,
     messageRouter,
   );
+  const changesWindowManager = new ChangesWindowManager(
+    context.extensionUri,
+    messageRouter,
+  );
+  context.subscriptions.push({
+    dispose: () => changesWindowManager.dispose(),
+  });
 
   // 4. PushPanel
   const pushPanel = new PushPanel(
@@ -506,6 +514,41 @@ export async function activate(context: vscode.ExtensionContext) {
     }
     const hashes = params.hashes as string[];
     return ctx.gitService.getCommitRangeFiles(hashes);
+  });
+
+  messageRouter.handle("getComparisonFiles", async (params, ctx) => {
+    if (!ctx) {
+      return NOT_GIT_REPO;
+    }
+    const fromHash = params.fromHash as string;
+    const toHash = params.toHash as string;
+    return ctx.gitService.getComparisonFiles(fromHash, toHash);
+  });
+
+  messageRouter.handle("openCompareVersions", async (params, ctx) => {
+    if (!ctx) {
+      throw new IdeaGitError(
+        IdeaGitErrorCode.REPO_NOT_FOUND,
+        "No repository context for comparison",
+      );
+    }
+    const hashes = params.hashes as string[];
+    if (!Array.isArray(hashes) || hashes.length !== 2) {
+      throw new IdeaGitError(
+        IdeaGitErrorCode.INVALID_REF,
+        "Compare Versions needs exactly two commits",
+      );
+    }
+    const { from, to } = await ctx.gitService.orderCommitsOldestFirst(
+      hashes[0],
+      hashes[1],
+    );
+    await changesWindowManager.open({
+      repoId: ctx.repoId,
+      fromHash: from,
+      toHash: to,
+    });
+    return { success: true };
   });
 
   messageRouter.handle("getStatus", async (_params, ctx) => {

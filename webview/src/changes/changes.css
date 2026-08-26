@@ -1,0 +1,87 @@
+/* ─── Changes Window ───────────────────────────────────────────── */
+
+.changes-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  font-size: 13px;
+  color: var(--app-fg, #ccc);
+  background: var(--app-bg, #1e1e1e);
+}
+
+.changes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border, #333);
+  flex-shrink: 0;
+}
+
+.changes-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.changes-title code {
+  font-family: var(--editor-font, monospace);
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.changes-header-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.changes-count {
+  opacity: 0.6;
+  font-size: 12px;
+}
+
+.changes-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.changes-view-toggle button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  color: var(--app-fg, #ccc);
+  cursor: pointer;
+  border-radius: 4px;
+  opacity: 0.6;
+  padding: 0;
+}
+
+.changes-view-toggle button:hover {
+  background: var(--hover-bg, rgba(255, 255, 255, 0.04));
+  opacity: 0.9;
+}
+
+.changes-view-toggle button.active {
+  background: var(--hover-bg, rgba(255, 255, 255, 0.08));
+  opacity: 1;
+}
+
+.changes-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 0;
+}
+
+.changes-state {
+  padding: 16px;
+  opacity: 0.65;
+}

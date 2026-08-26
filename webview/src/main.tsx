@@ -1,5 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { ChangesApp } from "./changes/App";
 import { CommitApp } from "./commit/App";
 import { CompareApp } from "./compare/App";
 import { ConflictsApp } from "./conflicts/App";
@@ -31,6 +32,7 @@ const mode = root.dataset.mode as
   | "push"
   | "rollback"
   | "compare"
+  | "changes"
   | undefined;
 
 // Initialize the bridge's repo context from the host-supplied data-repo-id
@@ -52,6 +54,8 @@ createRoot(root).render(
       <RollbackApp />
     ) : mode === "compare" ? (
       <CompareApp />
+    ) : mode === "changes" ? (
+      <ChangesApp />
     ) : (
       <PanelApp />
     )}
