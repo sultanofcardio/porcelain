@@ -3,9 +3,9 @@ import type { CommitPathSelection } from "../commit/types";
 import type { GitExecutor } from "../core/gitExecutor";
 import type { GitOperationResult } from "../core/operationResult";
 import {
-  type IdeaGitErrorCode as ErrorCode,
-  IdeaGitError,
-  IdeaGitErrorCode,
+  type PorcelainErrorCode as ErrorCode,
+  PorcelainError,
+  PorcelainErrorCode,
 } from "../errors";
 import type { WorkingTreeFile } from "../types";
 import type { WorkingTreeService } from "../workingTree/workingTreeService";
@@ -46,8 +46,8 @@ export class NativeShelfService {
           throw error;
         }
         if (!after || after === before) {
-          throw new IdeaGitError(
-            IdeaGitErrorCode.UNSUPPORTED_SHELF_CONTENT,
+          throw new PorcelainError(
+            PorcelainErrorCode.UNSUPPORTED_SHELF_CONTENT,
             "Git did not create the expected shelf reference.",
             "The original index was restored. Refresh the working tree and retry after confirming the selected changes are still present.",
           );
@@ -67,21 +67,21 @@ export class NativeShelfService {
     } catch (error) {
       if (postCommandVerificationFailed) {
         return this.failure(
-          IdeaGitErrorCode.UNSUPPORTED_SHELF_CONTENT,
+          PorcelainErrorCode.UNSUPPORTED_SHELF_CONTENT,
           "The shelf command completed, but its reference could not be verified; repository state may have changed.",
           "Do not retry or discard files yet. Run git stash list, inspect the index and working tree, then apply or pop the matching stash if the selected changes are no longer present.",
           error,
         );
       }
-      if (error instanceof IdeaGitError) {
+      if (error instanceof PorcelainError) {
         const recovery =
-          error.code === IdeaGitErrorCode.INDEX_RESTORE_FAILED && createdRef
+          error.code === PorcelainErrorCode.INDEX_RESTORE_FAILED && createdRef
             ? `The changes were saved in refs/stash at ${createdRef}, but the original index could not be restored. Back up the working tree and inspect the index before continuing.`
             : error.recovery;
         return this.failure(error.code, error.message, recovery, error);
       }
       return this.failure(
-        IdeaGitErrorCode.INDEX_PREPARE_FAILED,
+        PorcelainErrorCode.INDEX_PREPARE_FAILED,
         `Git could not create the shelf. ${this.errorMessage(error)}`,
         "The original index was restored. Inspect the repository status and retry.",
         error,
@@ -94,7 +94,7 @@ export class NativeShelfService {
   ): Promise<GitOperationResult<void> | undefined> {
     if (request.selections && request.selections.length === 0) {
       return this.failure(
-        IdeaGitErrorCode.UNSUPPORTED_SHELF_CONTENT,
+        PorcelainErrorCode.UNSUPPORTED_SHELF_CONTENT,
         "At least one change must be selected.",
         "Select one or more staged or unstaged changes and retry.",
       );
@@ -105,7 +105,7 @@ export class NativeShelfService {
       changes = await this.workingTree.getWorkingTreeChanges();
     } catch (error) {
       return this.failure(
-        IdeaGitErrorCode.UNSUPPORTED_SHELF_CONTENT,
+        PorcelainErrorCode.UNSUPPORTED_SHELF_CONTENT,
         "The working tree could not be inspected safely.",
         "Refresh the repository status and retry.",
         error,
@@ -114,7 +114,7 @@ export class NativeShelfService {
     if (!request.selections) {
       if (changes.length > 0) return undefined;
       return this.failure(
-        IdeaGitErrorCode.UNSUPPORTED_SHELF_CONTENT,
+        PorcelainErrorCode.UNSUPPORTED_SHELF_CONTENT,
         "There are no changes to shelve.",
         "Modify or stage a file before creating a shelf.",
       );
@@ -128,7 +128,7 @@ export class NativeShelfService {
         (!selection.includeIndex && !selection.includeWorkingTree)
       ) {
         return this.failure(
-          IdeaGitErrorCode.UNSUPPORTED_SHELF_CONTENT,
+          PorcelainErrorCode.UNSUPPORTED_SHELF_CONTENT,
           `The shelf selection for "${selection.path}" is not valid.`,
           "Refresh the working tree and select the change again.",
         );
@@ -148,14 +148,14 @@ export class NativeShelfService {
         matching.some((change) => !change.staged);
       if (!hasRequestedIndex || !hasRequestedWorkspace) {
         return this.failure(
-          IdeaGitErrorCode.UNSUPPORTED_SHELF_CONTENT,
+          PorcelainErrorCode.UNSUPPORTED_SHELF_CONTENT,
           `The selected content for "${selection.path}" is no longer available.`,
           "Refresh the working tree and select the current change before retrying.",
         );
       }
       if (matching.some((change) => change.status === "conflicted")) {
         return this.failure(
-          IdeaGitErrorCode.UNMERGED_PATHS,
+          PorcelainErrorCode.UNMERGED_PATHS,
           `The selected path "${selection.path}" has unresolved conflicts.`,
           "Resolve the conflicts before creating a shelf.",
         );

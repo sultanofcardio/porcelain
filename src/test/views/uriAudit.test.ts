@@ -27,8 +27,8 @@ interface DirectUriConstruction {
 
 /**
  * Find direct vscode.Uri.parse/Uri.from constructions whose arguments mention
- * the IDEA Git content scheme, including component construction such as
- * `vscode.Uri.from({ scheme: IDEA_GIT_SCHEME, ... })`.
+ * the Porcelain content scheme, including component construction such as
+ * `vscode.Uri.from({ scheme: PORCELAIN_SCHEME, ... })`.
  */
 function collectDirectUriConstructions(): DirectUriConstruction[] {
   const out: DirectUriConstruction[] = [];
@@ -53,7 +53,7 @@ function collectDirectUriConstructions(): DirectUriConstruction[] {
         const args = node.arguments
           .map((argument) => argument.getText(sourceFile))
           .join(", ");
-        if (args.includes("IDEA_GIT_SCHEME") || args.includes("idea-git:")) {
+        if (args.includes("PORCELAIN_SCHEME") || args.includes("porcelain:")) {
           const { line } = sourceFile.getLineAndCharacterOfPosition(
             node.getStart(sourceFile),
           );
@@ -71,12 +71,12 @@ function collectDirectUriConstructions(): DirectUriConstruction[] {
   return out;
 }
 
-describe("IDEA Git content URI repository binding", () => {
+describe("Porcelain content URI repository binding", () => {
   it("centralizes every direct content URI construction in gitUri.ts", () => {
     const constructions = collectDirectUriConstructions();
     assert.ok(
       constructions.length > 0,
-      "URI audit is vacuous — expected at least one direct IDEA Git " +
+      "URI audit is vacuous — expected at least one direct Porcelain " +
         "content URI construction in the host sources.",
     );
     const builderFile = path.normalize("src/views/gitUri.ts");
@@ -86,7 +86,7 @@ describe("IDEA Git content URI repository binding", () => {
     assert.strictEqual(
       offenders.length,
       0,
-      "Construct IDEA Git content URIs through buildGitContentUri instead of " +
+      "Construct Porcelain content URIs through buildGitContentUri instead of " +
         "calling Uri.parse/Uri.from directly:\n" +
         offenders
           .map(

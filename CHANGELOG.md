@@ -1,5 +1,14 @@
 # Changelog / 更新日志
 
+## [0.8.0] - 2026-08-26
+
+### Changed / 变更
+- **Renamed to Porcelain** — the extension ID is now `sultanofcardio.porcelain`, commands are `porcelain.*`, the setting is `porcelain.diff.openIn`, and the content URI scheme is `porcelain:`. Named for Git's own word for the user-facing layer over its plumbing, and chosen to carry no implication of affiliation with JetBrains / 扩展更名为 Porcelain：扩展 ID 改为 `sultanofcardio.porcelain`，命令改为 `porcelain.*`，设置项改为 `porcelain.diff.openIn`，内容 URI scheme 改为 `porcelain:`。名称取自 Git 对「面向用户层」的称呼，且不再暗示与 JetBrains 的从属关系
+- **New icon** — the mark is now a P drawn as a branch leaving the trunk and merging back, with a commit node at the merge / 新图标：字母 P 由一条离开主干后再合并回来的分支构成，合并点为一个提交节点
+
+### Added / 新增
+- **Third-party notices** — `THIRD-PARTY-NOTICES.md` ships in the package, carrying the Apache 2.0 notice for the bundled JetBrains icons, the CC BY 4.0 attribution for Codicons, and the license text of all 59 bundled npm packages / 扩展包内新增 `THIRD-PARTY-NOTICES.md`，包含打包的 JetBrains 图标所需的 Apache 2.0 声明、Codicons 的 CC BY 4.0 归属，以及全部 59 个被打包 npm 依赖的许可证全文
+
 ## [0.7.0] - 2026-08-26
 
 ### Added / 新增

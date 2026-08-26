@@ -1,9 +1,9 @@
 import * as vscode from "vscode";
 
-/** Where IDEA Git opens diff and changes surfaces. */
+/** Where Porcelain opens diff and changes surfaces. */
 export type SurfacePresentation = "floatingWindow" | "editorTab";
 
-export const CONFIG_SECTION = "ideaGit";
+export const CONFIG_SECTION = "porcelain";
 export const OPEN_IN_SETTING = "diff.openIn";
 
 /**
@@ -63,7 +63,7 @@ function noticeFloatingUnavailable(): void {
   if (unavailableNoticeShown) return;
   unavailableNoticeShown = true;
   void vscode.window.showInformationMessage(
-    "IDEA Git: this editor build cannot open a separate window, so diffs will open as editor tabs.",
+    "Porcelain: this editor build cannot open a separate window, so diffs will open as editor tabs.",
   );
 }
 
@@ -82,7 +82,7 @@ export async function openEmptyFloatingWindow(): Promise<boolean> {
     await vscode.commands.executeCommand(NEW_EMPTY_EDITOR_WINDOW);
     return true;
   } catch (error) {
-    console.error("[idea-git] opening an empty window failed:", error);
+    console.error("[porcelain] opening an empty window failed:", error);
     return false;
   }
 }
@@ -106,7 +106,7 @@ export async function detachActiveEditor(
     await vscode.commands.executeCommand(MOVE_EDITOR_TO_NEW_WINDOW);
   } catch (error) {
     console.error(
-      "[idea-git] detaching editor into a new window failed:",
+      "[porcelain] detaching editor into a new window failed:",
       error,
     );
     noticeFloatingUnavailable();

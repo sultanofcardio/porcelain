@@ -53,11 +53,11 @@ interface Fixture {
  * comparison across the pair must not mention it.
  */
 async function createFixture(): Promise<Fixture> {
-  const base = await fs.mkdtemp(path.join(os.tmpdir(), "idea-git-compare-"));
+  const base = await fs.mkdtemp(path.join(os.tmpdir(), "porcelain-compare-"));
   const repo = path.join(base, "repo");
   await git(base, null, "init", "-b", "main", repo);
-  await git(repo, null, "config", "user.name", "IDEA Git Test");
-  await git(repo, null, "config", "user.email", "idea-git@example.com");
+  await git(repo, null, "config", "user.name", "Porcelain Test");
+  await git(repo, null, "config", "user.email", "porcelain@example.com");
 
   await fs.writeFile(path.join(repo, "kept.txt"), "one\n");
   await git(repo, null, "add", "kept.txt");

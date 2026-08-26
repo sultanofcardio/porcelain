@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { CommitPathSelection } from "../../git/commit/types";
 import { GitExecutor, type GitRunOptions } from "../../git/core/gitExecutor";
-import { IdeaGitError } from "../../git/errors";
+import { PorcelainError } from "../../git/errors";
 import { GitService } from "../../git/gitService";
 import { PatchShelfService } from "../../git/shelf/patchShelfService";
 import { WorkingTreeService } from "../../git/workingTree/workingTreeService";
@@ -237,7 +237,7 @@ describe("PatchShelfService", () => {
     await assert.rejects(
       gitService.ideaShelveChanges("binary", ["binary.bin"]),
       (error: unknown) =>
-        error instanceof IdeaGitError &&
+        error instanceof PorcelainError &&
         error.code === "UNSUPPORTED_SHELF_CONTENT",
     );
 

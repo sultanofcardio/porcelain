@@ -1,4 +1,4 @@
-export const IdeaGitErrorCode = {
+export const PorcelainErrorCode = {
   REPO_NOT_FOUND: "REPO_NOT_FOUND",
   INVALID_REF: "INVALID_REF",
   BRANCH_NOT_FOUND: "BRANCH_NOT_FOUND",
@@ -15,16 +15,16 @@ export const IdeaGitErrorCode = {
   OPERATION_CANCELLED: "OPERATION_CANCELLED",
 } as const;
 
-export type IdeaGitErrorCode =
-  (typeof IdeaGitErrorCode)[keyof typeof IdeaGitErrorCode];
+export type PorcelainErrorCode =
+  (typeof PorcelainErrorCode)[keyof typeof PorcelainErrorCode];
 
-export class IdeaGitError extends Error {
+export class PorcelainError extends Error {
   constructor(
-    readonly code: IdeaGitErrorCode,
+    readonly code: PorcelainErrorCode,
     message: string,
     readonly recovery?: string,
   ) {
     super(message);
-    this.name = "IdeaGitError";
+    this.name = "PorcelainError";
   }
 }

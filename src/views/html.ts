@@ -43,7 +43,7 @@ export function getWebviewHtml(
     img-src ${webview.cspSource} data:;
   ">
   <link rel="stylesheet" href="${styleUri}">
-  <title>IDEA Git</title>
+  <title>Porcelain</title>
 </head>
 <body>
   <div id="root" ${dataAttrs.join(" ")}></div>

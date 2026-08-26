@@ -1,5 +1,5 @@
 import type * as vscode from "vscode";
-import { IdeaGitError } from "../git/errors";
+import { PorcelainError } from "../git/errors";
 import {
   type CommandType,
   ErrorCode,
@@ -133,11 +133,11 @@ export class MessageRouter {
       const message = err instanceof Error ? err.message : String(err);
       this.sendResponse(webview, msg.id, false, undefined, {
         code:
-          err instanceof IdeaGitError
+          err instanceof PorcelainError
             ? (err.code as ErrorCode)
             : ErrorCode.UNKNOWN,
         message,
-        ...(err instanceof IdeaGitError && err.recovery !== undefined
+        ...(err instanceof PorcelainError && err.recovery !== undefined
           ? { recovery: err.recovery }
           : {}),
       });

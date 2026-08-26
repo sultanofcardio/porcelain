@@ -1,9 +1,9 @@
 import * as vscode from "vscode";
-import { IDEA_GIT_SCHEME } from "./gitContentProvider";
+import { PORCELAIN_SCHEME } from "./gitContentProvider";
 import { buildGitContentQuery } from "./workingTreeDiffModel";
 
 /**
- * Build a `idea-git:/` content URI that resolves to a specific file
+ * Build a `porcelain:/` content URI that resolves to a specific file
  * revision inside a specific repository.
  *
  * The resulting URI carries two query params read back by GitContentProvider:
@@ -20,7 +20,7 @@ export function buildGitContentUri(
   repoId: string,
 ): vscode.Uri {
   return vscode.Uri.from({
-    scheme: IDEA_GIT_SCHEME,
+    scheme: PORCELAIN_SCHEME,
     path: `/${filePath}`,
     query: buildGitContentQuery(ref, repoId),
   });

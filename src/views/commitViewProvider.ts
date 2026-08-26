@@ -4,7 +4,7 @@ import type { MessageRouter } from "../messages/messageRouter";
 import { getWebviewHtml } from "./html";
 
 export class CommitViewProvider implements vscode.WebviewViewProvider {
-  public static readonly viewType = "ideaGit.commitPanel";
+  public static readonly viewType = "porcelain.commitPanel";
 
   constructor(
     private readonly extensionUri: vscode.Uri,

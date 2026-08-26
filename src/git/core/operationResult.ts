@@ -1,10 +1,10 @@
-import type { IdeaGitErrorCode } from "../errors";
+import type { PorcelainErrorCode } from "../errors";
 
 export type GitOperationResult<T> =
   | { ok: true; value: T }
   | {
       ok: false;
-      code: IdeaGitErrorCode;
+      code: PorcelainErrorCode;
       message: string;
       recovery?: string;
       cause?: unknown;

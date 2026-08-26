@@ -5,7 +5,7 @@ import { DiffEditorManager } from "../../views/diffEditorManager";
 import { DiffWindow } from "../../views/diffWindow";
 import {
   GitContentProvider,
-  IDEA_GIT_SCHEME,
+  PORCELAIN_SCHEME,
 } from "../../views/gitContentProvider";
 
 /**
@@ -52,11 +52,11 @@ describe("provider registration with no active repo", () => {
     contentProvider.setExternalContentMap(new Map());
 
     const textDisposable = vscode.workspace.registerTextDocumentContentProvider(
-      IDEA_GIT_SCHEME,
+      PORCELAIN_SCHEME,
       contentProvider,
     );
     const fsDisposable = vscode.workspace.registerFileSystemProvider(
-      IDEA_GIT_SCHEME,
+      PORCELAIN_SCHEME,
       contentProvider,
       { isReadonly: true },
     );

@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { IdeaGitError, IdeaGitErrorCode } from "../git/errors";
+import { PorcelainError, PorcelainErrorCode } from "../git/errors";
 import type { RepoRegistry } from "../git/repoRegistry";
 import type { DiffFile } from "../git/types";
 import type { DiffWindow } from "./diffWindow";
@@ -101,8 +101,8 @@ export class DiffEditorManager {
   ): Promise<void> {
     const runtime = this.registry.get(repoId);
     if (!runtime) {
-      throw new IdeaGitError(
-        IdeaGitErrorCode.REPO_NOT_FOUND,
+      throw new PorcelainError(
+        PorcelainErrorCode.REPO_NOT_FOUND,
         `Repository not available: ${repoId}`,
       );
     }

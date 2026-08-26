@@ -40,7 +40,7 @@ export class ConflictsManager {
     }
 
     const panel = vscode.window.createWebviewPanel(
-      "ideaGit.conflicts",
+      "porcelain.conflicts",
       "Conflicts",
       vscode.ViewColumn.One,
       {

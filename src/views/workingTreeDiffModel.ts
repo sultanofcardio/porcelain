@@ -1,6 +1,6 @@
 import type { WorkingTreeFile } from "../git/types";
 
-export const WORKING_INDEX_REF = "__idea_git_index__";
+export const WORKING_INDEX_REF = "__porcelain_index__";
 export const EMPTY_CONTENT_REF = "empty";
 
 export type WorkingTreeDiffKind =

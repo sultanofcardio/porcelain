@@ -46,7 +46,7 @@ function fakeRouter() {
   };
 }
 
-/** Every webview tab IDEA Git opened, across every window. */
+/** Every webview tab Porcelain opened, across every window. */
 function webviewTabs(): vscode.Tab[] {
   return vscode.window.tabGroups.all.flatMap((group) =>
     group.tabs.filter((tab) => tab.input instanceof vscode.TabInputWebview),
@@ -87,11 +87,11 @@ describe("Changes window", () => {
 
   before(async () => {
     await vscode.commands.executeCommand("workbench.action.closeAllEditors");
-    base = await fs.mkdtemp(path.join(os.tmpdir(), "idea-git-changeswin-"));
+    base = await fs.mkdtemp(path.join(os.tmpdir(), "porcelain-changeswin-"));
     repo = path.join(base, "repo");
     await git(base, "init", "-b", "main", repo);
-    await git(repo, "config", "user.name", "IDEA Git Test");
-    await git(repo, "config", "user.email", "idea-git@example.com");
+    await git(repo, "config", "user.name", "Porcelain Test");
+    await git(repo, "config", "user.email", "porcelain@example.com");
     await fs.writeFile(path.join(repo, "a.txt"), "one\n");
     await git(repo, "add", "a.txt");
     await git(repo, "commit", "-m", "first");

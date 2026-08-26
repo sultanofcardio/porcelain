@@ -1,9 +1,9 @@
 {
-  "name": "idea-git",
-  "displayName": "IDEA Git: JetBrains-style Git for VS Code",
+  "name": "porcelain",
+  "displayName": "Porcelain: JetBrains-style Git for VS Code",
   "publisher": "sultanofcardio",
   "description": "Keep your JetBrains-style Git workflow in VS Code and Cursor with Git graph, commit and shelf tools, branch comparison, rebase, merge, conflicts, and multi-repo support.",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "license": "MIT",
   "icon": "images/icon.png",
   "repository": {
@@ -62,124 +62,124 @@
     "viewsContainers": {
       "panel": [
         {
-          "id": "ideaGit-panel",
-          "title": "IDEA Git",
+          "id": "porcelain-panel",
+          "title": "Porcelain",
           "icon": "$(git-branch)"
         }
       ],
       "activitybar": [
         {
-          "id": "ideaGit-commit",
+          "id": "porcelain-commit",
           "title": "Commit",
           "icon": "images/commit-icon.svg"
         }
       ]
     },
     "views": {
-      "ideaGit-panel": [
+      "porcelain-panel": [
         {
           "type": "webview",
-          "id": "ideaGit.gitLog",
+          "id": "porcelain.gitLog",
           "name": "Git Log"
         }
       ],
-      "ideaGit-commit": [
+      "porcelain-commit": [
         {
           "type": "webview",
-          "id": "ideaGit.commitPanel",
+          "id": "porcelain.commitPanel",
           "name": "Commit"
         }
       ]
     },
     "commands": [
       {
-        "command": "ideaGit.refreshLog",
+        "command": "porcelain.refreshLog",
         "title": "Refresh Git Log",
         "icon": "$(refresh)",
-        "category": "IDEA Git"
+        "category": "Porcelain"
       },
       {
-        "command": "ideaGit.openMergeEditor",
+        "command": "porcelain.openMergeEditor",
         "title": "Open Merge Editor",
-        "category": "IDEA Git"
+        "category": "Porcelain"
       },
       {
-        "command": "ideaGit.openConflicts",
+        "command": "porcelain.openConflicts",
         "title": "Conflicts",
         "icon": "$(git-merge)",
-        "category": "IDEA Git"
+        "category": "Porcelain"
       },
       {
-        "command": "ideaGit.openMergeEditorFromSCM",
-        "title": "Open in IDEA Git Merge Editor",
+        "command": "porcelain.openMergeEditorFromSCM",
+        "title": "Open in Porcelain Merge Editor",
         "icon": "$(git-merge)",
-        "category": "IDEA Git"
+        "category": "Porcelain"
       },
       {
-        "command": "ideaGit.showFileHistory",
-        "title": "(IDEA Git) Show File History",
+        "command": "porcelain.showFileHistory",
+        "title": "(Porcelain) Show File History",
         "icon": "$(history)",
-        "category": "IDEA Git"
+        "category": "Porcelain"
       },
       {
-        "command": "ideaGit.nextDiff",
+        "command": "porcelain.nextDiff",
         "title": "Next File Diff",
         "icon": "$(arrow-down)",
-        "category": "IDEA Git"
+        "category": "Porcelain"
       },
       {
-        "command": "ideaGit.prevDiff",
+        "command": "porcelain.prevDiff",
         "title": "Previous File Diff",
         "icon": "$(arrow-up)",
-        "category": "IDEA Git"
+        "category": "Porcelain"
       },
       {
-        "command": "ideaGit.commitPanel.refresh",
+        "command": "porcelain.commitPanel.refresh",
         "title": "Refresh Changes",
         "icon": "$(refresh)",
-        "category": "IDEA Git"
+        "category": "Porcelain"
       },
       {
-        "command": "ideaGit.commitPanel.commit",
+        "command": "porcelain.commitPanel.commit",
         "title": "Commit",
         "icon": "$(check)",
-        "category": "IDEA Git"
+        "category": "Porcelain"
       },
       {
-        "command": "ideaGit.commitPanel.commitAndPush",
+        "command": "porcelain.commitPanel.commitAndPush",
         "title": "Commit and Push",
         "icon": "$(cloud-upload)",
-        "category": "IDEA Git"
+        "category": "Porcelain"
       },
       {
-        "command": "ideaGit.commitPanel.shelve",
+        "command": "porcelain.commitPanel.shelve",
         "title": "Shelve Changes",
         "icon": "$(archive)",
-        "category": "IDEA Git"
+        "category": "Porcelain"
       },
       {
-        "command": "ideaGit.commitPanel.unshelve",
+        "command": "porcelain.commitPanel.unshelve",
         "title": "Unshelve Changes",
         "icon": "$(package)",
-        "category": "IDEA Git"
+        "category": "Porcelain"
       },
       {
-        "command": "ideaGit.openPushPanel",
+        "command": "porcelain.openPushPanel",
         "title": "Push...",
         "icon": "$(cloud-upload)",
-        "category": "IDEA Git"
+        "category": "Porcelain"
       },
       {
-        "command": "ideaGit.editSource",
-        "title": "(IDEA Git) Edit Source",
+        "command": "porcelain.editSource",
+        "title": "(Porcelain) Edit Source",
         "icon": "$(go-to-file)",
-        "category": "IDEA Git"
+        "category": "Porcelain"
       }
     ],
     "configuration": {
-      "title": "IDEA Git",
+      "title": "Porcelain",
       "properties": {
-        "ideaGit.diff.openIn": {
+        "porcelain.diff.openIn": {
           "type": "string",
           "enum": [
             "floatingWindow",
@@ -190,7 +190,7 @@
             "Open diffs as a diff tab in the main window."
           ],
           "default": "floatingWindow",
-          "markdownDescription": "Where IDEA Git shows file diffs and changed-file lists opened from the Git Log, a comparison, or the Commit panel. Falls back to editor tabs when the editor build cannot open a separate window."
+          "markdownDescription": "Where Porcelain shows file diffs and changed-file lists opened from the Git Log, a comparison, or the Commit panel. Falls back to editor tabs when the editor build cannot open a separate window."
         }
       }
     },
@@ -198,33 +198,33 @@
       "view/title": [],
       "scm/title": [
         {
-          "command": "ideaGit.openConflicts",
+          "command": "porcelain.openConflicts",
           "when": "scmProvider == git",
           "group": "navigation"
         }
       ],
       "scm/resourceState/context": [
         {
-          "command": "ideaGit.openMergeEditorFromSCM",
+          "command": "porcelain.openMergeEditorFromSCM",
           "when": "scmProvider == git && scmResourceGroup == merge",
           "group": "inline@10"
         }
       ],
       "editor/context": [
         {
-          "command": "ideaGit.showFileHistory",
+          "command": "porcelain.showFileHistory",
           "when": "editorTextFocus",
           "group": "git@1"
         },
         {
-          "command": "ideaGit.editSource",
+          "command": "porcelain.editSource",
           "when": "isInDiffEditor && resourceScheme != file",
           "group": "git@2"
         }
       ],
       "explorer/context": [
         {
-          "command": "ideaGit.showFileHistory",
+          "command": "porcelain.showFileHistory",
           "when": "!explorerResourceIsFolder",
           "group": "git@1"
         }
@@ -232,18 +232,18 @@
     },
     "keybindings": [
       {
-        "command": "ideaGit.openPushPanel",
+        "command": "porcelain.openPushPanel",
         "key": "ctrl+shift+k",
         "mac": "cmd+shift+k"
       },
       {
-        "command": "ideaGit.nextDiff",
+        "command": "porcelain.nextDiff",
         "key": "ctrl+f7",
         "mac": "cmd+f7",
         "when": "editorFocus"
       },
       {
-        "command": "ideaGit.prevDiff",
+        "command": "porcelain.prevDiff",
         "key": "ctrl+shift+f7",
         "mac": "cmd+shift+f7",
         "when": "editorFocus"

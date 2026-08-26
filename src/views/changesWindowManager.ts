@@ -50,7 +50,7 @@ export class ChangesWindowManager {
     const detached = floating ? await openEmptyFloatingWindow() : false;
 
     const panel = vscode.window.createWebviewPanel(
-      "ideaGit.changes",
+      "porcelain.changes",
       `Changes Between ${shortHash(spec.fromHash)} and ${shortHash(spec.toHash)}`,
       vscode.ViewColumn.Active,
       {

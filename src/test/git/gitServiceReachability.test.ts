@@ -12,7 +12,7 @@ class ReachabilityGitService extends GitService {
 
 describe("GitService reachable hashes", () => {
   it("accepts rev-list output larger than the standard command buffer", async () => {
-    const bin = await fs.mkdtemp(path.join(os.tmpdir(), "idea-git-bin-"));
+    const bin = await fs.mkdtemp(path.join(os.tmpdir(), "porcelain-bin-"));
     const git = path.join(bin, "git");
     await fs.writeFile(git, "#!/bin/sh\nyes x | head -c 11534336\n");
     await fs.chmod(git, 0o755);

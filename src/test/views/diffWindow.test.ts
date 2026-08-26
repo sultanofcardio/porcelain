@@ -6,7 +6,7 @@ import {
   getSurfacePresentation,
   OPEN_IN_SETTING,
 } from "../../views/floatingWindow";
-import { IDEA_GIT_SCHEME } from "../../views/gitContentProvider";
+import { PORCELAIN_SCHEME } from "../../views/gitContentProvider";
 import { buildGitContentUri } from "../../views/gitUri";
 
 const REPO = "repo-under-test";
@@ -15,14 +15,14 @@ function revision(ref: string, path: string): vscode.Uri {
   return buildGitContentUri(ref, path, REPO);
 }
 
-/** Every open tab across every window that IDEA Git owns as a diff. */
-function ideaGitDiffTabs(): vscode.Tab[] {
+/** Every open tab across every window that Porcelain owns as a diff. */
+function porcelainDiffTabs(): vscode.Tab[] {
   return vscode.window.tabGroups.all.flatMap((group) =>
     group.tabs.filter(
       (tab) =>
         tab.input instanceof vscode.TabInputTextDiff &&
-        (tab.input.original.scheme === IDEA_GIT_SCHEME ||
-          tab.input.modified.scheme === IDEA_GIT_SCHEME),
+        (tab.input.original.scheme === PORCELAIN_SCHEME ||
+          tab.input.modified.scheme === PORCELAIN_SCHEME),
     ),
   );
 }
@@ -69,7 +69,7 @@ describe("DiffWindow", () => {
 
     await new DiffWindow().show(left, right, "app.ts (aaaa111..bbbb222)");
 
-    const tabs = ideaGitDiffTabs();
+    const tabs = porcelainDiffTabs();
     assert.strictEqual(tabs.length, 1, "expected exactly one diff tab");
     const input = tabs[0].input as vscode.TabInputTextDiff;
     assert.strictEqual(input.original.toString(), left.toString());
@@ -90,7 +90,7 @@ describe("DiffWindow", () => {
     };
     await diffWindow.show(second.left, second.right, "other.ts");
 
-    const tabs = ideaGitDiffTabs();
+    const tabs = porcelainDiffTabs();
     assert.strictEqual(
       tabs.length,
       1,
@@ -174,7 +174,7 @@ describe("DiffWindow", () => {
     assert.deepStrictEqual(
       superseded,
       [stale],
-      "only the unpinned IDEA Git diffs this one replaces may be closed",
+      "only the unpinned Porcelain diffs this one replaces may be closed",
     );
   });
 });

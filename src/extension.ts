@@ -5,7 +5,7 @@ import {
   type GitRefIdentity,
 } from "./git/branchDashboardState";
 import type { GitOperationResult } from "./git/core/operationResult";
-import { IdeaGitError, IdeaGitErrorCode } from "./git/errors";
+import { PorcelainError, PorcelainErrorCode } from "./git/errors";
 import { GitService } from "./git/gitService";
 import { discoverRepos } from "./git/repoDiscovery";
 import {
@@ -35,7 +35,7 @@ import { DiffEditorManager } from "./views/diffEditorManager";
 import { DiffWindow } from "./views/diffWindow";
 import {
   GitContentProvider,
-  IDEA_GIT_SCHEME,
+  PORCELAIN_SCHEME,
 } from "./views/gitContentProvider";
 import { GitLogViewProvider } from "./views/gitLogViewProvider";
 import { buildGitContentUri } from "./views/gitUri";
@@ -59,7 +59,7 @@ function requireSuccessfulGitOperation(
   result: GitOperationResult<unknown>,
 ): void {
   if (result.ok) return;
-  throw new IdeaGitError(result.code, result.message, result.recovery);
+  throw new PorcelainError(result.code, result.message, result.recovery);
 }
 
 /**
@@ -126,7 +126,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Restore last active repo (per-workspace).
   const savedActive = context.workspaceState.get<string | undefined>(
-    "ideaGit.activeRepoId",
+    "porcelain.activeRepoId",
   );
   if (savedActive) repoRegistry.setActive(savedActive);
 
@@ -157,11 +157,11 @@ export async function activate(context: vscode.ExtensionContext) {
   contentProvider.setExternalContentMap(shelfDiffContent);
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider(
-      IDEA_GIT_SCHEME,
+      PORCELAIN_SCHEME,
       contentProvider,
     ),
     vscode.workspace.registerFileSystemProvider(
-      IDEA_GIT_SCHEME,
+      PORCELAIN_SCHEME,
       contentProvider,
       { isReadonly: true },
     ),
@@ -222,7 +222,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // 5. Register VSCode commands (always registered)
   context.subscriptions.push(
-    vscode.commands.registerCommand("ideaGit.openPushPanel", async () => {
+    vscode.commands.registerCommand("porcelain.openPushPanel", async () => {
       const runtime = repoRegistry.getActive();
       if (!runtime) return;
       const branch = await runtime.gitService.getCurrentBranch();
@@ -232,7 +232,7 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     }),
     vscode.commands.registerCommand(
-      "ideaGit.openMergeEditor",
+      "porcelain.openMergeEditor",
       (file?: string) => {
         const runtime = repoRegistry.getActive();
         if (!runtime) return;
@@ -240,7 +240,7 @@ export async function activate(context: vscode.ExtensionContext) {
       },
     ),
     vscode.commands.registerCommand(
-      "ideaGit.openDiffEditor",
+      "porcelain.openDiffEditor",
       (commit?: string, filePath?: string) => {
         if (commit && filePath && diffManager) {
           const runtime = repoRegistry.getActive();
@@ -249,44 +249,44 @@ export async function activate(context: vscode.ExtensionContext) {
         }
       },
     ),
-    vscode.commands.registerCommand("ideaGit.refreshLog", () => {
+    vscode.commands.registerCommand("porcelain.refreshLog", () => {
       broadcastActiveRepoLogRefresh(messageRouter, repoRegistry);
     }),
-    vscode.commands.registerCommand("ideaGit.nextDiff", async () => {
+    vscode.commands.registerCommand("porcelain.nextDiff", async () => {
       if (diffManager) {
         const result = await diffManager.nextDiff();
         if (!result) {
           void vscode.window.showInformationMessage(
-            "IDEA Git: No diff file list. Double-click a file in Changed Files first.",
+            "Porcelain: No diff file list. Double-click a file in Changed Files first.",
           );
         }
       } else {
         void vscode.window.showInformationMessage(
-          "IDEA Git: No workspace open.",
+          "Porcelain: No workspace open.",
         );
       }
     }),
-    vscode.commands.registerCommand("ideaGit.prevDiff", async () => {
+    vscode.commands.registerCommand("porcelain.prevDiff", async () => {
       if (diffManager) {
         const result = await diffManager.prevDiff();
         if (!result) {
           void vscode.window.showInformationMessage(
-            "IDEA Git: No diff file list. Double-click a file in Changed Files first.",
+            "Porcelain: No diff file list. Double-click a file in Changed Files first.",
           );
         }
       } else {
         void vscode.window.showInformationMessage(
-          "IDEA Git: No workspace open.",
+          "Porcelain: No workspace open.",
         );
       }
     }),
-    vscode.commands.registerCommand("ideaGit.openConflicts", () => {
+    vscode.commands.registerCommand("porcelain.openConflicts", () => {
       const runtime = repoRegistry.getActive();
       if (!runtime) return;
       conflictsManager.openConflictsPanel(runtime.descriptor.id);
     }),
     vscode.commands.registerCommand(
-      "ideaGit.openMergeEditorFromSCM",
+      "porcelain.openMergeEditorFromSCM",
       (arg?: unknown) => {
         const filePath = getScmResourcePath(arg);
         if (!filePath) {
@@ -301,21 +301,21 @@ export async function activate(context: vscode.ExtensionContext) {
       },
     ),
     vscode.commands.registerCommand(
-      "ideaGit.showFileHistory",
+      "porcelain.showFileHistory",
       async (uri?: vscode.Uri) => {
         const fileUri = uri ?? vscode.window.activeTextEditor?.document.uri;
         const runtime = repoRegistry.getActive();
         if (!fileUri || !runtime) return;
         const relativePath = vscode.workspace.asRelativePath(fileUri, false);
         // Ensure the Git Log panel is visible before sending the event
-        await vscode.commands.executeCommand("ideaGit.gitLog.focus");
+        await vscode.commands.executeCommand("porcelain.gitLog.focus");
         // Send file filter to webview
         messageRouter.broadcastEvent("showFileHistory", {
           file: relativePath,
         });
       },
     ),
-    vscode.commands.registerCommand("ideaGit.editSource", async () => {
+    vscode.commands.registerCommand("porcelain.editSource", async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) return;
 
@@ -333,12 +333,12 @@ export async function activate(context: vscode.ExtensionContext) {
       const workspaceRoot = runtime?.descriptor.rootPath;
 
       // Resolve the actual workspace file path from diff URI
-      // Format: idea-git:/<relativePath>?ref=<commitHash>&repo=<repoId>
+      // Format: porcelain:/<relativePath>?ref=<commitHash>&repo=<repoId>
       let filePath: string | undefined;
 
       if (uri.scheme === "file") {
         filePath = uri.fsPath;
-      } else if (uri.scheme === "idea-git" || uri.scheme === "git") {
+      } else if (uri.scheme === "porcelain" || uri.scheme === "git") {
         // Extract relative path from URI path (strip leading /)
         const relativePath = uri.path.startsWith("/")
           ? uri.path.slice(1)
@@ -527,15 +527,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
   messageRouter.handle("openCompareVersions", async (params, ctx) => {
     if (!ctx) {
-      throw new IdeaGitError(
-        IdeaGitErrorCode.REPO_NOT_FOUND,
+      throw new PorcelainError(
+        PorcelainErrorCode.REPO_NOT_FOUND,
         "No repository context for comparison",
       );
     }
     const hashes = params.hashes as string[];
     if (!Array.isArray(hashes) || hashes.length !== 2) {
-      throw new IdeaGitError(
-        IdeaGitErrorCode.INVALID_REF,
+      throw new PorcelainError(
+        PorcelainErrorCode.INVALID_REF,
         "Compare Versions needs exactly two commits",
       );
     }
@@ -999,8 +999,8 @@ export async function activate(context: vscode.ExtensionContext) {
     if (!ctx) return NOT_GIT_REPO;
     const branchName = params.branchName as string;
     if (!branchName) {
-      throw new IdeaGitError(
-        IdeaGitErrorCode.BRANCH_NOT_FOUND,
+      throw new PorcelainError(
+        PorcelainErrorCode.BRANCH_NOT_FOUND,
         "No local branch was selected",
       );
     }
@@ -1939,7 +1939,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const selectionCoordinator = new RepoSelectionCoordinator(
     repoRegistry,
     (activeId) =>
-      context.workspaceState.update("ideaGit.activeRepoId", activeId),
+      context.workspaceState.update("porcelain.activeRepoId", activeId),
     (repo) => broadcastActiveRepoChanged(repo),
     selectionSerializer,
   );
@@ -1953,7 +1953,10 @@ export async function activate(context: vscode.ExtensionContext) {
       // A queued select whose repo was removed by a concurrent folder
       // reconciliation. Surface the same REPO_NOT_FOUND the old handler did.
       if (err instanceof RepoSelectionError) {
-        throw new IdeaGitError(IdeaGitErrorCode.REPO_NOT_FOUND, err.message);
+        throw new PorcelainError(
+          PorcelainErrorCode.REPO_NOT_FOUND,
+          err.message,
+        );
       }
       throw err;
     }
@@ -2046,7 +2049,7 @@ export async function activate(context: vscode.ExtensionContext) {
       await persistAndBroadcastActive(
         repoRegistry,
         (activeId) =>
-          context.workspaceState.update("ideaGit.activeRepoId", activeId),
+          context.workspaceState.update("porcelain.activeRepoId", activeId),
         (repo) => broadcastActiveRepoChanged(repo),
       );
     },
@@ -2077,9 +2080,9 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.StatusBarAlignment.Left,
     100,
   );
-  statusBarItem.text = "$(git-branch) IDEA Git";
-  statusBarItem.tooltip = "Open IDEA Git Git Log";
-  statusBarItem.command = "ideaGit.gitLog.focus";
+  statusBarItem.text = "$(git-branch) Porcelain";
+  statusBarItem.tooltip = "Open Porcelain Git Log";
+  statusBarItem.command = "porcelain.gitLog.focus";
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
   messageRouter.enableStrictRepoContext();

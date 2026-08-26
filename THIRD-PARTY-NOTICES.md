@@ -1,6 +1,6 @@
 # Third-party notices
 
-IDEA Git is distributed under the MIT License (see `LICENSE`). The packaged
+Porcelain is distributed under the MIT License (see `LICENSE`). The packaged
 extension also contains third-party material, listed below with the notices
 their licenses require. Bundling strips comments from the compiled output, so
 this file is where those notices are preserved.
@@ -20,7 +20,7 @@ original header:
 
 Source: https://intellij-icons.jetbrains.design/
 
-These icons are used unmodified. IDEA Git is an independent project and is not
+These icons are used unmodified. Porcelain is an independent project and is not
 affiliated with, endorsed by, or sponsored by JetBrains s.r.o. Per section 6 of
 the license below, no trademark rights are granted or implied by their use.
 

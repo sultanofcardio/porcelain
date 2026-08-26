@@ -3,11 +3,11 @@ import type { GitService } from "../git/gitService";
 import type { RepoRegistry } from "../git/repoRegistry";
 import { readGitContent } from "./workingTreeDiffModel";
 
-export const IDEA_GIT_SCHEME = "idea-git";
+export const PORCELAIN_SCHEME = "porcelain";
 
 /**
  * Provides virtual file content for git file revisions.
- * Uri format: idea-git:/<filePath>?ref=<commitHash>
+ * Uri format: porcelain:/<filePath>?ref=<commitHash>
  *
  * Implements both TextDocumentContentProvider (for text diff) and
  * FileSystemProvider (for binary files like images).

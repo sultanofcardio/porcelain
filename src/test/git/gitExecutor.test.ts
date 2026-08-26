@@ -14,7 +14,7 @@ describe("GitExecutor", () => {
 
     assert.strictEqual(
       (await repo.git("log", "-1", "--format=%an")).trim(),
-      "IDEA Git Test",
+      "Porcelain Test",
     );
   });
 
@@ -98,7 +98,7 @@ describe("GitExecutor", () => {
   });
 
   it("counts stderr against the configured input-command buffer", async () => {
-    const bin = await fs.mkdtemp(path.join(os.tmpdir(), "idea-git-bin-"));
+    const bin = await fs.mkdtemp(path.join(os.tmpdir(), "porcelain-bin-"));
     const git = path.join(bin, "git");
     await fs.writeFile(git, "#!/bin/sh\nprintf '0123456789abcdef' >&2\n");
     await fs.chmod(git, 0o755);
@@ -111,7 +111,7 @@ describe("GitExecutor", () => {
   });
 
   it("streams line output without the buffered command limit", async () => {
-    const bin = await fs.mkdtemp(path.join(os.tmpdir(), "idea-git-bin-"));
+    const bin = await fs.mkdtemp(path.join(os.tmpdir(), "porcelain-bin-"));
     const git = path.join(bin, "git");
     await fs.writeFile(git, "#!/bin/sh\nprintf 'one\\ntwo'\n");
     await fs.chmod(git, 0o755);
@@ -124,7 +124,7 @@ describe("GitExecutor", () => {
   });
 
   it("rejects when the input pipe closes before writing completes", async () => {
-    const bin = await fs.mkdtemp(path.join(os.tmpdir(), "idea-git-bin-"));
+    const bin = await fs.mkdtemp(path.join(os.tmpdir(), "porcelain-bin-"));
     const git = path.join(bin, "git");
     await fs.writeFile(git, "#!/bin/sh\nexec 0<&-\nexit 0\n");
     await fs.chmod(git, 0o755);

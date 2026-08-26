@@ -22,7 +22,7 @@ interface StoredBranchDashboardState extends BranchDashboardPreferences {
   favoriteOverrides: Record<string, Record<string, boolean>>;
 }
 
-const STATE_KEY = "ideaGit.branchDashboard.v1";
+const STATE_KEY = "porcelain.branchDashboard.v1";
 const DEFAULT_PREFERENCES: BranchDashboardPreferences = {
   showTags: true,
   singleClickAction: "filter",

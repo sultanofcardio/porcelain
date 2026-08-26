@@ -4,7 +4,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
-import { IdeaGitError, IdeaGitErrorCode } from "../../git/errors";
+import { PorcelainError, PorcelainErrorCode } from "../../git/errors";
 import { GitService } from "../../git/gitService";
 
 const execFileAsync = promisify(execFile);
@@ -27,11 +27,11 @@ function serviceFor(repo: string): GitService {
 
 describe("GitService branch mutations", () => {
   it("reports an unmerged branch as a typed safe-delete rejection", async () => {
-    const repo = await fs.mkdtemp(path.join(os.tmpdir(), "idea-git-delete-"));
+    const repo = await fs.mkdtemp(path.join(os.tmpdir(), "porcelain-delete-"));
     try {
       await git(repo, "init", "-b", "main");
-      await git(repo, "config", "user.name", "IDEA Git Test");
-      await git(repo, "config", "user.email", "idea-git@example.com");
+      await git(repo, "config", "user.name", "Porcelain Test");
+      await git(repo, "config", "user.email", "porcelain@example.com");
       await fs.writeFile(path.join(repo, "README.md"), "initial\n");
       await git(repo, "add", "README.md");
       await git(repo, "commit", "-m", "initial");
@@ -45,8 +45,8 @@ describe("GitService branch mutations", () => {
       await assert.rejects(
         serviceFor(repo).deleteBranch("topic", false),
         (error: unknown) =>
-          error instanceof IdeaGitError &&
-          error.code === IdeaGitErrorCode.BRANCH_NOT_FULLY_MERGED,
+          error instanceof PorcelainError &&
+          error.code === PorcelainErrorCode.BRANCH_NOT_FULLY_MERGED,
       );
       assert.strictEqual(
         await git(repo, "rev-parse", "--verify", "topic"),

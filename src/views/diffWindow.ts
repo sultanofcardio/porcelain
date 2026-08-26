@@ -6,15 +6,15 @@ import {
   locateColumn,
   openEmptyFloatingWindow,
 } from "./floatingWindow";
-import { IDEA_GIT_SCHEME } from "./gitContentProvider";
+import { PORCELAIN_SCHEME } from "./gitContentProvider";
 
-/** Whether a tab is a diff of two IDEA Git content revisions. */
-function isIdeaGitDiffTab(tab: vscode.Tab): boolean {
+/** Whether a tab is a diff of two Porcelain content revisions. */
+function isPorcelainDiffTab(tab: vscode.Tab): boolean {
   const input = tab.input;
   if (!(input instanceof vscode.TabInputTextDiff)) return false;
   return (
-    input.original.scheme === IDEA_GIT_SCHEME ||
-    input.modified.scheme === IDEA_GIT_SCHEME
+    input.original.scheme === PORCELAIN_SCHEME ||
+    input.modified.scheme === PORCELAIN_SCHEME
   );
 }
 
@@ -33,7 +33,7 @@ function showsDiff(
 }
 
 /**
- * The tabs a newly-opened diff replaces: this window's other IDEA Git diffs,
+ * The tabs a newly-opened diff replaces: this window's other Porcelain diffs,
  * minus anything pinned. Leaving pinned tabs alone makes pinning the way to
  * keep a diff around while the window keeps cycling.
  */
@@ -44,7 +44,7 @@ export function supersededDiffTabs(
 ): vscode.Tab[] {
   return tabs.filter(
     (tab) =>
-      isIdeaGitDiffTab(tab) && !tab.isPinned && !showsDiff(tab, left, right),
+      isPorcelainDiffTab(tab) && !tab.isPinned && !showsDiff(tab, left, right),
   );
 }
 
@@ -115,7 +115,7 @@ export class DiffWindow {
     try {
       await vscode.window.tabGroups.close(superseded, true);
     } catch (error) {
-      console.error("[idea-git] closing superseded diff tabs failed:", error);
+      console.error("[porcelain] closing superseded diff tabs failed:", error);
     }
   }
 
@@ -124,7 +124,7 @@ export class DiffWindow {
    * tracked value is cleared on the way out so a later reuse check is cheap.
    */
   private liveColumn(): vscode.ViewColumn | undefined {
-    if (!isLiveGroup(this.column, isIdeaGitDiffTab)) {
+    if (!isLiveGroup(this.column, isPorcelainDiffTab)) {
       this.column = undefined;
       return undefined;
     }
