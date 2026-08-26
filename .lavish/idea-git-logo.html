@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IDEA Git — Icon candidates</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :where(.grid, .flex) > * { min-width: 0; }
+  :where(p, h1, h2, h3, h4, li, td, th) { overflow-wrap: anywhere; }
+
+  :root {
+    --bg:        #1e1e1e;
+    --bg-deep:   #181818;
+    --panel:     #252526;
+    --panel-2:   #2d2d30;
+    --border:    #3c3c3c;
+    --border-soft:#333;
+    --fg:        #cccccc;
+    --fg-strong: #f0f0f0;
+    --muted:     #8b8b8b;
+    --dim:       #6e6e6e;
+    --accent:    #4d9de0;
+    --green:     #5fad65;
+    --yellow:    #e0b95f;
+    --red:       #d96c68;
+    --font:      -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --mono:      ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  html { background: var(--bg-deep); }
+  body {
+    margin: 0; background: var(--bg-deep); color: var(--fg);
+    font-family: var(--font); font-size: 15px; line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px 120px; }
+
+  .masthead {
+    border-bottom: 1px solid var(--border-soft);
+    background:
+      radial-gradient(900px 340px at 12% -20%, rgba(77,157,224,.16), transparent 65%),
+      radial-gradient(700px 300px at 88% -30%, rgba(95,173,101,.12), transparent 62%),
+      var(--bg);
+  }
+  .masthead .wrap { padding-top: 52px; padding-bottom: 40px; }
+  .eyebrow { font-size: 11px; letter-spacing: .16em; text-transform: uppercase;
+             color: var(--muted); font-weight: 600; margin-bottom: 14px; }
+  h1 { font-size: clamp(28px, 4.4vw, 42px); line-height: 1.12; margin: 0 0 16px;
+       color: var(--fg-strong); font-weight: 650; letter-spacing: -.02em; }
+  .lede { font-size: 17px; color: var(--muted); max-width: 66ch; margin: 0; }
+
+  section { margin-top: 64px; }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 8px; flex-wrap: wrap; }
+  .sec-num { font-family: var(--mono); font-size: 12px; color: var(--accent);
+             border: 1px solid rgba(77,157,224,.35); background: rgba(77,157,224,.08);
+             border-radius: 5px; padding: 2px 8px; flex: none; }
+  h2 { font-size: 25px; margin: 0; color: var(--fg-strong); font-weight: 620; letter-spacing: -.015em; }
+  h4 { font-size: 11px; margin: 0 0 10px; color: var(--muted); font-weight: 600;
+       text-transform: uppercase; letter-spacing: .09em; }
+  p { margin: 0 0 14px; }
+  .sub { color: var(--muted); max-width: 74ch; margin-bottom: 28px; }
+
+  .card { background: var(--panel); border: 1px solid var(--border-soft);
+          border-radius: 10px; padding: 22px; }
+
+  /* candidate layout */
+  .cand { display: grid; grid-template-columns: minmax(0,190px) minmax(0,1fr);
+          gap: 26px; align-items: start; margin-bottom: 18px; }
+  @media (max-width: 700px) { .cand { grid-template-columns: minmax(0,1fr); } }
+
+  .hero-shot { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .hero-shot img { width: 128px; height: 128px; border-radius: 28px; display: block; }
+  .cand-name { font-size: 16px; color: var(--fg-strong); font-weight: 620; }
+  .cand-tag { font-family: var(--mono); font-size: 11px; color: var(--accent);
+              border: 1px solid rgba(77,157,224,.35); border-radius: 4px; padding: 1px 7px; }
+
+  .ladder { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap;
+            background: var(--bg); border: 1px solid var(--border-soft);
+            border-radius: 8px; padding: 16px 18px; margin-bottom: 16px; }
+  .ladder.light { background: #f3f3f3; border-color: #ddd; }
+  .rung { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+  .rung img { display: block; image-rendering: auto; }
+  .rung span { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+  .ladder.light .rung span { color: #888; }
+
+  .zoom { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .zoom img { width: 128px; height: 128px; image-rendering: pixelated;
+              border: 1px solid var(--border-soft); border-radius: 6px; }
+  .zoom .note { font-size: 13px; color: var(--muted); max-width: 42ch; }
+
+  ul.clean { margin: 0; padding-left: 20px; }
+  ul.clean li { margin-bottom: 6px; font-size: 13.5px; color: var(--muted); }
+  ul.clean li:last-child { margin-bottom: 0; }
+  ul.clean li b { color: var(--fg); font-weight: 600; }
+  ul.clean li::marker { color: var(--dim); }
+
+  .verdict { font-size: 13.5px; padding: 10px 14px; border-radius: 6px;
+             border-left: 3px solid var(--green); background: rgba(95,173,101,.08);
+             color: var(--fg); margin-top: 14px; }
+  .verdict.warn { border-left-color: var(--yellow); background: rgba(224,185,95,.08); }
+
+  hr.sep { border: 0; border-top: 1px solid var(--border-soft); margin: 32px 0; }
+
+  code { font-family: var(--mono); font-size: .88em; background: var(--panel-2);
+         border: 1px solid var(--border-soft); border-radius: 4px; padding: 1px 5px; color: #d7d7d7; }
+
+  .note-box { border-left: 2px solid var(--border); padding-left: 16px;
+              color: var(--muted); font-size: 14px; margin: 18px 0; }
+
+  /* decision */
+  .q { background: var(--panel); border: 1px solid var(--border-soft);
+       border-radius: 10px; padding: 24px; }
+  .opts { display: grid; gap: 9px; margin: 18px 0; }
+  .opt { display: flex; gap: 12px; align-items: center; padding: 12px 14px;
+         border: 1px solid var(--border-soft); border-radius: 7px; background: var(--bg);
+         cursor: pointer; transition: border-color .12s, background .12s; }
+  .opt:hover { border-color: #4a4a4a; }
+  .opt input { margin: 0; accent-color: var(--accent); flex: none; }
+  .opt:has(input:checked) { border-color: var(--accent); background: rgba(77,157,224,.07); }
+  .opt img { width: 40px; height: 40px; border-radius: 10px; flex: none; }
+  .opt .ot { font-size: 14.5px; color: var(--fg-strong); }
+  .opt .od { font-size: 12.5px; color: var(--muted); }
+  .rec { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--green);
+         border: 1px solid rgba(95,173,101,.4); border-radius: 3px; padding: 0 5px; margin-left: 7px; }
+  .qbtn { background: #0e639c; color: #fff; border: 0; border-radius: 6px; padding: 9px 18px;
+          font-size: 13px; font-family: var(--font); cursor: pointer; }
+  .qbtn:hover { background: #1177bb; }
+  .qfoot { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .qfoot .hint { font-size: 12px; color: var(--dim); }
+  .q textarea { width: 100%; background: var(--bg); border: 1px solid var(--border);
+                border-radius: 6px; color: var(--fg); padding: 10px 12px; font-size: 13.5px;
+                font-family: var(--font); resize: vertical; min-height: 62px; margin-bottom: 14px; }
+  .q textarea:focus { outline: none; border-color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <div class="eyebrow">Icon design · IDEA Git</div>
+    <h1>Three marks to replace the BranchShift <em>B</em></h1>
+    <p class="lede">
+      The current icon is a letter B built from two branch paths, in BranchShift's purple-to-teal
+      gradient. It is the one part of the fork still wearing the old identity. Each option below is
+      drawn from the extension's own graph lane colours, so the icon and the panel agree.
+    </p>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section id="current">
+    <div class="sec-head"><span class="sec-num">00</span><h2>What we are replacing</h2></div>
+    <div class="card">
+      <div class="cand">
+        <div class="hero-shot">
+          <img src="logo/current-128.png" alt="Current BranchShift icon">
+          <span class="cand-name">Current</span>
+        </div>
+        <div>
+          <h4>Why it goes</h4>
+          <ul class="clean">
+            <li>The <b>B is BranchShift's</b>, not yours. It is a letterform for a name the project no longer uses.</li>
+            <li>The purple-pink-teal gradient belongs to that brand and shares nothing with what the panel actually renders.</li>
+            <li>The thin strokes and gradient <b>mush below about 24px</b>, which is where the activity bar lives.</li>
+          </ul>
+          <div class="note-box" style="margin-bottom:0">
+            All three candidates deliberately avoid JetBrains' visual marks. The README already
+            disclaims affiliation, and an icon that borrowed their rounded-square gradient
+            language would undercut that.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="candidates">
+    <div class="sec-head"><span class="sec-num">01</span><h2>The candidates</h2></div>
+    <p class="sub">
+      Each is shown at the sizes that matter: 128px is the marketplace tile, 48px the extensions
+      list, 32px and 16px the activity bar and tabs. The magnified block is the real 16px raster
+      blown up, so you can see exactly which pixels survive.
+    </p>
+
+    <div class="card">
+      <div class="cand">
+        <div class="hero-shot">
+          <img src="logo/final-a-128.png" alt="Candidate A, a G formed from a graph lane">
+          <span class="cand-name">A · Graph G</span>
+          <span class="cand-tag">recommended</span>
+        </div>
+        <div>
+          <div class="ladder">
+            <div class="rung"><img src="logo/final-a-48.png" width="48" height="48" alt=""><span>48</span></div>
+            <div class="rung"><img src="logo/final-a-32.png" width="32" height="32" alt=""><span>32</span></div>
+            <div class="rung"><img src="logo/final-a-16.png" width="16" height="16" alt=""><span>16</span></div>
+          </div>
+          <div class="ladder light">
+            <div class="rung"><img src="logo/final-a-48.png" width="48" height="48" alt=""><span>48</span></div>
+            <div class="rung"><img src="logo/final-a-32.png" width="32" height="32" alt=""><span>32</span></div>
+            <div class="rung"><img src="logo/final-a-16.png" width="16" height="16" alt=""><span>16</span></div>
+          </div>
+          <div class="zoom">
+            <img src="logo/final-a-16.png" alt="Candidate A at 16px, magnified">
+            <p class="note">A <b>G</b> whose stroke is a git lane, terminating in a commit node.
+            One letterform, one idea, and the counter stays open at 16px.</p>
+          </div>
+          <div class="verdict">
+            Reads as a letter and as a graph at the same time. The most ownable of the three:
+            nothing else in the marketplace looks like it.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <hr class="sep">
+
+    <div class="card">
+      <div class="cand">
+        <div class="hero-shot">
+          <img src="logo/final-b-128.png" alt="Candidate B, a split diff with a commit lane">
+          <span class="cand-name">B · Split diff</span>
+        </div>
+        <div>
+          <div class="ladder">
+            <div class="rung"><img src="logo/final-b-48.png" width="48" height="48" alt=""><span>48</span></div>
+            <div class="rung"><img src="logo/final-b-32.png" width="32" height="32" alt=""><span>32</span></div>
+            <div class="rung"><img src="logo/final-b-16.png" width="16" height="16" alt=""><span>16</span></div>
+          </div>
+          <div class="ladder light">
+            <div class="rung"><img src="logo/final-b-48.png" width="48" height="48" alt=""><span>48</span></div>
+            <div class="rung"><img src="logo/final-b-32.png" width="32" height="32" alt=""><span>32</span></div>
+            <div class="rung"><img src="logo/final-b-16.png" width="16" height="16" alt=""><span>16</span></div>
+          </div>
+          <div class="zoom">
+            <img src="logo/final-b-16.png" alt="Candidate B at 16px, magnified">
+            <p class="note">Removed and added lines either side of a commit lane. The most
+            literal description of what the extension now does.</p>
+          </div>
+          <div class="verdict warn">
+            Says "diff" loudest, but it is the busiest: four bars plus two nodes. At 16px the
+            side bars are single pixels and the split background nearly disappears.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <hr class="sep">
+
+    <div class="card">
+      <div class="cand">
+        <div class="hero-shot">
+          <img src="logo/final-c-128.png" alt="Candidate C, two lanes merging">
+          <span class="cand-name">C · Merge</span>
+        </div>
+        <div>
+          <div class="ladder">
+            <div class="rung"><img src="logo/final-c-48.png" width="48" height="48" alt=""><span>48</span></div>
+            <div class="rung"><img src="logo/final-c-32.png" width="32" height="32" alt=""><span>32</span></div>
+            <div class="rung"><img src="logo/final-c-16.png" width="16" height="16" alt=""><span>16</span></div>
+          </div>
+          <div class="ladder light">
+            <div class="rung"><img src="logo/final-c-48.png" width="48" height="48" alt=""><span>48</span></div>
+            <div class="rung"><img src="logo/final-c-32.png" width="32" height="32" alt=""><span>32</span></div>
+            <div class="rung"><img src="logo/final-c-16.png" width="16" height="16" alt=""><span>16</span></div>
+          </div>
+          <div class="zoom">
+            <img src="logo/final-c-16.png" alt="Candidate C at 16px, magnified">
+            <p class="note">Two lanes and three commits, the exact motif the graph panel draws.
+            The most legible of the three at every size.</p>
+          </div>
+          <div class="verdict warn">
+            Instantly readable, but it is close to the generic branch glyph that GitHub, VS Code
+            and half the Git tooling ecosystem already use. Safe rather than distinctive.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="pick">
+    <div class="sec-head"><span class="sec-num">02</span><h2>Which one should I ship?</h2></div>
+    <p class="sub">
+      Whichever you pick, I will regenerate the full set (16 through 1024), replace
+      <code>images/icon.png</code> and the <code>images/assets/</code> ladder, repoint the README,
+      and keep the SVG source in the repo so it stays editable.
+    </p>
+
+    <form class="q" data-lavish-question="icon" onsubmit="event.preventDefault();
+      const form = event.currentTarget;
+      const choice = new FormData(form).get('icon');
+      const notes = form.querySelector('textarea').value.trim();
+      if (!choice) return;
+      window.lavish.queuePrompt(
+        'Ship icon candidate ' + choice + (notes ? '. Changes requested: ' + notes : '.'),
+        { tag: 'choice', text: 'Icon: ' + choice + (notes ? ' (with tweaks)' : ''),
+          element: form, data: { question: 'icon', answer: choice, notes } });">
+      <div class="opts">
+        <label class="opt">
+          <input type="radio" name="icon" value="A (Graph G)" checked>
+          <img src="logo/final-a-128.png" alt="">
+          <span><span class="ot">A · Graph G <span class="rec">Recommended</span></span>
+          <span class="od" style="display:block">Most distinctive, holds up smallest.</span></span>
+        </label>
+        <label class="opt">
+          <input type="radio" name="icon" value="B (Split diff)">
+          <img src="logo/final-b-128.png" alt="">
+          <span><span class="ot">B · Split diff</span>
+          <span class="od" style="display:block">Most descriptive, busiest at 16px.</span></span>
+        </label>
+        <label class="opt">
+          <input type="radio" name="icon" value="C (Merge)">
+          <img src="logo/final-c-128.png" alt="">
+          <span><span class="ot">C · Merge</span>
+          <span class="od" style="display:block">Most legible, least ownable.</span></span>
+        </label>
+        <label class="opt">
+          <input type="radio" name="icon" value="none of these">
+          <span style="width:40px;height:40px;border-radius:10px;flex:none;border:1px dashed var(--border);"></span>
+          <span><span class="ot">None of these</span>
+          <span class="od" style="display:block">Say what to try instead in the box below.</span></span>
+        </label>
+      </div>
+      <textarea placeholder="Anything to change first? Colour, weight, a different idea entirely..."></textarea>
+      <div class="qfoot">
+        <button class="qbtn" type="submit">Queue this answer</button>
+        <span class="hint">Sends one message back with your pick and any notes.</span>
+      </div>
+    </form>
+  </section>
+
+</div>
+</body>
+</html>

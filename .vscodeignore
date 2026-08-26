@@ -28,3 +28,4 @@ pnpm-workspace.yaml
 **/.vscode-test.*
 images/assets/**
 images/*.gif
+.lavish/**
