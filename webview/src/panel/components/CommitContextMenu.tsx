@@ -23,6 +23,9 @@ export function CommitContextMenu({
 }: CommitContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const currentBranch = useGitLogStore((state) => state.currentBranch);
+  const selectedCommitHashes = useGitLogStore(
+    (state) => state.selectedCommitHashes,
+  );
   const filter = useGitLogStore((state) => state.filter);
   const selectCommit = useGitLogStore((state) => state.selectCommit);
   const setFilter = useGitLogStore((state) => state.setFilter);
@@ -127,6 +130,7 @@ export function CommitContextMenu({
   const actions = buildCommitActions({
     repoId,
     commit,
+    selectedCommitHashes,
     currentBranch,
     fileFilter: filter.file,
     isRebasing,

@@ -16,6 +16,8 @@ type Request = (
 export interface CommitActionContext {
   repoId: string;
   commit: Commit;
+  /** Every commit currently selected in the log, newest-first. */
+  selectedCommitHashes: string[];
   currentBranch: string;
   fileFilter: string;
   isRebasing: boolean;
@@ -89,6 +91,39 @@ function IconCherryPick() {
   );
 }
 
+function IconCompare() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path
+        d="M2 5.5H13"
+        stroke="currentColor"
+        strokeLinecap="round"
+        fill="none"
+      />
+      <path
+        d="M10 2.5L13 5.5L10 8.5"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+      <path
+        d="M14 11H3"
+        stroke="currentColor"
+        strokeLinecap="round"
+        fill="none"
+      />
+      <path
+        d="M6 8L3 11L6 14"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </svg>
+  );
+}
+
 function IconRevert() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -141,10 +176,16 @@ export function buildCommitActions(
   context: CommitActionContext,
 ): CommitActionDefinition[] {
   const cancelled = Symbol("cancelled");
-  const { commit, repoId } = context;
+  const { commit, repoId, selectedCommitHashes } = context;
   const shortHash = commit.shortHash || commit.hash.slice(0, 8);
   const repoOptions = { repoId };
   const mutationRefresh = context.mutationRefresh;
+  // Actions that act on one commit are ambiguous while several are selected:
+  // the right-clicked row is not obviously the target. Keep them visible but
+  // disabled so the menu still reads the same, and offer Compare Versions in
+  // their place when the selection is a clean pair.
+  const multiSelected = selectedCommitHashes.length > 1;
+  const singleOnly = !multiSelected;
 
   const action = (
     definition: Omit<CommitActionDefinition, "execute">,
@@ -167,7 +208,7 @@ export function buildCommitActions(
     action(
       {
         id: "copy-revision",
-        label: "Copy Revision Number",
+        label: multiSelected ? "Copy Revision Numbers" : "Copy Revision Number",
         icon: <IconCopy />,
         visible: true,
         enabled: true,
@@ -176,7 +217,9 @@ export function buildCommitActions(
       () =>
         context.request(
           "copyToClipboard",
-          { text: commit.hash },
+          {
+            text: multiSelected ? selectedCommitHashes.join("\n") : commit.hash,
+          },
           { scope: "global" },
         ),
       "Copy",
@@ -187,7 +230,7 @@ export function buildCommitActions(
         label: "Cherry-Pick",
         icon: <IconCherryPick />,
         visible: true,
-        enabled: true,
+        enabled: singleOnly,
         refresh: mutationRefresh,
       },
       () =>
@@ -204,7 +247,7 @@ export function buildCommitActions(
         id: "checkout-revision",
         label: "Checkout Revision",
         visible: true,
-        enabled: true,
+        enabled: singleOnly,
         refresh: mutationRefresh,
       },
       () =>
@@ -215,6 +258,23 @@ export function buildCommitActions(
         ),
       "Checkout revision",
     ),
+    action(
+      {
+        id: "compare-versions",
+        label: "Compare Versions",
+        icon: <IconCompare />,
+        visible: multiSelected,
+        enabled: selectedCommitHashes.length === 2,
+        refresh: "none",
+      },
+      () =>
+        context.request(
+          "openCompareVersions",
+          { hashes: selectedCommitHashes },
+          repoOptions,
+        ),
+      "Compare versions",
+    ),
     separator("after-checkout"),
     action(
       {
@@ -222,7 +282,7 @@ export function buildCommitActions(
         label: "Reset Current Branch to Here (Mixed)...",
         icon: <IconRevert />,
         visible: true,
-        enabled: true,
+        enabled: singleOnly,
         refresh: mutationRefresh,
       },
       () =>
@@ -239,7 +299,7 @@ export function buildCommitActions(
         label: "Reset Current Branch to Here (Soft)...",
         icon: <IconRevert />,
         visible: true,
-        enabled: true,
+        enabled: singleOnly,
         refresh: mutationRefresh,
       },
       () =>
@@ -256,7 +316,7 @@ export function buildCommitActions(
         label: "Reset Current Branch to Here (Hard)...",
         icon: <IconRevert />,
         visible: true,
-        enabled: true,
+        enabled: singleOnly,
         refresh: mutationRefresh,
       },
       async () => {
@@ -279,7 +339,7 @@ export function buildCommitActions(
         label: "Revert Commit",
         icon: <IconRevert />,
         visible: true,
-        enabled: true,
+        enabled: singleOnly,
         refresh: mutationRefresh,
       },
       () =>
@@ -297,6 +357,7 @@ export function buildCommitActions(
         icon: <IconRevert />,
         visible: true,
         enabled:
+          singleOnly &&
           Boolean(context.currentBranch) &&
           !context.isRebasing &&
           !context.isMerging &&
@@ -324,7 +385,7 @@ export function buildCommitActions(
         label: "New Branch...",
         icon: <IconBranch />,
         visible: true,
-        enabled: true,
+        enabled: singleOnly,
         refresh: "none",
       },
       () => context.createBranch(commit.hash, ""),
@@ -336,7 +397,7 @@ export function buildCommitActions(
         label: "New Tag...",
         icon: <IconTag />,
         visible: true,
-        enabled: true,
+        enabled: singleOnly,
         refresh: mutationRefresh,
       },
       async () => {

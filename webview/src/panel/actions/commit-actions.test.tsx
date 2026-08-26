@@ -15,6 +15,7 @@ function contextFor(
   return {
     repoId: "repo-a",
     commit,
+    selectedCommitHashes: [commit.hash],
     currentBranch: "main",
     fileFilter: "",
     isRebasing: false,
@@ -41,6 +42,7 @@ describe("buildCommitActions", () => {
       "copy-revision",
       "cherry-pick",
       "checkout-revision",
+      "compare-versions",
       "reset-mixed",
       "reset-soft",
       "reset-hard",
@@ -135,5 +137,71 @@ describe("buildCommitActions", () => {
     )) {
       await expect(action.execute()).resolves.toBe(action.refresh);
     }
+  });
+
+  it("offers Compare Versions only for a two-commit selection", async () => {
+    const request = vi.fn().mockResolvedValue(undefined);
+    const hashes = ["aaaaaaaa", "bbbbbbbb"];
+
+    const single = buildCommitActions(contextFor()).find(
+      (action) => action.id === "compare-versions",
+    );
+    expect(single?.visible).toBe(false);
+
+    const pair = buildCommitActions(
+      contextFor({ selectedCommitHashes: hashes, request }),
+    ).find((action) => action.id === "compare-versions");
+    expect(pair?.visible).toBe(true);
+    expect(pair?.enabled).toBe(true);
+
+    await pair?.execute();
+    expect(request).toHaveBeenCalledWith(
+      "openCompareVersions",
+      { hashes },
+      { repoId: "repo-a" },
+    );
+
+    const triple = buildCommitActions(
+      contextFor({ selectedCommitHashes: [...hashes, "cccccccc"] }),
+    ).find((action) => action.id === "compare-versions");
+    expect(triple?.visible).toBe(true);
+    expect(triple?.enabled).toBe(false);
+  });
+
+  it("disables single-commit actions while several commits are selected", () => {
+    const actions = buildCommitActions(
+      contextFor({ selectedCommitHashes: ["aaaaaaaa", "bbbbbbbb"] }),
+    );
+
+    for (const id of [
+      "cherry-pick",
+      "checkout-revision",
+      "reset-mixed",
+      "reset-soft",
+      "reset-hard",
+      "revert",
+      "drop",
+      "new-branch",
+      "new-tag",
+    ]) {
+      expect(actions.find((action) => action.id === id)?.enabled).toBe(false);
+    }
+  });
+
+  it("copies every selected revision when several are selected", async () => {
+    const request = vi.fn().mockResolvedValue(undefined);
+    const hashes = ["aaaaaaaa", "bbbbbbbb"];
+    const actions = buildCommitActions(
+      contextFor({ selectedCommitHashes: hashes, request }),
+    );
+    const copy = actions.find((action) => action.id === "copy-revision");
+
+    expect(copy?.label).toBe("Copy Revision Numbers");
+    await copy?.execute();
+    expect(request).toHaveBeenCalledWith(
+      "copyToClipboard",
+      { text: hashes.join("\n") },
+      { scope: "global" },
+    );
   });
 });
