@@ -14,7 +14,7 @@ export function createSelectionSlice({
     selectedFiles: new Set<string>(),
     highlightedFiles: new Set<string>(),
     activeTab: "commit",
-    expandedGroups: new Set(["changes", "unversioned", "staged"]),
+    expandedGroups: new Set(["changes", "unversioned", "conflicts"]),
     groupByDirectory: true,
     showUnversioned: true,
     collapsedDirs: new Set<string>(),

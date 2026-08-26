@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { bridge } from "../../shared/bridge";
+import { workingTreeKey } from "../../shared/store/commit/types";
 import {
   useCommitStore,
   type WorkingTreeFile,
@@ -39,36 +40,38 @@ export function CommitTab() {
     dirName: string;
   } | null>(null);
 
-  // Group files: staged (Changes) vs unstaged/untracked (Unversioned Files)
-  const { stagedFiles, changedFiles, untrackedFiles, conflictedFiles } =
-    useMemo(() => {
-      const staged: WorkingTreeFile[] = [];
-      const changed: WorkingTreeFile[] = [];
-      const untracked: WorkingTreeFile[] = [];
-      const conflicted: WorkingTreeFile[] = [];
+  // Group files: everything that differs from HEAD, versus unversioned.
+  // Staging is not a group here. Git reports a file with both indexed and
+  // working-tree changes twice; those collapse onto one row, keeping the
+  // indexed record because the duplicate is always flattened to "modified"
+  // and would otherwise hide an add, rename or delete.
+  const { changedFiles, untrackedFiles, conflictedFiles } = useMemo(() => {
+    const changed = new Map<string, WorkingTreeFile>();
+    const untracked: WorkingTreeFile[] = [];
+    const conflicted: WorkingTreeFile[] = [];
 
-      for (const file of changes) {
-        if (file.status === "conflicted") {
-          conflicted.push(file);
-        } else if (file.staged) {
-          staged.push(file);
-        } else if (file.status === "untracked") {
-          untracked.push(file);
-        } else {
-          changed.push(file);
+    for (const file of changes) {
+      if (file.status === "conflicted") {
+        conflicted.push(file);
+      } else if (file.status === "untracked") {
+        untracked.push(file);
+      } else {
+        const existing = changed.get(file.path);
+        if (!existing || (file.staged && !existing.staged)) {
+          changed.set(file.path, file);
         }
       }
-      return {
-        stagedFiles: staged,
-        changedFiles: changed,
-        untrackedFiles: untracked,
-        conflictedFiles: conflicted,
-      };
-    }, [changes]);
+    }
+    return {
+      changedFiles: [...changed.values()],
+      untrackedFiles: untracked,
+      conflictedFiles: conflicted,
+    };
+  }, [changes]);
 
   const handleShelveSelected = useCallback(async () => {
     const selectedPaths = changes
-      .filter((f) => selectedFiles.has(`${f.path}:${f.staged}`))
+      .filter((f) => selectedFiles.has(workingTreeKey(f)))
       .map((f) => f.path);
     if (selectedPaths.length === 0) return;
     await ideaShelveChanges("Shelved changes", [...new Set(selectedPaths)]);
@@ -114,7 +117,7 @@ export function CommitTab() {
         onRollback={() => {
           // Use highlighted files (click/focus selection), not checkbox selection
           const highlightedPaths = changes
-            .filter((f) => highlightedFiles.has(`${f.path}:${f.staged}`))
+            .filter((f) => highlightedFiles.has(workingTreeKey(f)))
             .map((f) => ({ path: f.path, status: f.status, staged: f.staged }));
 
           if (highlightedPaths.length > 0) {
@@ -176,26 +179,6 @@ export function CommitTab() {
             expanded={expandedGroups.has("changes")}
             groupByDirectory={groupByDirectory}
             onToggle={() => toggleGroup("changes")}
-            selectedFiles={selectedFiles}
-            highlightedFiles={highlightedFiles}
-            onToggleFile={toggleFileSelection}
-            onSetFileKeys={setFileKeys}
-            onHighlightFile={highlightFile}
-            onShowDiff={showDiff}
-            onContextMenu={handleContextMenu}
-            onDirContextMenu={handleDirContextMenu}
-          />
-        )}
-
-        {/* Staged files */}
-        {stagedFiles.length > 0 && (
-          <FileGroup
-            label="Staged"
-            files={stagedFiles}
-            count={stagedFiles.length}
-            expanded={expandedGroups.has("staged")}
-            groupByDirectory={groupByDirectory}
-            onToggle={() => toggleGroup("staged")}
             selectedFiles={selectedFiles}
             highlightedFiles={highlightedFiles}
             onToggleFile={toggleFileSelection}
@@ -294,10 +277,7 @@ function FileGroup({
   onDirContextMenu,
   action,
 }: FileGroupProps) {
-  const allKeys = useMemo(
-    () => files.map((f) => `${f.path}:${f.staged}`),
-    [files],
-  );
+  const allKeys = useMemo(() => files.map((f) => workingTreeKey(f)), [files]);
   const allSelected = allKeys.every((k) => selectedFiles.has(k));
   const someSelected = allKeys.some((k) => selectedFiles.has(k));
 
@@ -314,7 +294,7 @@ function FileGroup({
   const visibleKeys = useMemo(() => {
     if (!expanded) return [];
     if (!groupByDirectory) {
-      return files.map((f) => `${f.path}:${f.staged}`);
+      return files.map((f) => workingTreeKey(f));
     }
     // In directory mode, walk the tree respecting collapsed state
     const tree = buildDirTree(files);
@@ -328,7 +308,7 @@ function FileGroup({
         }
       }
       for (const file of node.files) {
-        keys.push(`${file.path}:${file.staged}`);
+        keys.push(workingTreeKey(file));
       }
     }
     walk(tree);
@@ -409,7 +389,7 @@ function FileGroup({
             />
           ) : (
             files.map((file) => {
-              const key = `${file.path}:${file.staged}`;
+              const key = workingTreeKey(file);
               return (
                 <FileItem
                   key={key}
@@ -488,7 +468,7 @@ function compactDirNode(node: DirNode) {
 function collectFileKeys(node: DirNode): string[] {
   const keys: string[] = [];
   for (const file of node.files) {
-    keys.push(`${file.path}:${file.staged}`);
+    keys.push(workingTreeKey(file));
   }
   for (const child of node.children) {
     keys.push(...collectFileKeys(child));
@@ -649,7 +629,7 @@ function DirNodeView({
         })}
       {/* Render files in this directory */}
       {node.files.map((file) => {
-        const key = `${file.path}:${file.staged}`;
+        const key = workingTreeKey(file);
         return (
           <div key={key} style={{ paddingLeft: `${(depth + 1) * 16}px` }}>
             <FileItem

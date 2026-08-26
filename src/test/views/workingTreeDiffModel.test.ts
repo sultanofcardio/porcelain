@@ -22,6 +22,64 @@ describe("working tree diff model", () => {
     });
   });
 
+  it("maps an unspecified side to the whole change against the last commit", () => {
+    assert.deepStrictEqual(getWorkingTreeDiffKind(undefined), {
+      left: "head",
+      right: "workingTree",
+    });
+  });
+
+  it("diffs the file on disk against the commit, skipping the index", () => {
+    // What the Commit panel shows. A file with both indexed and working-tree
+    // changes must not be split across two partial diffs, because ticking its
+    // row commits the whole thing.
+    assert.deepStrictEqual(
+      getWorkingTreeDiffResources(
+        { path: "partial.txt", status: "modified", staged: true },
+        { left: "head", right: "workingTree" },
+      ),
+      {
+        left: { source: "git", ref: "HEAD", path: "partial.txt" },
+        right: { source: "workingTree", path: "partial.txt" },
+      },
+    );
+  });
+
+  it("keeps the empty endpoints when diffing a whole add or delete", () => {
+    assert.deepStrictEqual(
+      getWorkingTreeDiffResources(
+        { path: "added.txt", status: "added", staged: true },
+        { left: "head", right: "workingTree" },
+      ).left,
+      { source: "empty", path: "added.txt" },
+    );
+    assert.deepStrictEqual(
+      getWorkingTreeDiffResources(
+        { path: "gone.txt", status: "deleted", staged: true },
+        { left: "head", right: "workingTree" },
+      ).right,
+      { source: "empty", path: "gone.txt" },
+    );
+  });
+
+  it("uses the old path on the commit side of a whole rename", () => {
+    assert.deepStrictEqual(
+      getWorkingTreeDiffResources(
+        {
+          path: "new.txt",
+          oldPath: "old.txt",
+          status: "renamed",
+          staged: true,
+        },
+        { left: "head", right: "workingTree" },
+      ),
+      {
+        left: { source: "git", ref: "HEAD", path: "old.txt" },
+        right: { source: "workingTree", path: "new.txt" },
+      },
+    );
+  });
+
   it("uses an empty left side for additions and an empty right side for deletions", () => {
     assert.deepStrictEqual(
       getWorkingTreeDiffResources({

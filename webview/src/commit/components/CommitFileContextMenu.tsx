@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { workingTreeKey } from "../../shared/store/commit/types";
 import type { WorkingTreeFile } from "../../shared/store/commit-store";
 import { useCommitStore } from "../../shared/store/commit-store";
 
@@ -16,15 +17,8 @@ export function CommitFileContextMenu({
   onClose,
 }: CommitFileContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
-  const {
-    stageFile,
-    unstageFile,
-    rollbackFile,
-    showDiff,
-    shelveChanges,
-    highlightedFiles,
-    changes,
-  } = useCommitStore();
+  const { rollbackFile, showDiff, shelveChanges, highlightedFiles, changes } =
+    useCommitStore();
 
   // Close on outside click, Escape, blur, or scroll
   useEffect(() => {
@@ -94,19 +88,9 @@ export function CommitFileContextMenu({
   };
 
   const handleShowDiff = useCallback(() => {
-    showDiff(file.path, file.staged);
+    showDiff(file.path);
     onClose();
   }, [file, showDiff, onClose]);
-
-  const handleStage = useCallback(() => {
-    stageFile(file.path);
-    onClose();
-  }, [file, stageFile, onClose]);
-
-  const handleUnstage = useCallback(() => {
-    unstageFile(file.path);
-    onClose();
-  }, [file, unstageFile, onClose]);
 
   const handleRollback = useCallback(() => {
     rollbackFile(file.path);
@@ -115,11 +99,11 @@ export function CommitFileContextMenu({
 
   const handleShelve = useCallback(() => {
     // If multiple files are highlighted, shelve all of them; otherwise just this file
-    const fileKey = `${file.path}:${file.staged}`;
+    const fileKey = workingTreeKey(file);
     if (highlightedFiles.size > 1 && highlightedFiles.has(fileKey)) {
       // Shelve all highlighted files
       const paths = changes
-        .filter((f) => highlightedFiles.has(`${f.path}:${f.staged}`))
+        .filter((f) => highlightedFiles.has(workingTreeKey(f)))
         .map((f) => f.path);
       shelveChanges("Shelved changes", [...new Set(paths)]);
     } else {
@@ -130,10 +114,10 @@ export function CommitFileContextMenu({
   }, [file, shelveChanges, highlightedFiles, changes, onClose]);
 
   const handleDelete = useCallback(() => {
-    const fileKey = `${file.path}:${file.staged}`;
+    const fileKey = workingTreeKey(file);
     if (highlightedFiles.size > 1 && highlightedFiles.has(fileKey)) {
       const paths = changes
-        .filter((f) => highlightedFiles.has(`${f.path}:${f.staged}`))
+        .filter((f) => highlightedFiles.has(workingTreeKey(f)))
         .map((f) => f.path);
       import("../../shared/bridge").then(({ bridge }) => {
         bridge.request("deleteFiles", { filePaths: [...new Set(paths)] });
@@ -194,28 +178,6 @@ export function CommitFileContextMenu({
       </button>
 
       <div className="commit-context-menu-separator" />
-
-      {/* Stage / Unstage */}
-      {file.staged ? (
-        <button
-          type="button"
-          className="commit-context-menu-item"
-          onClick={handleUnstage}
-        >
-          <RemoveIcon />
-          <span>Unstage</span>
-        </button>
-      ) : (
-        <button
-          type="button"
-          className="commit-context-menu-item"
-          onClick={handleStage}
-        >
-          <AddIcon />
-          <span>Add to VCS</span>
-          <span className="commit-context-menu-shortcut">⌥⌘A</span>
-        </button>
-      )}
 
       {/* Rollback */}
       <button
@@ -297,44 +259,6 @@ function JumpIcon() {
         stroke="currentColor"
         strokeLinecap="round"
         strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function AddIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      className="commit-context-menu-icon"
-    >
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M7.5 1C7.77614 1 8 1.22386 8 1.5V7H13.5C13.7761 7 14 7.22386 14 7.5C14 7.77614 13.7761 8 13.5 8H8V13.5C8 13.7761 7.77614 14 7.5 14C7.22386 14 7 13.7761 7 13.5V8H1.5C1.22386 8 1 7.77614 1 7.5C1 7.22386 1.22386 7 1.5 7H7V1.5C7 1.22386 7.22386 1 7.5 1Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
-
-function RemoveIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      className="commit-context-menu-icon"
-    >
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M1 7.5C1 7.77614 1.22386 8 1.5 8L13.5 8C13.7761 8 14 7.77614 14 7.5C14 7.22386 13.7761 7 13.5 7L1.5 7C1.22386 7 1 7.22386 1 7.5Z"
-        fill="currentColor"
       />
     </svg>
   );

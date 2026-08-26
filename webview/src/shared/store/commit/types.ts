@@ -94,7 +94,7 @@ export interface CommitOperationSlice {
   commit: () => Promise<boolean>;
   commitAndPush: () => Promise<boolean>;
   rollbackFile: (filePath: string) => Promise<void>;
-  showDiff: (filePath: string, staged?: boolean) => Promise<void>;
+  showDiff: (filePath: string) => Promise<void>;
   shelveChanges: (message?: string, filePaths?: string[]) => Promise<void>;
   unshelveChanges: (stashId: string, drop?: boolean) => Promise<void>;
   deleteShelve: (stashId: string) => Promise<void>;
@@ -130,6 +130,14 @@ export interface CommitSliceContext {
 
 export type BranchList = BranchInfo[];
 
+/**
+ * Identity of a row in the Commit panel.
+ *
+ * A path, deliberately: staging is not part of this panel's model. Git reports
+ * a file that has both indexed and working-tree changes as two records, and
+ * both collapse onto the same row here, so ticking it selects the whole change
+ * and the commit takes the file as it is on disk.
+ */
 export function workingTreeKey(file: WorkingTreeFile): string {
-  return `${file.path}:${file.staged}`;
+  return file.path;
 }

@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { bridge } from "../../shared/bridge";
 import { Tooltip } from "../../shared/components/Tooltip";
 import "../../shared/components/Tooltip.css";
+import { workingTreeKey } from "../../shared/store/commit/types";
 import { useCommitStore } from "../../shared/store/commit-store";
 
 interface ToolbarProps {
@@ -28,14 +29,14 @@ export function Toolbar({
     expandAllDirs,
   } = useCommitStore();
   const highlightedRows = changes.filter((file) =>
-    highlightedFiles.has(`${file.path}:${file.staged}`),
+    highlightedFiles.has(workingTreeKey(file)),
   );
   const diffFile =
     highlightedRows.length === 1 ? highlightedRows[0] : undefined;
 
   const handleExpandAll = useCallback(() => {
     // Expand file groups
-    const groups = ["changes", "staged", "unversioned"];
+    const groups = ["changes", "unversioned"];
     for (const g of groups) {
       if (!expandedGroups.has(g)) {
         toggleGroup(g);
@@ -47,7 +48,7 @@ export function Toolbar({
 
   const handleCollapseAll = useCallback(() => {
     // Collapse file groups
-    const groups = ["changes", "staged", "unversioned"];
+    const groups = ["changes", "unversioned"];
     for (const g of groups) {
       if (expandedGroups.has(g)) {
         toggleGroup(g);
@@ -93,7 +94,7 @@ export function Toolbar({
           aria-label="Show Diff"
           disabled={!diffFile}
           onClick={() => {
-            if (diffFile) showDiff(diffFile.path, diffFile.staged);
+            if (diffFile) showDiff(diffFile.path);
           }}
         >
           <DiffIcon />

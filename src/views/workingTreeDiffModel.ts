@@ -5,7 +5,8 @@ export const EMPTY_CONTENT_REF = "empty";
 
 export type WorkingTreeDiffKind =
   | { left: "head"; right: "index" }
-  | { left: "index"; right: "workingTree" };
+  | { left: "index"; right: "workingTree" }
+  | { left: "head"; right: "workingTree" };
 
 export type WorkingTreeDiffResource =
   | { source: "git"; ref: string; path: string }
@@ -28,7 +29,10 @@ type WorkingTreeDiffInput = Pick<
   "path" | "oldPath" | "status" | "staged"
 >;
 
-export function getWorkingTreeDiffKind(staged: boolean): WorkingTreeDiffKind {
+export function getWorkingTreeDiffKind(
+  staged: boolean | undefined,
+): WorkingTreeDiffKind {
+  if (staged === undefined) return { left: "head", right: "workingTree" };
   return staged
     ? { left: "head", right: "index" }
     : { left: "index", right: "workingTree" };
@@ -36,11 +40,30 @@ export function getWorkingTreeDiffKind(staged: boolean): WorkingTreeDiffKind {
 
 export function getWorkingTreeDiffResources(
   file: WorkingTreeDiffInput,
+  /**
+   * Which side of the index to diff against. Omit for the whole change against
+   * HEAD, which is what the Commit panel shows: staging is not part of its
+   * model, so a row means "everything that differs from the last commit".
+   */
+  kind: WorkingTreeDiffKind = getWorkingTreeDiffKind(file.staged),
 ): WorkingTreeDiffResources {
   const originalPath =
     file.status === "renamed" ? (file.oldPath ?? file.path) : file.path;
 
-  if (file.staged) {
+  if (kind.left === "head" && kind.right === "workingTree") {
+    return {
+      left:
+        file.status === "added" || file.status === "untracked"
+          ? { source: "empty", path: originalPath }
+          : { source: "git", ref: "HEAD", path: originalPath },
+      right:
+        file.status === "deleted"
+          ? { source: "empty", path: file.path }
+          : { source: "workingTree", path: file.path },
+    };
+  }
+
+  if (kind.left === "head") {
     return {
       left:
         file.status === "added" || file.status === "untracked"

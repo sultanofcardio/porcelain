@@ -75,7 +75,7 @@ export async function applyRepoSwitch(
     commitMessage: snapshot?.commitMessage ?? "",
     amend: snapshot?.amend ?? false,
     expandedGroups: new Set(
-      snapshot?.expandedGroups ?? ["changes", "unversioned", "staged"],
+      snapshot?.expandedGroups ?? ["changes", "unversioned", "conflicts"],
     ),
     collapsedDirs: new Set(snapshot?.collapsedDirs ?? []),
     changes: [],

@@ -45,6 +45,7 @@ import type { RollbackFileInfo } from "./views/rollbackPanel";
 import { RollbackPanel } from "./views/rollbackPanel";
 import {
   EMPTY_CONTENT_REF,
+  getWorkingTreeDiffKind,
   getWorkingTreeDiffResources,
   type WorkingTreeDiffResource,
 } from "./views/workingTreeDiffModel";
@@ -1461,15 +1462,25 @@ export async function activate(context: vscode.ExtensionContext) {
     if (!ctx) return NOT_GIT_REPO;
     const workspaceRoot = ctx.repo.rootPath;
     const filePath = params.filePath as string;
-    const staged = Boolean(params.staged);
+    // `staged` omitted means the whole change against HEAD. The Commit panel
+    // sends no side because staging is not part of its model.
+    const staged =
+      params.staged === undefined ? undefined : Boolean(params.staged);
     const changes = await ctx.gitService.getWorkingTreeChanges();
-    const file = changes.find(
-      (candidate) => candidate.path === filePath && candidate.staged === staged,
-    );
+    const matching = changes.filter((candidate) => candidate.path === filePath);
+    const file =
+      staged === undefined
+        ? // Prefer the indexed row: the working-tree duplicate of a staged
+          // change is always reported as "modified", losing add/rename/delete.
+          (matching.find((candidate) => candidate.staged) ?? matching[0])
+        : matching.find((candidate) => candidate.staged === staged);
     if (!file) {
       throw new Error(`Working tree change no longer exists: ${filePath}`);
     }
-    const resources = getWorkingTreeDiffResources(file);
+    const resources = getWorkingTreeDiffResources(
+      file,
+      getWorkingTreeDiffKind(staged),
+    );
     const toUri = (resource: WorkingTreeDiffResource): vscode.Uri => {
       if (resource.source === "workingTree") {
         return vscode.Uri.joinPath(

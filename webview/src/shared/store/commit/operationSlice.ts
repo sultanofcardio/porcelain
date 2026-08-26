@@ -137,11 +137,11 @@ export function createOperationSlice({
       await mutateAndRefresh("rollbackFile", "rollbackFile", { filePath });
     },
 
-    async showDiff(filePath, staged) {
+    async showDiff(filePath) {
       clearOperationError();
       try {
         await runOperation("showDiff", () =>
-          request("showDiffForWorkingFile", { filePath, staged }),
+          request("showDiffForWorkingFile", { filePath }),
         );
       } catch (error) {
         reportOperationError("showDiff", error);

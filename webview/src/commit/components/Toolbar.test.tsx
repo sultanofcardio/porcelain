@@ -40,7 +40,7 @@ describe("Commit toolbar actions", () => {
 
   it("enables Diff for exactly one highlighted row and opens that row", () => {
     useCommitStore.setState({
-      highlightedFiles: new Set(["two.txt:true"]),
+      highlightedFiles: new Set(["two.txt"]),
     });
     const view = renderToolbar();
     const button = view.getByRole("button", { name: "Show Diff" });
@@ -48,10 +48,9 @@ describe("Commit toolbar actions", () => {
     expect((button as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(button);
 
-    expect(useCommitStore.getState().showDiff).toHaveBeenCalledWith(
-      "two.txt",
-      true,
-    );
+    // No side is named: the Commit panel always diffs the whole change
+    // against HEAD, because staging is not part of its model.
+    expect(useCommitStore.getState().showDiff).toHaveBeenCalledWith("two.txt");
   });
 
   it("disables Diff for zero or multiple highlighted rows", () => {
@@ -63,7 +62,7 @@ describe("Commit toolbar actions", () => {
     empty.unmount();
 
     useCommitStore.setState({
-      highlightedFiles: new Set(["one.txt:false", "two.txt:true"]),
+      highlightedFiles: new Set(["one.txt", "two.txt"]),
     });
     const multiple = renderToolbar();
     expect(

@@ -68,7 +68,7 @@ describe("commit-store per-repo isolation", () => {
   it("saves and restores a draft across a repo switch", async () => {
     useCommitStore.setState({
       commitMessage: "draft for A",
-      selectedFiles: new Set(["a.ts:false"]),
+      selectedFiles: new Set(["a.ts"]),
       operationError: {
         code: "COMMIT_REJECTED",
         message: "old repo error",
@@ -97,8 +97,8 @@ describe("commit-store per-repo isolation", () => {
     useCommitStore.setState({
       commitMessage: "draft for A",
       changes: [{ path: "a.ts", status: "modified", staged: false }],
-      selectedFiles: new Set(["a.ts:false"]),
-      highlightedFiles: new Set(["a.ts:false"]),
+      selectedFiles: new Set(["a.ts"]),
+      highlightedFiles: new Set(["a.ts"]),
     });
     const oldChanges =
       deferred<
@@ -140,7 +140,7 @@ describe("commit-store per-repo isolation", () => {
     useCommitStore.setState({
       commitMessage: "draft for A",
       changes: [{ path: "a.ts", status: "modified", staged: false }],
-      selectedFiles: new Set(["a.ts:false"]),
+      selectedFiles: new Set(["a.ts"]),
     });
 
     const commit = useCommitStore.getState().commit();
@@ -377,7 +377,7 @@ describe("commit-store selected commit payload", () => {
     vi.mocked(bridge.request).mockReset();
   });
 
-  it("sends every checked staged and unstaged row as a full identity", async () => {
+  it("sends both rows of a path when its single row is checked", async () => {
     vi.mocked(bridge.request).mockResolvedValue({ success: true });
     useCommitStore.setState({
       commitMessage: "selected changes",
@@ -405,11 +405,10 @@ describe("commit-store selected commit payload", () => {
           staged: false,
         },
       ],
-      selectedFiles: new Set([
-        "partial.txt:true",
-        "partial.txt:false",
-        "new-name.txt:true",
-      ]),
+      // One tick per path. partial.txt has an indexed and a working-tree
+      // record, and both must reach the host so the commit takes the file as
+      // it is on disk rather than only half of its change.
+      selectedFiles: new Set(["partial.txt", "new-name.txt"]),
     });
 
     await expect(useCommitStore.getState().commit()).resolves.toBe(true);
@@ -459,7 +458,7 @@ describe("commit-store selected commit payload", () => {
           staged: false,
         },
       ],
-      selectedFiles: new Set(["selected.txt:false"]),
+      selectedFiles: new Set(["selected.txt"]),
     });
 
     await expect(useCommitStore.getState().commit()).resolves.toBe(false);
@@ -485,7 +484,7 @@ describe("commit-store selected commit payload", () => {
           staged: true,
         },
       ],
-      selectedFiles: new Set(["selected.txt:true"]),
+      selectedFiles: new Set(["selected.txt"]),
     });
 
     await expect(useCommitStore.getState().commitAndPush()).resolves.toBe(true);
