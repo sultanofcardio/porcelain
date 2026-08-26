@@ -29,7 +29,7 @@ afterEach(() => {
 });
 
 describe("CommitRow reachability styling", () => {
-  it("marks reachable commits while retaining selected-row priority", () => {
+  const rowFor = (reachableFromCurrent?: boolean) => {
     const commit = {
       hash: "abc123",
       shortHash: "abc123",
@@ -37,14 +37,12 @@ describe("CommitRow reachability styling", () => {
       authorName: "Ada",
       authorEmail: "ada@example.com",
       authorDate: "2026-07-18T00:00:00.000Z",
-      subject: "Reachable commit",
+      subject: "Reachability commit",
       body: "",
       refs: [],
-      reachableFromCurrent: true,
+      ...(reachableFromCurrent === undefined ? {} : { reachableFromCurrent }),
     };
-    panelStore.setState({ selectedCommitHashes: [commit.hash] });
-
-    const { getByText } = render(
+    const { getByText, unmount } = render(
       <CommitRow
         commit={commit}
         lane={{ column: 0, color: 0, lines: [] }}
@@ -55,10 +53,33 @@ describe("CommitRow reachability styling", () => {
       />,
       { wrapper: StoreWrapper },
     );
-    const row = getByText("Reachable commit").closest(".selectable-row");
+    const row = getByText("Reachability commit").closest(".selectable-row");
+    return { row, unmount };
+  };
 
-    expect(row?.classList.contains("current-reachable")).toBe(true);
+  it("dims only the commits known to be outside the current branch", () => {
+    const outside = rowFor(false);
+    expect(outside.row?.classList.contains("not-reachable")).toBe(true);
+    outside.unmount();
+
+    const inside = rowFor(true);
+    expect(inside.row?.classList.contains("not-reachable")).toBe(false);
+    inside.unmount();
+
+    // Comparison surfaces do not compute reachability at all; an unknown value
+    // must render normally rather than dimming the entire log.
+    const unknown = rowFor(undefined);
+    expect(unknown.row?.classList.contains("not-reachable")).toBe(false);
+    unknown.unmount();
+  });
+
+  it("keeps the selected class alongside dimming", () => {
+    panelStore.setState({ selectedCommitHashes: ["abc123"] });
+    const { row, unmount } = rowFor(false);
+
+    expect(row?.classList.contains("not-reachable")).toBe(true);
     expect(row?.classList.contains("selected")).toBe(true);
+    unmount();
   });
 
   it("reserves the same resize gutter before every visible metadata column", () => {

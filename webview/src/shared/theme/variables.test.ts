@@ -7,24 +7,54 @@ const stylesheet = readFileSync(
   "utf8",
 );
 
+function ruleBody(selector: RegExp): string | undefined {
+  return stylesheet.match(selector)?.[1];
+}
+
 describe("commit reachability theme", () => {
-  it("gives an ordinary unselected commit a visible hover fill", () => {
-    const declaration = stylesheet.match(
-      /--commit-row-hover-bg:\s*[^;]+;/,
-    )?.[0];
-    const hoverRule = stylesheet.match(
-      /\.commit-row:hover:not\(\.current-reachable\):not\(\.selected\)[\s\S]*?\{([\s\S]*?)\}/,
-    )?.[1];
+  it("dims commits outside the current branch instead of tinting the rest", () => {
+    const dimRule = ruleBody(/\.commit-row\.not-reachable\s*\{([\s\S]*?)\}/);
 
-    expect(declaration ?? "").toContain("color-mix(");
-    expect(declaration ?? "").toContain("14%");
-    expect(hoverRule).toContain("background: var(--commit-row-hover-bg)");
+    expect(dimRule).toContain("opacity: var(--unreachable-opacity");
+    expect(stylesheet).toMatch(/--unreachable-opacity:\s*0?\.\d+;/);
+    // Backgrounds would be overridden in forced-colors mode; opacity survives.
+    expect(dimRule).not.toContain("background");
   });
 
-  it("outlines a selected commit outside the reachable range", () => {
-    const selectedRule = stylesheet.match(
+  it("never dims the row the user selected", () => {
+    const selectedDim = ruleBody(
+      /\.commit-row\.not-reachable\.selected\s*\{([\s\S]*?)\}/,
+    );
+
+    expect(selectedDim).toContain("opacity: 1");
+    expect(
+      stylesheet.indexOf(".commit-row.not-reachable.selected"),
+    ).toBeGreaterThan(stylesheet.indexOf(".commit-row.not-reachable {"));
+  });
+
+  it("takes hover and selection from the editor theme rather than a fixed hue", () => {
+    const hoverRule = ruleBody(
+      /\.commit-row:hover:not\(\.selected\)\s*\{([\s\S]*?)\}/,
+    );
+    const selectedRule = ruleBody(
+      /\.selectable-row\.selected\s*\{([\s\S]*?)\}/,
+    );
+
+    expect(hoverRule).toContain("background: var(--hover-bg)");
+    expect(selectedRule).toContain("background: var(--selected-bg)");
+  });
+
+  it("keeps no blue wash over reachable commits", () => {
+    expect(stylesheet).not.toContain("--current-reachable-bg");
+    expect(stylesheet).not.toContain("--commit-row-hover-bg");
+    // The washes were the only place a focus-border hue was mixed into a fill.
+    expect(stylesheet).not.toMatch(/color-mix\([\s\S]*?--vscode-focusBorder/);
+  });
+
+  it("outlines a selected commit", () => {
+    const selectedRule = ruleBody(
       /\.commit-row\.selected[\s\S]*?\{([\s\S]*?)\}/,
-    )?.[1];
+    );
 
     expect(selectedRule).toMatch(
       /outline:\s*1px solid\s+var\(--vscode-list-focusOutline,\s*var\(--vscode-focusBorder,\s*#007fd4\)\)/,
@@ -32,59 +62,17 @@ describe("commit reachability theme", () => {
     expect(selectedRule).toContain("outline-offset: -1px");
   });
 
-  it("defines progressively stronger reachable, hover, and selected fills", () => {
-    const declarations = [
-      ["--current-reachable-bg", 28],
-      ["--current-reachable-hover-bg", 40],
-      ["--current-reachable-selected-bg", 58],
-    ] as const;
+  it("preserves a stronger selected outline in high contrast mode", () => {
+    const highContrast = ruleBody(
+      /body\.vscode-high-contrast \.commit-row\.selected\s*\{([\s\S]*?)\}/,
+    );
+    const forcedColors = ruleBody(
+      /@media \(forced-colors: active\)\s*\{\s*\.commit-row\.selected\s*\{([\s\S]*?)\}/,
+    );
 
-    for (const [name, strength] of declarations) {
-      const declaration = stylesheet.match(
-        new RegExp(`${name}:\\s*[^;]+;`),
-      )?.[0];
-      expect(declaration).toBeDefined();
-      expect(declaration ?? "").toContain("color-mix(");
-      expect(declaration ?? "").toContain(`${strength}%`);
-      expect(declaration ?? "").not.toContain(
-        "--vscode-list-activeSelectionBackground",
-      );
+    for (const rule of [highContrast, forcedColors]) {
+      expect(rule).toContain("outline: 2px solid");
+      expect(rule).toContain("outline-offset: -2px");
     }
-  });
-
-  it("keeps the selected commit identifiable inside a highlighted range", () => {
-    const hoverRule = stylesheet.match(
-      /\.selectable-row\.current-reachable:hover,[\s\S]*?\{([\s\S]*?)\}/,
-    )?.[1];
-    const selectedRule = stylesheet.match(
-      /\.selectable-row\.current-reachable\.selected[\s\S]*?\{([\s\S]*?)\}/,
-    )?.[1];
-
-    expect(hoverRule).toContain(
-      "background: var(--current-reachable-hover-bg)",
-    );
-    expect(selectedRule).toContain(
-      "background: var(--current-reachable-selected-bg)",
-    );
-    expect(selectedRule).toMatch(
-      /outline:\s*1px solid\s+var\(--vscode-list-focusOutline,\s*var\(--vscode-focusBorder,\s*#007fd4\)\)/,
-    );
-    expect(selectedRule).toContain("outline-offset: -1px");
-  });
-
-  it("preserves a distinct selected outline in high contrast mode", () => {
-    const genericSelector =
-      "body.vscode-high-contrast .selectable-row.current-reachable";
-    const selectedSelector = `${genericSelector}.selected`;
-    const genericIndex = stylesheet.indexOf(genericSelector);
-    const selectedIndex = stylesheet.indexOf(selectedSelector);
-    const selectedRule = stylesheet.match(
-      /body\.vscode-high-contrast \.selectable-row\.current-reachable\.selected\s*\{([\s\S]*?)\}/,
-    )?.[1];
-
-    expect(genericIndex).toBeGreaterThan(-1);
-    expect(selectedIndex).toBeGreaterThan(genericIndex);
-    expect(selectedRule).toContain("outline: 2px solid");
-    expect(selectedRule).toContain("outline-offset: -2px");
   });
 });

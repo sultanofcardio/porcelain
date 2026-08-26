@@ -5,26 +5,12 @@
   --hover-bg: var(--vscode-list-hoverBackground, #2a2d2e);
   --selected-bg: var(--vscode-list-activeSelectionBackground, #04395e);
   --selected-fg: var(--vscode-list-activeSelectionForeground, #fff);
-  --commit-row-hover-bg: color-mix(
-    in srgb,
-    var(--vscode-focusBorder, #007fd4) 14%,
-    var(--vscode-editor-background, #1e1e1e)
-  );
-  --current-reachable-bg: color-mix(
-    in srgb,
-    var(--vscode-focusBorder, #007fd4) 28%,
-    var(--vscode-editor-background, #1e1e1e)
-  );
-  --current-reachable-hover-bg: color-mix(
-    in srgb,
-    var(--vscode-focusBorder, #007fd4) 40%,
-    var(--vscode-editor-background, #1e1e1e)
-  );
-  --current-reachable-selected-bg: color-mix(
-    in srgb,
-    var(--vscode-focusBorder, #007fd4) 58%,
-    var(--vscode-editor-background, #1e1e1e)
-  );
+  /*
+   * Commits outside the current branch are dimmed rather than commits inside it
+   * being tinted, the way IntelliJ's log reads: most rows are reachable, so
+   * tinting them washed the whole log in one hue.
+   */
+  --unreachable-opacity: 0.5;
   --button-bg: var(--vscode-button-background, #0e639c);
   --button-fg: var(--vscode-button-foreground, #fff);
   --button-hover-bg: var(--vscode-button-hoverBackground, #1177bb);
@@ -113,8 +99,8 @@ button:disabled {
 .selectable-row:hover {
   background: var(--hover-bg);
 }
-.commit-row:hover:not(.current-reachable):not(.selected) {
-  background: var(--commit-row-hover-bg);
+.commit-row:hover:not(.selected) {
+  background: var(--hover-bg);
 }
 .selectable-row.selected {
   background: var(--selected-bg);
@@ -127,28 +113,15 @@ button:disabled {
     var(--vscode-list-focusOutline, var(--vscode-focusBorder, #007fd4));
   outline-offset: -1px;
 }
-.selectable-row.current-reachable {
-  background: var(--current-reachable-bg);
+/*
+ * Opacity, not colour, so the signal survives forced-colors mode, where the
+ * system overrides every background and foreground we could have used.
+ */
+.commit-row.not-reachable {
+  opacity: var(--unreachable-opacity, 0.5);
 }
-.selectable-row.current-reachable:hover,
-.selectable-row.current-reachable:focus-visible {
-  background: var(--current-reachable-hover-bg);
-}
-.selectable-row.current-reachable.selected,
-.selectable-row.current-reachable.selected:hover,
-.selectable-row.current-reachable.selected:focus-visible {
-  background: var(--current-reachable-selected-bg);
-  outline: 1px solid
-    var(--vscode-list-focusOutline, var(--vscode-focusBorder, #007fd4));
-  outline-offset: -1px;
-}
-body.vscode-high-contrast .selectable-row.current-reachable {
-  outline: 1px solid var(--vscode-contrastBorder, CanvasText);
-  outline-offset: -1px;
-}
-body.vscode-high-contrast .selectable-row.current-reachable.selected {
-  outline: 2px solid var(--vscode-focusBorder, CanvasText);
-  outline-offset: -2px;
+.commit-row.not-reachable.selected {
+  opacity: 1;
 }
 body.vscode-high-contrast .commit-row.selected {
   outline: 2px solid var(--vscode-focusBorder, CanvasText);
@@ -156,14 +129,6 @@ body.vscode-high-contrast .commit-row.selected {
 }
 @media (forced-colors: active) {
   .commit-row.selected {
-    outline: 2px solid var(--vscode-focusBorder, Highlight);
-    outline-offset: -2px;
-  }
-  .selectable-row.current-reachable {
-    outline: 1px solid var(--vscode-contrastBorder, CanvasText);
-    outline-offset: -1px;
-  }
-  .selectable-row.current-reachable.selected {
     outline: 2px solid var(--vscode-focusBorder, Highlight);
     outline-offset: -2px;
   }
