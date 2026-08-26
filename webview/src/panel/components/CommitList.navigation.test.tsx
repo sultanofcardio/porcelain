@@ -116,7 +116,7 @@ describe("CommitList ref navigation", () => {
       parents: [],
       authorName: "Ada",
       authorEmail: "ada@example.com",
-      authorDate: "2026-07-18T00:00:00.000Z",
+      authorDate: new Date(Date.now() - 3 * 3_600_000).toISOString(),
       subject: "Date header",
       body: "",
       refs: [],
@@ -127,9 +127,9 @@ describe("CommitList ref navigation", () => {
     expect((view.getByText("Date") as HTMLElement).style.textAlign).toBe(
       "left",
     );
-    expect(
-      (view.getByText("2026-07-18 08:00") as HTMLElement).style.textAlign,
-    ).toBe("left");
+    expect((view.getByText("3 hours ago") as HTMLElement).style.textAlign).toBe(
+      "left",
+    );
   });
 
   it("scrolls the requested ref target into the center and consumes it", async () => {

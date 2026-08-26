@@ -118,13 +118,15 @@ describe("CommitRow reachability styling", () => {
   });
 
   it("left-aligns the date value within its metadata column", () => {
+    // A fixed offset from now keeps the rendered text free of the machine's
+    // timezone, which an absolute timestamp was not.
     const commit = {
       hash: "date123",
       shortHash: "date123",
       parents: [],
       authorName: "Ada",
       authorEmail: "ada@example.com",
-      authorDate: "2026-07-18T00:00:00.000Z",
+      authorDate: new Date(Date.now() - 5 * 60_000).toISOString(),
       subject: "Date alignment",
       body: "",
       refs: [],
@@ -142,7 +144,7 @@ describe("CommitRow reachability styling", () => {
       { wrapper: StoreWrapper },
     );
 
-    const date = getByText("2026-07-18 08:00");
+    const date = getByText("5 minutes ago");
     expect((date as HTMLElement).style.textAlign).toBe("left");
   });
 });

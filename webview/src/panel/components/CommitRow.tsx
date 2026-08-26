@@ -21,7 +21,7 @@ const REF_ICON_COLORS: Record<string, string> = {
   HEAD: "#c75450",
 };
 
-function formatDateTime(dateStr: string): string {
+export function formatDateTime(dateStr: string): string {
   const date = new Date(dateStr);
   if (Number.isNaN(date.getTime())) return dateStr;
   const yyyy = date.getFullYear();
@@ -30,6 +30,30 @@ function formatDateTime(dateStr: string): string {
   const hh = String(date.getHours()).padStart(2, "0");
   const min = String(date.getMinutes()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
+}
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+function plural(count: number, unit: string): string {
+  return `${count} ${unit}${count === 1 ? "" : "s"} ago`;
+}
+
+/**
+ * Commit age the way IntelliJ's log reads it. Anything past a month falls back
+ * to the absolute date, where "5 weeks ago" stops being easier than the date.
+ */
+export function formatRelativeTime(dateStr: string, now = Date.now()): string {
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return dateStr;
+  const elapsed = now - date.getTime();
+  if (elapsed < 0) return formatDateTime(dateStr);
+  if (elapsed < MINUTE) return "just now";
+  if (elapsed < HOUR) return plural(Math.floor(elapsed / MINUTE), "minute");
+  if (elapsed < DAY) return plural(Math.floor(elapsed / HOUR), "hour");
+  if (elapsed < 30 * DAY) return plural(Math.floor(elapsed / DAY), "day");
+  return formatDateTime(dateStr);
 }
 
 function buildRefDisplayItems(refs: RefInfo[]): Array<{
@@ -342,17 +366,19 @@ export function CommitRow({
       {visibleColumns?.date !== false && (
         <>
           <ColumnGutter />
-          <span
-            style={{
-              flexShrink: 0,
-              width: columnWidths.date,
-              textAlign: "left",
-              opacity: 0.5,
-              paddingLeft: 8,
-            }}
-          >
-            {formatDateTime(commit.authorDate)}
-          </span>
+          <Tooltip text={formatDateTime(commit.authorDate)}>
+            <span
+              style={{
+                flexShrink: 0,
+                width: columnWidths.date,
+                textAlign: "left",
+                opacity: 0.5,
+                paddingLeft: 8,
+              }}
+            >
+              {formatRelativeTime(commit.authorDate)}
+            </span>
+          </Tooltip>
         </>
       )}
 
