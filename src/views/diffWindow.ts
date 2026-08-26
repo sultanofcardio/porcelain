@@ -31,6 +31,22 @@ function showsDiff(
 }
 
 /**
+ * The tabs a newly-opened diff replaces: this window's other IDEA Git diffs,
+ * minus anything pinned. Leaving pinned tabs alone makes pinning the way to
+ * keep a diff around while the window keeps cycling.
+ */
+export function supersededDiffTabs(
+  tabs: readonly vscode.Tab[],
+  left: vscode.Uri,
+  right: vscode.Uri,
+): vscode.Tab[] {
+  return tabs.filter(
+    (tab) =>
+      isIdeaGitDiffTab(tab) && !tab.isPinned && !showsDiff(tab, left, right),
+  );
+}
+
+/**
  * The single reusable diff surface.
  *
  * With the floating presentation there is exactly one diff window for the whole
@@ -77,8 +93,7 @@ export class DiffWindow {
   /**
    * Drop the diffs this one replaced. Preview reuse alone is not enough: it is
    * off entirely when the user disables preview editors, and a diff promoted to
-   * a permanent tab stops being replaceable. Pinned tabs are deliberately left
-   * alone, so pinning is how you keep a diff around.
+   * a permanent tab stops being replaceable.
    */
   private async closeSupersededDiffs(
     column: vscode.ViewColumn,
@@ -89,10 +104,7 @@ export class DiffWindow {
       (candidate) => candidate.viewColumn === column,
     );
     if (!group) return;
-    const superseded = group.tabs.filter(
-      (tab) =>
-        isIdeaGitDiffTab(tab) && !tab.isPinned && !showsDiff(tab, left, right),
-    );
+    const superseded = supersededDiffTabs(group.tabs, left, right);
     if (superseded.length === 0) return;
     try {
       await vscode.window.tabGroups.close(superseded, true);
