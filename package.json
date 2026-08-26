@@ -1,18 +1,18 @@
 {
-  "name": "branchshift",
-  "displayName": "BranchShift — JetBrains-style Git for VS Code",
-  "publisher": "vitalhex",
+  "name": "idea-git",
+  "displayName": "IDEA Git: JetBrains-style Git for VS Code",
+  "publisher": "sultanofcardio",
   "description": "Keep your JetBrains-style Git workflow in VS Code and Cursor with Git graph, commit and shelf tools, branch comparison, rebase, merge, conflicts, and multi-repo support.",
   "version": "0.6.4",
   "license": "MIT",
   "icon": "images/icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/VitalHex/branchshift"
+    "url": "https://github.com/sultanofcardio/idea-git"
   },
-  "homepage": "https://github.com/VitalHex/branchshift#readme",
+  "homepage": "https://github.com/sultanofcardio/idea-git#readme",
   "bugs": {
-    "url": "https://github.com/VitalHex/branchshift/issues"
+    "url": "https://github.com/sultanofcardio/idea-git/issues"
   },
   "galleryBanner": {
     "color": "#08172D",
@@ -62,151 +62,151 @@
     "viewsContainers": {
       "panel": [
         {
-          "id": "branchshift-panel",
-          "title": "BranchShift",
+          "id": "ideaGit-panel",
+          "title": "IDEA Git",
           "icon": "$(git-branch)"
         }
       ],
       "activitybar": [
         {
-          "id": "branchshift-commit",
+          "id": "ideaGit-commit",
           "title": "Commit",
           "icon": "images/commit-icon.svg"
         }
       ]
     },
     "views": {
-      "branchshift-panel": [
+      "ideaGit-panel": [
         {
           "type": "webview",
-          "id": "branchshift.gitLog",
+          "id": "ideaGit.gitLog",
           "name": "Git Log"
         }
       ],
-      "branchshift-commit": [
+      "ideaGit-commit": [
         {
           "type": "webview",
-          "id": "branchshift.commitPanel",
+          "id": "ideaGit.commitPanel",
           "name": "Commit"
         }
       ]
     },
     "commands": [
       {
-        "command": "branchshift.refreshLog",
+        "command": "ideaGit.refreshLog",
         "title": "Refresh Git Log",
         "icon": "$(refresh)",
-        "category": "BranchShift"
+        "category": "IDEA Git"
       },
       {
-        "command": "branchshift.openMergeEditor",
+        "command": "ideaGit.openMergeEditor",
         "title": "Open Merge Editor",
-        "category": "BranchShift"
+        "category": "IDEA Git"
       },
       {
-        "command": "branchshift.openConflicts",
+        "command": "ideaGit.openConflicts",
         "title": "Conflicts",
         "icon": "$(git-merge)",
-        "category": "BranchShift"
+        "category": "IDEA Git"
       },
       {
-        "command": "branchshift.openMergeEditorFromSCM",
-        "title": "Open in BranchShift Merge Editor",
+        "command": "ideaGit.openMergeEditorFromSCM",
+        "title": "Open in IDEA Git Merge Editor",
         "icon": "$(git-merge)",
-        "category": "BranchShift"
+        "category": "IDEA Git"
       },
       {
-        "command": "branchshift.showFileHistory",
-        "title": "(BranchShift) Show File History",
+        "command": "ideaGit.showFileHistory",
+        "title": "(IDEA Git) Show File History",
         "icon": "$(history)",
-        "category": "BranchShift"
+        "category": "IDEA Git"
       },
       {
-        "command": "branchshift.nextDiff",
+        "command": "ideaGit.nextDiff",
         "title": "Next File Diff",
         "icon": "$(arrow-down)",
-        "category": "BranchShift"
+        "category": "IDEA Git"
       },
       {
-        "command": "branchshift.prevDiff",
+        "command": "ideaGit.prevDiff",
         "title": "Previous File Diff",
         "icon": "$(arrow-up)",
-        "category": "BranchShift"
+        "category": "IDEA Git"
       },
       {
-        "command": "branchshift.commitPanel.refresh",
+        "command": "ideaGit.commitPanel.refresh",
         "title": "Refresh Changes",
         "icon": "$(refresh)",
-        "category": "BranchShift"
+        "category": "IDEA Git"
       },
       {
-        "command": "branchshift.commitPanel.commit",
+        "command": "ideaGit.commitPanel.commit",
         "title": "Commit",
         "icon": "$(check)",
-        "category": "BranchShift"
+        "category": "IDEA Git"
       },
       {
-        "command": "branchshift.commitPanel.commitAndPush",
+        "command": "ideaGit.commitPanel.commitAndPush",
         "title": "Commit and Push",
         "icon": "$(cloud-upload)",
-        "category": "BranchShift"
+        "category": "IDEA Git"
       },
       {
-        "command": "branchshift.commitPanel.shelve",
+        "command": "ideaGit.commitPanel.shelve",
         "title": "Shelve Changes",
         "icon": "$(archive)",
-        "category": "BranchShift"
+        "category": "IDEA Git"
       },
       {
-        "command": "branchshift.commitPanel.unshelve",
+        "command": "ideaGit.commitPanel.unshelve",
         "title": "Unshelve Changes",
         "icon": "$(package)",
-        "category": "BranchShift"
+        "category": "IDEA Git"
       },
       {
-        "command": "branchshift.openPushPanel",
+        "command": "ideaGit.openPushPanel",
         "title": "Push...",
         "icon": "$(cloud-upload)",
-        "category": "BranchShift"
+        "category": "IDEA Git"
       },
       {
-        "command": "branchshift.editSource",
-        "title": "(BranchShift) Edit Source",
+        "command": "ideaGit.editSource",
+        "title": "(IDEA Git) Edit Source",
         "icon": "$(go-to-file)",
-        "category": "BranchShift"
+        "category": "IDEA Git"
       }
     ],
     "menus": {
       "view/title": [],
       "scm/title": [
         {
-          "command": "branchshift.openConflicts",
+          "command": "ideaGit.openConflicts",
           "when": "scmProvider == git",
           "group": "navigation"
         }
       ],
       "scm/resourceState/context": [
         {
-          "command": "branchshift.openMergeEditorFromSCM",
+          "command": "ideaGit.openMergeEditorFromSCM",
           "when": "scmProvider == git && scmResourceGroup == merge",
           "group": "inline@10"
         }
       ],
       "editor/context": [
         {
-          "command": "branchshift.showFileHistory",
+          "command": "ideaGit.showFileHistory",
           "when": "editorTextFocus",
           "group": "git@1"
         },
         {
-          "command": "branchshift.editSource",
+          "command": "ideaGit.editSource",
           "when": "isInDiffEditor && resourceScheme != file",
           "group": "git@2"
         }
       ],
       "explorer/context": [
         {
-          "command": "branchshift.showFileHistory",
+          "command": "ideaGit.showFileHistory",
           "when": "!explorerResourceIsFolder",
           "group": "git@1"
         }
@@ -214,18 +214,18 @@
     },
     "keybindings": [
       {
-        "command": "branchshift.openPushPanel",
+        "command": "ideaGit.openPushPanel",
         "key": "ctrl+shift+k",
         "mac": "cmd+shift+k"
       },
       {
-        "command": "branchshift.nextDiff",
+        "command": "ideaGit.nextDiff",
         "key": "ctrl+f7",
         "mac": "cmd+f7",
         "when": "editorFocus"
       },
       {
-        "command": "branchshift.prevDiff",
+        "command": "ideaGit.prevDiff",
         "key": "ctrl+shift+f7",
         "mac": "cmd+shift+f7",
         "when": "editorFocus"

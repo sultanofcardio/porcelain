@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { IndexTransaction } from "../../git/commit/indexTransaction";
 import type { CommitPathSelection } from "../../git/commit/types";
-import { BranchShiftError } from "../../git/errors";
+import { IdeaGitError } from "../../git/errors";
 import { GitTestRepo } from "./gitTestRepo";
 
 describe("IndexTransaction", () => {
@@ -313,7 +313,7 @@ describe("IndexTransaction", () => {
         },
       ),
       (error: unknown) =>
-        error instanceof BranchShiftError && error.code === "UNMERGED_PATHS",
+        error instanceof IdeaGitError && error.code === "UNMERGED_PATHS",
     );
 
     assert.deepStrictEqual(await rawIndex(repo), indexBefore);
@@ -335,7 +335,7 @@ describe("IndexTransaction", () => {
         },
       ),
       (error: unknown) =>
-        error instanceof BranchShiftError &&
+        error instanceof IdeaGitError &&
         error.code === "PARTIAL_FILE_SELECTION_UNSUPPORTED",
     );
 

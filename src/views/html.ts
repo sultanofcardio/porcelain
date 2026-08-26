@@ -42,7 +42,7 @@ export function getWebviewHtml(
     img-src ${webview.cspSource} data:;
   ">
   <link rel="stylesheet" href="${styleUri}">
-  <title>BranchShift</title>
+  <title>IDEA Git</title>
 </head>
 <body>
   <div id="root" ${dataAttrs.join(" ")}></div>

@@ -1,5 +1,5 @@
 import type { GitExecutor } from "../core/gitExecutor";
-import { BranchShiftError, BranchShiftErrorCode } from "../errors";
+import { IdeaGitError, IdeaGitErrorCode } from "../errors";
 import type { CommitPathSelection, IndexEntry } from "./types";
 
 interface IndexSnapshot {
@@ -45,8 +45,8 @@ export class IndexTransaction {
       }
     } catch (error) {
       await this.restoreFullIndex(snapshot, error);
-      throw new BranchShiftError(
-        BranchShiftErrorCode.INDEX_PREPARE_FAILED,
+      throw new IdeaGitError(
+        IdeaGitErrorCode.INDEX_PREPARE_FAILED,
         "Could not prepare the selected changes in the index.",
         "The original index was restored. Inspect the selected paths and retry.",
       );
@@ -84,8 +84,8 @@ export class IndexTransaction {
       if (record.length === 0) continue;
       const match = /^(\S+) ([0-9a-f]+) ([0-3])\t([\s\S]*)$/.exec(record);
       if (!match) {
-        throw new BranchShiftError(
-          BranchShiftErrorCode.INDEX_PREPARE_FAILED,
+        throw new IdeaGitError(
+          IdeaGitErrorCode.INDEX_PREPARE_FAILED,
           "Git returned an index entry that could not be read safely.",
           "Inspect the repository index before retrying.",
         );
@@ -99,8 +99,8 @@ export class IndexTransaction {
 
   private rejectUnmerged(entries: readonly CapturedIndexEntry[]): void {
     if (entries.some((entry) => entry.stage !== 0)) {
-      throw new BranchShiftError(
-        BranchShiftErrorCode.UNMERGED_PATHS,
+      throw new IdeaGitError(
+        IdeaGitErrorCode.UNMERGED_PATHS,
         "The index contains unmerged paths.",
         "Resolve the conflicts before committing selected changes.",
       );
@@ -132,8 +132,8 @@ export class IndexTransaction {
         !selection.includeIndex &&
         [...this.pathsFor(selection)].some((path) => staged.has(path))
       ) {
-        throw new BranchShiftError(
-          BranchShiftErrorCode.PARTIAL_FILE_SELECTION_UNSUPPORTED,
+        throw new IdeaGitError(
+          IdeaGitErrorCode.PARTIAL_FILE_SELECTION_UNSUPPORTED,
           `Cannot select only the working-tree change for "${selection.path}" while excluding its staged change.`,
           "Include both changes, commit the staged change first, or unstage it before retrying.",
         );
@@ -235,10 +235,10 @@ export class IndexTransaction {
     );
   }
 
-  private restoreError(cause: unknown): BranchShiftError {
+  private restoreError(cause: unknown): IdeaGitError {
     const detail = cause instanceof Error ? ` ${cause.message}` : "";
-    return new BranchShiftError(
-      BranchShiftErrorCode.INDEX_RESTORE_FAILED,
+    return new IdeaGitError(
+      IdeaGitErrorCode.INDEX_RESTORE_FAILED,
       `The repository index could not be restored automatically.${detail}`,
       "Do not discard the working tree. Back up your files, inspect the index with Git, and restore or restage changes before retrying.",
     );

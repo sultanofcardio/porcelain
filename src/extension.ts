@@ -5,7 +5,7 @@ import {
   type GitRefIdentity,
 } from "./git/branchDashboardState";
 import type { GitOperationResult } from "./git/core/operationResult";
-import { BranchShiftError, BranchShiftErrorCode } from "./git/errors";
+import { IdeaGitError, IdeaGitErrorCode } from "./git/errors";
 import { GitService } from "./git/gitService";
 import { discoverRepos } from "./git/repoDiscovery";
 import {
@@ -32,8 +32,8 @@ import {
 import { ConflictsManager } from "./views/conflictsManager";
 import { DiffEditorManager } from "./views/diffEditorManager";
 import {
-  BRANCHSHIFT_SCHEME,
   GitContentProvider,
+  IDEA_GIT_SCHEME,
 } from "./views/gitContentProvider";
 import { GitLogViewProvider } from "./views/gitLogViewProvider";
 import { buildGitContentUri } from "./views/gitUri";
@@ -57,7 +57,7 @@ function requireSuccessfulGitOperation(
   result: GitOperationResult<unknown>,
 ): void {
   if (result.ok) return;
-  throw new BranchShiftError(result.code, result.message, result.recovery);
+  throw new IdeaGitError(result.code, result.message, result.recovery);
 }
 
 /**
@@ -124,7 +124,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Restore last active repo (per-workspace).
   const savedActive = context.workspaceState.get<string | undefined>(
-    "branchshift.activeRepoId",
+    "ideaGit.activeRepoId",
   );
   if (savedActive) repoRegistry.setActive(savedActive);
 
@@ -155,11 +155,11 @@ export async function activate(context: vscode.ExtensionContext) {
   contentProvider.setExternalContentMap(shelfDiffContent);
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider(
-      BRANCHSHIFT_SCHEME,
+      IDEA_GIT_SCHEME,
       contentProvider,
     ),
     vscode.workspace.registerFileSystemProvider(
-      BRANCHSHIFT_SCHEME,
+      IDEA_GIT_SCHEME,
       contentProvider,
       { isReadonly: true },
     ),
@@ -212,7 +212,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // 5. Register VSCode commands (always registered)
   context.subscriptions.push(
-    vscode.commands.registerCommand("branchshift.openPushPanel", async () => {
+    vscode.commands.registerCommand("ideaGit.openPushPanel", async () => {
       const runtime = repoRegistry.getActive();
       if (!runtime) return;
       const branch = await runtime.gitService.getCurrentBranch();
@@ -222,7 +222,7 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     }),
     vscode.commands.registerCommand(
-      "branchshift.openMergeEditor",
+      "ideaGit.openMergeEditor",
       (file?: string) => {
         const runtime = repoRegistry.getActive();
         if (!runtime) return;
@@ -230,7 +230,7 @@ export async function activate(context: vscode.ExtensionContext) {
       },
     ),
     vscode.commands.registerCommand(
-      "branchshift.openDiffEditor",
+      "ideaGit.openDiffEditor",
       (commit?: string, filePath?: string) => {
         if (commit && filePath && diffManager) {
           const runtime = repoRegistry.getActive();
@@ -239,44 +239,44 @@ export async function activate(context: vscode.ExtensionContext) {
         }
       },
     ),
-    vscode.commands.registerCommand("branchshift.refreshLog", () => {
+    vscode.commands.registerCommand("ideaGit.refreshLog", () => {
       broadcastActiveRepoLogRefresh(messageRouter, repoRegistry);
     }),
-    vscode.commands.registerCommand("branchshift.nextDiff", async () => {
+    vscode.commands.registerCommand("ideaGit.nextDiff", async () => {
       if (diffManager) {
         const result = await diffManager.nextDiff();
         if (!result) {
           void vscode.window.showInformationMessage(
-            "BranchShift: No diff file list. Double-click a file in Changed Files first.",
+            "IDEA Git: No diff file list. Double-click a file in Changed Files first.",
           );
         }
       } else {
         void vscode.window.showInformationMessage(
-          "BranchShift: No workspace open.",
+          "IDEA Git: No workspace open.",
         );
       }
     }),
-    vscode.commands.registerCommand("branchshift.prevDiff", async () => {
+    vscode.commands.registerCommand("ideaGit.prevDiff", async () => {
       if (diffManager) {
         const result = await diffManager.prevDiff();
         if (!result) {
           void vscode.window.showInformationMessage(
-            "BranchShift: No diff file list. Double-click a file in Changed Files first.",
+            "IDEA Git: No diff file list. Double-click a file in Changed Files first.",
           );
         }
       } else {
         void vscode.window.showInformationMessage(
-          "BranchShift: No workspace open.",
+          "IDEA Git: No workspace open.",
         );
       }
     }),
-    vscode.commands.registerCommand("branchshift.openConflicts", () => {
+    vscode.commands.registerCommand("ideaGit.openConflicts", () => {
       const runtime = repoRegistry.getActive();
       if (!runtime) return;
       conflictsManager.openConflictsPanel(runtime.descriptor.id);
     }),
     vscode.commands.registerCommand(
-      "branchshift.openMergeEditorFromSCM",
+      "ideaGit.openMergeEditorFromSCM",
       (arg?: unknown) => {
         const filePath = getScmResourcePath(arg);
         if (!filePath) {
@@ -291,21 +291,21 @@ export async function activate(context: vscode.ExtensionContext) {
       },
     ),
     vscode.commands.registerCommand(
-      "branchshift.showFileHistory",
+      "ideaGit.showFileHistory",
       async (uri?: vscode.Uri) => {
         const fileUri = uri ?? vscode.window.activeTextEditor?.document.uri;
         const runtime = repoRegistry.getActive();
         if (!fileUri || !runtime) return;
         const relativePath = vscode.workspace.asRelativePath(fileUri, false);
         // Ensure the Git Log panel is visible before sending the event
-        await vscode.commands.executeCommand("branchshift.gitLog.focus");
+        await vscode.commands.executeCommand("ideaGit.gitLog.focus");
         // Send file filter to webview
         messageRouter.broadcastEvent("showFileHistory", {
           file: relativePath,
         });
       },
     ),
-    vscode.commands.registerCommand("branchshift.editSource", async () => {
+    vscode.commands.registerCommand("ideaGit.editSource", async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) return;
 
@@ -323,12 +323,12 @@ export async function activate(context: vscode.ExtensionContext) {
       const workspaceRoot = runtime?.descriptor.rootPath;
 
       // Resolve the actual workspace file path from diff URI
-      // Format: branchshift:/<relativePath>?ref=<commitHash>&repo=<repoId>
+      // Format: idea-git:/<relativePath>?ref=<commitHash>&repo=<repoId>
       let filePath: string | undefined;
 
       if (uri.scheme === "file") {
         filePath = uri.fsPath;
-      } else if (uri.scheme === "branchshift" || uri.scheme === "git") {
+      } else if (uri.scheme === "idea-git" || uri.scheme === "git") {
         // Extract relative path from URI path (strip leading /)
         const relativePath = uri.path.startsWith("/")
           ? uri.path.slice(1)
@@ -954,8 +954,8 @@ export async function activate(context: vscode.ExtensionContext) {
     if (!ctx) return NOT_GIT_REPO;
     const branchName = params.branchName as string;
     if (!branchName) {
-      throw new BranchShiftError(
-        BranchShiftErrorCode.BRANCH_NOT_FOUND,
+      throw new IdeaGitError(
+        IdeaGitErrorCode.BRANCH_NOT_FOUND,
         "No local branch was selected",
       );
     }
@@ -1897,7 +1897,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const selectionCoordinator = new RepoSelectionCoordinator(
     repoRegistry,
     (activeId) =>
-      context.workspaceState.update("branchshift.activeRepoId", activeId),
+      context.workspaceState.update("ideaGit.activeRepoId", activeId),
     (repo) => broadcastActiveRepoChanged(repo),
     selectionSerializer,
   );
@@ -1911,10 +1911,7 @@ export async function activate(context: vscode.ExtensionContext) {
       // A queued select whose repo was removed by a concurrent folder
       // reconciliation. Surface the same REPO_NOT_FOUND the old handler did.
       if (err instanceof RepoSelectionError) {
-        throw new BranchShiftError(
-          BranchShiftErrorCode.REPO_NOT_FOUND,
-          err.message,
-        );
+        throw new IdeaGitError(IdeaGitErrorCode.REPO_NOT_FOUND, err.message);
       }
       throw err;
     }
@@ -2007,7 +2004,7 @@ export async function activate(context: vscode.ExtensionContext) {
       await persistAndBroadcastActive(
         repoRegistry,
         (activeId) =>
-          context.workspaceState.update("branchshift.activeRepoId", activeId),
+          context.workspaceState.update("ideaGit.activeRepoId", activeId),
         (repo) => broadcastActiveRepoChanged(repo),
       );
     },
@@ -2038,9 +2035,9 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.StatusBarAlignment.Left,
     100,
   );
-  statusBarItem.text = "$(git-branch) BranchShift";
-  statusBarItem.tooltip = "Open BranchShift Git Log";
-  statusBarItem.command = "branchshift.gitLog.focus";
+  statusBarItem.text = "$(git-branch) IDEA Git";
+  statusBarItem.tooltip = "Open IDEA Git Git Log";
+  statusBarItem.command = "ideaGit.gitLog.focus";
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
   messageRouter.enableStrictRepoContext();

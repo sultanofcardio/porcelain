@@ -3,8 +3,8 @@ import * as vscode from "vscode";
 import { RepoRegistry } from "../../git/repoRegistry";
 import { DiffEditorManager } from "../../views/diffEditorManager";
 import {
-  BRANCHSHIFT_SCHEME,
   GitContentProvider,
+  IDEA_GIT_SCHEME,
 } from "../../views/gitContentProvider";
 
 /**
@@ -51,11 +51,11 @@ describe("provider registration with no active repo", () => {
     contentProvider.setExternalContentMap(new Map());
 
     const textDisposable = vscode.workspace.registerTextDocumentContentProvider(
-      BRANCHSHIFT_SCHEME,
+      IDEA_GIT_SCHEME,
       contentProvider,
     );
     const fsDisposable = vscode.workspace.registerFileSystemProvider(
-      BRANCHSHIFT_SCHEME,
+      IDEA_GIT_SCHEME,
       contentProvider,
       { isReadonly: true },
     );

@@ -1,6 +1,6 @@
 import type { GitExecutor } from "../core/gitExecutor";
 import type { GitOperationResult } from "../core/operationResult";
-import { BranchShiftError, BranchShiftErrorCode } from "../errors";
+import { IdeaGitError, IdeaGitErrorCode } from "../errors";
 import type { CommitRequest, WorkingTreeFile } from "../types";
 import type { WorkingTreeService } from "../workingTree/workingTreeService";
 import type { IndexTransaction } from "./indexTransaction";
@@ -18,14 +18,14 @@ export class CommitService {
   ): Promise<GitOperationResult<void>> {
     if (!request.message.trim()) {
       return this.failure(
-        BranchShiftErrorCode.COMMIT_REJECTED,
+        IdeaGitErrorCode.COMMIT_REJECTED,
         "A commit message is required.",
         "Enter a commit message and retry.",
       );
     }
     if (request.selections.length === 0) {
       return this.failure(
-        BranchShiftErrorCode.COMMIT_REJECTED,
+        IdeaGitErrorCode.COMMIT_REJECTED,
         "At least one change must be selected.",
         "Select one or more staged or unstaged changes and retry.",
       );
@@ -43,15 +43,15 @@ export class CommitService {
           await this.git.buffer(args);
         } catch (error) {
           if (this.isCancellation(error)) {
-            throw new BranchShiftError(
-              BranchShiftErrorCode.OPERATION_CANCELLED,
+            throw new IdeaGitError(
+              IdeaGitErrorCode.OPERATION_CANCELLED,
               "The commit was cancelled.",
               "No changes were committed. Retry when ready.",
             );
           }
-          if (error instanceof BranchShiftError) throw error;
-          throw new BranchShiftError(
-            BranchShiftErrorCode.COMMIT_REJECTED,
+          if (error instanceof IdeaGitError) throw error;
+          throw new IdeaGitError(
+            IdeaGitErrorCode.COMMIT_REJECTED,
             `Git rejected the commit. ${this.errorMessage(error)}`,
             "Review the commit output and repository hooks, then retry.",
           );
@@ -59,11 +59,11 @@ export class CommitService {
       });
       return { ok: true, value: undefined };
     } catch (error) {
-      if (error instanceof BranchShiftError) {
+      if (error instanceof IdeaGitError) {
         return this.failure(error.code, error.message, error.recovery, error);
       }
       return this.failure(
-        BranchShiftErrorCode.INDEX_PREPARE_FAILED,
+        IdeaGitErrorCode.INDEX_PREPARE_FAILED,
         "Could not prepare the selected changes in the index.",
         "Inspect the repository index and retry.",
         error,
@@ -99,7 +99,7 @@ export class CommitService {
       current = await this.workingTree.getWorkingTreeChanges();
     } catch (error) {
       return this.failure(
-        BranchShiftErrorCode.INDEX_PREPARE_FAILED,
+        IdeaGitErrorCode.INDEX_PREPARE_FAILED,
         "Could not inspect the current staged changes.",
         "Refresh the working tree and retry.",
         error,
@@ -116,7 +116,7 @@ export class CommitService {
     );
     if (!partial) return undefined;
     return this.failure(
-      BranchShiftErrorCode.PARTIAL_FILE_SELECTION_UNSUPPORTED,
+      IdeaGitErrorCode.PARTIAL_FILE_SELECTION_UNSUPPORTED,
       `Cannot select only the working-tree change for "${partial.path}" while excluding its staged change.`,
       "Include both changes, commit the staged change first, or unstage it before retrying.",
     );
@@ -124,8 +124,8 @@ export class CommitService {
 
   private isCancellation(error: unknown): boolean {
     return (
-      (error instanceof BranchShiftError &&
-        error.code === BranchShiftErrorCode.OPERATION_CANCELLED) ||
+      (error instanceof IdeaGitError &&
+        error.code === IdeaGitErrorCode.OPERATION_CANCELLED) ||
       (error instanceof Error &&
         (error.name === "AbortError" || error.name === "CancellationError"))
     );
@@ -136,7 +136,7 @@ export class CommitService {
   }
 
   private failure(
-    code: (typeof BranchShiftErrorCode)[keyof typeof BranchShiftErrorCode],
+    code: (typeof IdeaGitErrorCode)[keyof typeof IdeaGitErrorCode],
     message: string,
     recovery?: string,
     cause?: unknown,

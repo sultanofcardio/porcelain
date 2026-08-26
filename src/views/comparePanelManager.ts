@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import type { GitRefIdentity } from "../git/branchDashboardState";
-import { BranchShiftError, BranchShiftErrorCode } from "../git/errors";
+import { IdeaGitError, IdeaGitErrorCode } from "../git/errors";
 import type { GitService } from "../git/gitService";
 import type { MessageRouter } from "../messages/messageRouter";
 import { getWebviewHtml } from "./html";
@@ -45,8 +45,8 @@ export function registerComparePanelHandlers(
 ): void {
   messageRouter.handle("openCompareWithCurrent", async (params, ctx) => {
     if (!ctx) {
-      throw new BranchShiftError(
-        BranchShiftErrorCode.REPO_NOT_FOUND,
+      throw new IdeaGitError(
+        IdeaGitErrorCode.REPO_NOT_FOUND,
         "No repository context for comparison",
       );
     }
@@ -54,8 +54,8 @@ export function registerComparePanelHandlers(
     const selectedRef = params.ref as GitRefIdentity;
     const currentRef = await resolveCurrentCompareRef(gitService);
     if (!currentRef) {
-      throw new BranchShiftError(
-        BranchShiftErrorCode.INVALID_REF,
+      throw new IdeaGitError(
+        IdeaGitErrorCode.INVALID_REF,
         "No current Git ref is available for comparison",
       );
     }
@@ -98,7 +98,7 @@ export class ComparePanelManager implements ComparePanelOpener {
     }
 
     const panel = vscode.window.createWebviewPanel(
-      "branchshift.compare",
+      "ideaGit.compare",
       `Compare: ${selectedRef.name} ↔ ${currentRef.name}`,
       vscode.ViewColumn.One,
       {

@@ -11,13 +11,11 @@ export class GitTestRepo {
   }
 
   static async create(): Promise<GitTestRepo> {
-    const rootPath = await fs.mkdtemp(
-      path.join(os.tmpdir(), "branchshift-git-"),
-    );
+    const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "idea-git-git-"));
     const repo = new GitTestRepo(rootPath);
     await repo.git("init");
-    await repo.git("config", "user.name", "BranchShift Test");
-    await repo.git("config", "user.email", "branchshift@example.com");
+    await repo.git("config", "user.name", "IDEA Git Test");
+    await repo.git("config", "user.email", "idea-git@example.com");
     return repo;
   }
 

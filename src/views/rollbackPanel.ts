@@ -50,7 +50,7 @@ export class RollbackPanel {
     }
 
     this.panel = vscode.window.createWebviewPanel(
-      "branchshift.rollbackPanel",
+      "ideaGit.rollbackPanel",
       "Rollback Changes",
       vscode.ViewColumn.One,
       {

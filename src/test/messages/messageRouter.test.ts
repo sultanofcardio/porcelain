@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import type * as vscode from "vscode";
-import { BranchShiftError, BranchShiftErrorCode } from "../../git/errors";
+import { IdeaGitError, IdeaGitErrorCode } from "../../git/errors";
 import { GitService } from "../../git/gitService";
 import {
   type CommandHandler,
@@ -30,8 +30,8 @@ describe("MessageRouter repo context", () => {
   it("preserves the typed selected-commit error code and recovery", async () => {
     const router = new MessageRouter();
     router.handle("getStatus", async () => {
-      throw new BranchShiftError(
-        BranchShiftErrorCode.PARTIAL_FILE_SELECTION_UNSUPPORTED,
+      throw new IdeaGitError(
+        IdeaGitErrorCode.PARTIAL_FILE_SELECTION_UNSUPPORTED,
         "Cannot commit only the workspace row.",
         "Include the staged row and retry.",
       );

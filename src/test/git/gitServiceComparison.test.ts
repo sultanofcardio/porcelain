@@ -72,13 +72,11 @@ async function createComparisonRepository(
   commonCommitHash: string;
   mainCommitHash: string;
 }> {
-  const base = await fs.mkdtemp(
-    path.join(os.tmpdir(), "branchshift-comparison-"),
-  );
+  const base = await fs.mkdtemp(path.join(os.tmpdir(), "idea-git-comparison-"));
   const repo = path.join(base, "repo");
   await git(base, "init", "-b", "main", repo);
-  await git(repo, "config", "user.name", "BranchShift Test");
-  await git(repo, "config", "user.email", "branchshift@example.com");
+  await git(repo, "config", "user.name", "IDEA Git Test");
+  await git(repo, "config", "user.email", "idea-git@example.com");
 
   await fs.writeFile(path.join(repo, "common.txt"), "common\n");
   await git(repo, "add", "common.txt");
@@ -416,9 +414,7 @@ describe("GitService structured comparison revisions", () => {
   });
 
   it("propagates operational Git failures while resolving a ref", async () => {
-    const base = await fs.mkdtemp(
-      path.join(os.tmpdir(), "branchshift-non-repo-"),
-    );
+    const base = await fs.mkdtemp(path.join(os.tmpdir(), "idea-git-non-repo-"));
     try {
       await assert.rejects(
         serviceFor(base).resolveCommitRef("refs/heads/main"),

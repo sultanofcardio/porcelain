@@ -7,7 +7,7 @@ import { IndexTransaction } from "./commit/indexTransaction";
 import type { CommitPathSelection } from "./commit/types";
 import { GitCommandError, GitExecutor } from "./core/gitExecutor";
 import type { GitOperationResult } from "./core/operationResult";
-import { BranchShiftError, BranchShiftErrorCode } from "./errors";
+import { IdeaGitError, IdeaGitErrorCode } from "./errors";
 import { computeGraphLayout } from "./graphLayout";
 import type {
   BranchInfo,
@@ -699,8 +699,8 @@ export class GitService {
     } catch (error) {
       const detail = gitErrorText(error);
       if (!force && /not fully merged/i.test(detail)) {
-        throw new BranchShiftError(
-          BranchShiftErrorCode.BRANCH_NOT_FULLY_MERGED,
+        throw new IdeaGitError(
+          IdeaGitErrorCode.BRANCH_NOT_FULLY_MERGED,
           `Branch '${branchName}' is not fully merged`,
           "Review its exclusive commits or force delete it.",
         );
@@ -831,14 +831,14 @@ export class GitService {
       .trim()
       .split(FIELD_SEP);
     if (resolvedRef !== localRef) {
-      throw new BranchShiftError(
-        BranchShiftErrorCode.BRANCH_NOT_FOUND,
+      throw new IdeaGitError(
+        IdeaGitErrorCode.BRANCH_NOT_FOUND,
         `Local branch '${branchName}' does not exist`,
       );
     }
     if (!remote || !remoteRef) {
-      throw new BranchShiftError(
-        BranchShiftErrorCode.BRANCH_NO_UPSTREAM,
+      throw new IdeaGitError(
+        IdeaGitErrorCode.BRANCH_NO_UPSTREAM,
         `Branch '${branchName}' has no configured upstream`,
       );
     }
@@ -855,8 +855,8 @@ export class GitService {
       await this.execGit(["worktree", "list", "--porcelain"]),
     ).get(localRef);
     if (checkedOutPath) {
-      throw new BranchShiftError(
-        BranchShiftErrorCode.BRANCH_CHECKED_OUT_IN_WORKTREE,
+      throw new IdeaGitError(
+        IdeaGitErrorCode.BRANCH_CHECKED_OUT_IN_WORKTREE,
         `Branch '${branchName}' is checked out in worktree '${checkedOutPath}'`,
       );
     }
@@ -866,8 +866,8 @@ export class GitService {
     } catch (error) {
       const detail = gitErrorText(error);
       if (/non-fast-forward|\[rejected\]/i.test(detail)) {
-        throw new BranchShiftError(
-          BranchShiftErrorCode.BRANCH_NON_FAST_FORWARD,
+        throw new IdeaGitError(
+          IdeaGitErrorCode.BRANCH_NON_FAST_FORWARD,
           `Branch '${branchName}' cannot be fast-forwarded from its upstream`,
         );
       }
@@ -1514,7 +1514,7 @@ export class GitService {
 
   private unwrapShelfResult<T>(result: GitOperationResult<T>): T {
     if (result.ok) return result.value;
-    throw new BranchShiftError(result.code, result.message, result.recovery);
+    throw new IdeaGitError(result.code, result.message, result.recovery);
   }
 
   invalidateCache(pattern?: string): void {

@@ -3,11 +3,11 @@ import type { GitService } from "../git/gitService";
 import type { RepoRegistry } from "../git/repoRegistry";
 import { readGitContent } from "./workingTreeDiffModel";
 
-export const BRANCHSHIFT_SCHEME = "branchshift";
+export const IDEA_GIT_SCHEME = "idea-git";
 
 /**
  * Provides virtual file content for git file revisions.
- * Uri format: branchshift:/<filePath>?ref=<commitHash>
+ * Uri format: idea-git:/<filePath>?ref=<commitHash>
  *
  * Implements both TextDocumentContentProvider (for text diff) and
  * FileSystemProvider (for binary files like images).

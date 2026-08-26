@@ -1,5 +1,5 @@
 import type * as vscode from "vscode";
-import { BranchShiftError } from "../git/errors";
+import { IdeaGitError } from "../git/errors";
 import {
   type CommandType,
   ErrorCode,
@@ -133,11 +133,11 @@ export class MessageRouter {
       const message = err instanceof Error ? err.message : String(err);
       this.sendResponse(webview, msg.id, false, undefined, {
         code:
-          err instanceof BranchShiftError
+          err instanceof IdeaGitError
             ? (err.code as ErrorCode)
             : ErrorCode.UNKNOWN,
         message,
-        ...(err instanceof BranchShiftError && err.recovery !== undefined
+        ...(err instanceof IdeaGitError && err.recovery !== undefined
           ? { recovery: err.recovery }
           : {}),
       });

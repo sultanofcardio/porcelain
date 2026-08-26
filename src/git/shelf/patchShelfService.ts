@@ -6,8 +6,8 @@ import type { CommitPathSelection } from "../commit/types";
 import type { GitExecutor } from "../core/gitExecutor";
 import type { GitOperationResult } from "../core/operationResult";
 import {
-  BranchShiftErrorCode,
-  type BranchShiftErrorCode as ErrorCode,
+  type IdeaGitErrorCode as ErrorCode,
+  IdeaGitErrorCode,
 } from "../errors";
 import type { WorkingTreeFile } from "../types";
 import type { WorkingTreeService } from "../workingTree/workingTreeService";
@@ -40,7 +40,7 @@ export class PatchShelfService {
       preflight = await this.preflight(request);
     } catch (error) {
       return this.failure(
-        BranchShiftErrorCode.UNSUPPORTED_SHELF_CONTENT,
+        IdeaGitErrorCode.UNSUPPORTED_SHELF_CONTENT,
         `The repository could not be inspected safely. ${this.errorMessage(error)}`,
         "The index and working tree were not changed. Refresh the repository status and retry.",
         error,
@@ -92,14 +92,14 @@ export class PatchShelfService {
       }
       if (artifact && (await this.exists(artifact.finalPath))) {
         return this.failure(
-          BranchShiftErrorCode.UNSUPPORTED_SHELF_CONTENT,
+          IdeaGitErrorCode.UNSUPPORTED_SHELF_CONTENT,
           `The shelf artifact was published, but shelving could not continue. ${this.errorMessage(error)}`,
           `The working tree was not changed. Keep the recovery artifact at ${artifact.finalPath}.`,
           error,
         );
       }
       return this.failure(
-        BranchShiftErrorCode.UNSUPPORTED_SHELF_CONTENT,
+        IdeaGitErrorCode.UNSUPPORTED_SHELF_CONTENT,
         `The requested changes could not be materialized as a complete shelf. ${this.errorMessage(error)}`,
         "The index and working tree were not changed. Inspect the requested paths and retry.",
         error,
@@ -115,7 +115,7 @@ export class PatchShelfService {
       changes = await this.workingTree.getWorkingTreeChanges();
     } catch (error) {
       return this.failure(
-        BranchShiftErrorCode.UNSUPPORTED_SHELF_CONTENT,
+        IdeaGitErrorCode.UNSUPPORTED_SHELF_CONTENT,
         "The working tree could not be inspected safely.",
         "Refresh the repository status and retry.",
         error,
@@ -409,7 +409,7 @@ export class PatchShelfService {
         ? ` Automatic restoration also failed: ${this.errorMessage(restoreError)}`
         : " Already reverted paths were restored from the artifact.";
       return this.failure(
-        BranchShiftErrorCode.UNSUPPORTED_SHELF_CONTENT,
+        IdeaGitErrorCode.UNSUPPORTED_SHELF_CONTENT,
         `The shelf was published, but the requested paths could not all be reverted.${detail}`,
         `Keep the recovery artifact at ${artifact.finalPath}. Inspect the working tree before retrying or applying it manually.`,
         error,
@@ -522,7 +522,7 @@ export class PatchShelfService {
     cause?: unknown,
   ): GitOperationResult<readonly PreparedPath[]> {
     return this.failure(
-      BranchShiftErrorCode.UNSUPPORTED_SHELF_CONTENT,
+      IdeaGitErrorCode.UNSUPPORTED_SHELF_CONTENT,
       message,
       "The index and working tree were not changed. Refresh the working tree, fix the unsupported content, and retry.",
       cause,

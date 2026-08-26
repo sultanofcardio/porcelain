@@ -1,4 +1,4 @@
-export const BranchShiftErrorCode = {
+export const IdeaGitErrorCode = {
   REPO_NOT_FOUND: "REPO_NOT_FOUND",
   INVALID_REF: "INVALID_REF",
   BRANCH_NOT_FOUND: "BRANCH_NOT_FOUND",
@@ -15,16 +15,16 @@ export const BranchShiftErrorCode = {
   OPERATION_CANCELLED: "OPERATION_CANCELLED",
 } as const;
 
-export type BranchShiftErrorCode =
-  (typeof BranchShiftErrorCode)[keyof typeof BranchShiftErrorCode];
+export type IdeaGitErrorCode =
+  (typeof IdeaGitErrorCode)[keyof typeof IdeaGitErrorCode];
 
-export class BranchShiftError extends Error {
+export class IdeaGitError extends Error {
   constructor(
-    readonly code: BranchShiftErrorCode,
+    readonly code: IdeaGitErrorCode,
     message: string,
     readonly recovery?: string,
   ) {
     super(message);
-    this.name = "BranchShiftError";
+    this.name = "IdeaGitError";
   }
 }
