@@ -61,10 +61,14 @@ function noticeFloatingUnavailable(): void {
  * Move the active editor into a new window and return the view column it
  * landed in, or undefined when the editor could not be detached (in which case
  * it stays where it is, as a normal tab).
+ *
+ * Pass `moved` to identify the detached tab. The active group is usually the
+ * new window, but searching for the tab itself keeps the answer right if focus
+ * settles somewhere else.
  */
-export async function detachActiveEditor(): Promise<
-  vscode.ViewColumn | undefined
-> {
+export async function detachActiveEditor(
+  moved?: (tab: vscode.Tab) => boolean,
+): Promise<vscode.ViewColumn | undefined> {
   if (!(await supportsFloatingWindows())) {
     noticeFloatingUnavailable();
     return undefined;
@@ -79,7 +83,13 @@ export async function detachActiveEditor(): Promise<
     noticeFloatingUnavailable();
     return undefined;
   }
-  return vscode.window.tabGroups.activeTabGroup?.viewColumn;
+  const active = vscode.window.tabGroups.activeTabGroup;
+  if (!moved) return active?.viewColumn;
+  if (active?.tabs.some(moved)) return active.viewColumn;
+  const hosting = vscode.window.tabGroups.all.find((group) =>
+    group.tabs.some(moved),
+  );
+  return hosting?.viewColumn ?? active?.viewColumn;
 }
 
 /**

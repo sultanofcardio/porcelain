@@ -69,7 +69,11 @@ export class ChangesWindowManager {
     });
 
     if (getSurfacePresentation() === "floatingWindow") {
-      await detachActiveEditor();
+      await detachActiveEditor(
+        (tab) =>
+          tab.input instanceof vscode.TabInputWebview &&
+          tab.label === panel.title,
+      );
     }
   }
 

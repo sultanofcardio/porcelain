@@ -16,6 +16,20 @@ function isIdeaGitDiffTab(tab: vscode.Tab): boolean {
   );
 }
 
+/** Whether a tab shows exactly this pair of revisions. */
+function showsDiff(
+  tab: vscode.Tab,
+  left: vscode.Uri,
+  right: vscode.Uri,
+): boolean {
+  const input = tab.input;
+  return (
+    input instanceof vscode.TabInputTextDiff &&
+    input.original.toString() === left.toString() &&
+    input.modified.toString() === right.toString()
+  );
+}
+
 /**
  * The single reusable diff surface.
  *
@@ -47,6 +61,7 @@ export class DiffWindow {
         viewColumn: reuse,
         preview: true,
       });
+      await this.closeSupersededDiffs(reuse, left, right);
       return;
     }
 
@@ -54,7 +69,36 @@ export class DiffWindow {
       viewColumn: vscode.ViewColumn.Active,
       preview: true,
     });
-    this.column = await detachActiveEditor();
+    this.column = await detachActiveEditor((tab) =>
+      showsDiff(tab, left, right),
+    );
+  }
+
+  /**
+   * Drop the diffs this one replaced. Preview reuse alone is not enough: it is
+   * off entirely when the user disables preview editors, and a diff promoted to
+   * a permanent tab stops being replaceable. Pinned tabs are deliberately left
+   * alone, so pinning is how you keep a diff around.
+   */
+  private async closeSupersededDiffs(
+    column: vscode.ViewColumn,
+    left: vscode.Uri,
+    right: vscode.Uri,
+  ): Promise<void> {
+    const group = vscode.window.tabGroups.all.find(
+      (candidate) => candidate.viewColumn === column,
+    );
+    if (!group) return;
+    const superseded = group.tabs.filter(
+      (tab) =>
+        isIdeaGitDiffTab(tab) && !tab.isPinned && !showsDiff(tab, left, right),
+    );
+    if (superseded.length === 0) return;
+    try {
+      await vscode.window.tabGroups.close(superseded, true);
+    } catch (error) {
+      console.error("[idea-git] closing superseded diff tabs failed:", error);
+    }
   }
 
   /**
