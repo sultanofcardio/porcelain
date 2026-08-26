@@ -1,12 +1,12 @@
-<!--
-  Commit tool window, activity bar.
-
-  A commit node on a lane, mirroring IntelliJ's Commit icon. VS Code applies
-  activity bar icons as a CSS mask, so only the alpha matters and the theme
-  supplies the colour. The node has to be a stroked ring rather than a filled
-  disc with a lighter centre, or the hole would mask as solid.
--->
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Commit</title>
+  <desc>
+    A commit node on a lane, mirroring IntelliJ's Commit tool window icon.
+
+    VS Code paints these as a CSS mask, so only the alpha survives and the theme
+    supplies the colour. The node is a stroked ring rather than a filled disc
+    with a lighter centre, which would have masked as solid.
+  </desc>
   <g stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
     <path d="M2.75 12H8.4"/>
     <circle cx="12" cy="12" r="3.3"/>

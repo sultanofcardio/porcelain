@@ -18,6 +18,7 @@ export function getSurfacePresentation(): SurfacePresentation {
 }
 
 const NEW_EMPTY_EDITOR_WINDOW = "workbench.action.newEmptyEditorWindow";
+const ENABLE_COMPACT_WINDOW = "workbench.action.enableCompactAuxiliaryWindow";
 const MOVE_EDITOR_TO_NEW_WINDOW = "workbench.action.moveEditorToNewWindow";
 
 /** How long to wait for tab state to reach the extension host. */
@@ -80,10 +81,28 @@ export async function openEmptyFloatingWindow(): Promise<boolean> {
   if (!(await hasCommand(NEW_EMPTY_EDITOR_WINDOW))) return false;
   try {
     await vscode.commands.executeCommand(NEW_EMPTY_EDITOR_WINDOW);
-    return true;
   } catch (error) {
     console.error("[porcelain] opening an empty window failed:", error);
     return false;
+  }
+  await makeActiveWindowCompact();
+  return true;
+}
+
+/**
+ * Strip the new window back to just its content.
+ *
+ * The command acts on whichever window has focus, and the one just created
+ * does, so this has to run before anything steals it back. Compact mode is a
+ * recent addition and the window is perfectly usable without it, so a build
+ * that lacks the command is not worth reporting.
+ */
+async function makeActiveWindowCompact(): Promise<void> {
+  if (!(await hasCommand(ENABLE_COMPACT_WINDOW))) return;
+  try {
+    await vscode.commands.executeCommand(ENABLE_COMPACT_WINDOW);
+  } catch (error) {
+    console.error("[porcelain] compacting the new window failed:", error);
   }
 }
 

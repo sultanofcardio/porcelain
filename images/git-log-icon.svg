@@ -1,16 +1,18 @@
-<!--
-  Git Log panel.
-
-  The Porcelain P, reduced for a 24px glyph. VS Code applies these as a CSS
-  mask, so only the alpha matters and the theme supplies the colour.
-
-  The full logo marks the bowl's junction with a commit node. At this size the
-  ring's counter closes against the bowl and the whole mark turns to mush, so
-  the node is deliberately dropped here and the letterform carries it alone.
--->
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <g stroke="currentColor" stroke-width="2.1" stroke-linecap="round">
-    <path d="M9.4 3.6a5.1 5.1 0 0 1 0 10.2"/>
-    <path d="M9.4 3.6v16.8"/>
+  <title>Porcelain</title>
+  <desc>
+    The Porcelain P: a lane that branches at the top, bowls out and rejoins,
+    with a commit node on it.
+
+    VS Code paints these as a CSS mask, so only the alpha survives and the theme
+    supplies the colour. The node is where the full-colour logo puts it at the
+    bowl's junction, but three strokes already converge there and at 24px its
+    counter closes against the bowl's own. On the lane's end it has room, so it
+    sits there and the idea survives the size.
+  </desc>
+  <g stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
+    <path d="M9.2 2.8a6 6 0 0 1 0 12"/>
+    <path d="M9.2 2.8v14.6"/>
   </g>
+  <circle cx="9.2" cy="20.2" r="2.6" fill="currentColor"/>
 </svg>

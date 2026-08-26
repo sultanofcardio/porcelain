@@ -128,6 +128,9 @@ describe("DiffWindow", () => {
         original;
     }
 
+    const compacted = calls.indexOf(
+      "workbench.action.enableCompactAuxiliaryWindow",
+    );
     const openedWindow = calls.indexOf("workbench.action.newEmptyEditorWindow");
     const rendered = calls.indexOf("vscode.diff");
     assert.ok(openedWindow >= 0, "expected an empty window to be created");
@@ -139,6 +142,10 @@ describe("DiffWindow", () => {
       !calls.includes("workbench.action.moveEditorToNewWindow"),
       "rendering then moving is the flashing path and must not be taken",
     );
+    // Compact mode acts on the focused window, so it has to be applied while
+    // the new one still has focus, before the diff opens into it.
+    assert.ok(compacted > openedWindow, "the new window must be compacted");
+    assert.ok(compacted < rendered, "compacting must precede the render");
   });
 
   it("supersedes this window's other diffs, but never a pinned one", () => {
