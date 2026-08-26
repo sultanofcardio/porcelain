@@ -101,6 +101,46 @@ describe("DiffWindow", () => {
     assert.strictEqual(input.modified.toString(), second.right.toString());
   });
 
+  it("creates the window before rendering into it", async () => {
+    // The user-visible symptom of getting this backwards is a flash: the diff
+    // renders in the main window, then jumps to its own.
+    const calls: string[] = [];
+    const original = vscode.commands.executeCommand;
+    (vscode.commands as { executeCommand: unknown }).executeCommand = ((
+      command: string,
+      ...args: unknown[]
+    ) => {
+      calls.push(command);
+      return (original as (...a: unknown[]) => Thenable<unknown>)(
+        command,
+        ...args,
+      );
+    }) as typeof vscode.commands.executeCommand;
+
+    try {
+      await new DiffWindow().show(
+        revision("aaaa111", "src/first.ts"),
+        revision("bbbb222", "src/first.ts"),
+        "first.ts",
+      );
+    } finally {
+      (vscode.commands as { executeCommand: unknown }).executeCommand =
+        original;
+    }
+
+    const openedWindow = calls.indexOf("workbench.action.newEmptyEditorWindow");
+    const rendered = calls.indexOf("vscode.diff");
+    assert.ok(openedWindow >= 0, "expected an empty window to be created");
+    assert.ok(
+      openedWindow < rendered,
+      "the window must exist before the diff renders into it",
+    );
+    assert.ok(
+      !calls.includes("workbench.action.moveEditorToNewWindow"),
+      "rendering then moving is the flashing path and must not be taken",
+    );
+  });
+
   it("supersedes this window's other diffs, but never a pinned one", () => {
     const incoming = {
       left: revision("aaaa111", "src/next.ts"),

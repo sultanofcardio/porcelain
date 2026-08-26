@@ -1,6 +1,10 @@
 import * as vscode from "vscode";
 import type { MessageRouter } from "../messages/messageRouter";
-import { detachActiveEditor, getSurfacePresentation } from "./floatingWindow";
+import {
+  detachActiveEditor,
+  getSurfacePresentation,
+  openEmptyFloatingWindow,
+} from "./floatingWindow";
 import { getWebviewHtml } from "./html";
 
 /** The two commits a Changes window compares, already ordered oldest-first. */
@@ -39,6 +43,12 @@ export class ChangesWindowManager {
       return;
     }
 
+    // Put an empty window up first so the list renders where it belongs rather
+    // than appearing in this window and jumping. The new window's group is
+    // focused, so ViewColumn.Active is already it.
+    const floating = getSurfacePresentation() === "floatingWindow";
+    const detached = floating ? await openEmptyFloatingWindow() : false;
+
     const panel = vscode.window.createWebviewPanel(
       "ideaGit.changes",
       `Changes Between ${shortHash(spec.fromHash)} and ${shortHash(spec.toHash)}`,
@@ -68,7 +78,9 @@ export class ChangesWindowManager {
       routerDisposable.dispose();
     });
 
-    if (getSurfacePresentation() === "floatingWindow") {
+    // Builds without an empty-window command fall back to rendering here and
+    // moving, which the user sees as a flash.
+    if (floating && !detached) {
       await detachActiveEditor(
         (tab) =>
           tab.input instanceof vscode.TabInputWebview &&

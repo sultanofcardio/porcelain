@@ -17,31 +17,41 @@ export function getSurfacePresentation(): SurfacePresentation {
   return configured === "editorTab" ? "editorTab" : "floatingWindow";
 }
 
+const NEW_EMPTY_EDITOR_WINDOW = "workbench.action.newEmptyEditorWindow";
 const MOVE_EDITOR_TO_NEW_WINDOW = "workbench.action.moveEditorToNewWindow";
 
-let floatingSupport: boolean | undefined;
+/** How long to wait for tab state to reach the extension host. */
+const TAB_STATE_TIMEOUT_MS = 3000;
+
+let availableCommands: Set<string> | undefined;
 let unavailableNoticeShown = false;
 
 /** Reset the cached capability probe. Test seam. */
 export function resetFloatingWindowSupportCache(): void {
-  floatingSupport = undefined;
+  availableCommands = undefined;
   unavailableNoticeShown = false;
 }
 
-/**
- * Whether this VS Code build can detach an editor group into its own window.
- * Probed once per session; older builds and some forks do not ship the command.
- */
-export async function supportsFloatingWindows(): Promise<boolean> {
-  if (floatingSupport === undefined) {
+async function hasCommand(id: string): Promise<boolean> {
+  if (availableCommands === undefined) {
     try {
-      const commands = await vscode.commands.getCommands(true);
-      floatingSupport = commands.includes(MOVE_EDITOR_TO_NEW_WINDOW);
+      availableCommands = new Set(await vscode.commands.getCommands(true));
     } catch {
-      floatingSupport = false;
+      availableCommands = new Set();
     }
   }
-  return floatingSupport;
+  return availableCommands.has(id);
+}
+
+/**
+ * Whether this VS Code build can put an editor in its own window at all.
+ * Older builds and some forks ship neither command.
+ */
+export async function supportsFloatingWindows(): Promise<boolean> {
+  return (
+    (await hasCommand(NEW_EMPTY_EDITOR_WINDOW)) ||
+    (await hasCommand(MOVE_EDITOR_TO_NEW_WINDOW))
+  );
 }
 
 /**
@@ -58,18 +68,37 @@ function noticeFloatingUnavailable(): void {
 }
 
 /**
+ * Open an empty detached window and leave its editor group focused, so the
+ * next thing opened at `ViewColumn.Active` lands straight in it.
+ *
+ * This is what keeps a new surface from flashing: rendering it in the main
+ * window and then moving it shows the content in the wrong place first.
+ * Returns false when this build cannot make an empty window, leaving the
+ * caller to fall back to `detachActiveEditor`.
+ */
+export async function openEmptyFloatingWindow(): Promise<boolean> {
+  if (!(await hasCommand(NEW_EMPTY_EDITOR_WINDOW))) return false;
+  try {
+    await vscode.commands.executeCommand(NEW_EMPTY_EDITOR_WINDOW);
+    return true;
+  } catch (error) {
+    console.error("[idea-git] opening an empty window failed:", error);
+    return false;
+  }
+}
+
+/**
  * Move the active editor into a new window and return the view column it
  * landed in, or undefined when the editor could not be detached (in which case
  * it stays where it is, as a normal tab).
  *
- * Pass `moved` to identify the detached tab. The active group is usually the
- * new window, but searching for the tab itself keeps the answer right if focus
- * settles somewhere else.
+ * Only used on builds without `newEmptyEditorWindow`; it renders the editor in
+ * the main window first, which the user sees as a flash.
  */
 export async function detachActiveEditor(
-  moved?: (tab: vscode.Tab) => boolean,
+  moved: (tab: vscode.Tab) => boolean,
 ): Promise<vscode.ViewColumn | undefined> {
-  if (!(await supportsFloatingWindows())) {
+  if (!(await hasCommand(MOVE_EDITOR_TO_NEW_WINDOW))) {
     noticeFloatingUnavailable();
     return undefined;
   }
@@ -83,13 +112,27 @@ export async function detachActiveEditor(
     noticeFloatingUnavailable();
     return undefined;
   }
-  const active = vscode.window.tabGroups.activeTabGroup;
-  if (!moved) return active?.viewColumn;
-  if (active?.tabs.some(moved)) return active.viewColumn;
-  const hosting = vscode.window.tabGroups.all.find((group) =>
-    group.tabs.some(moved),
-  );
-  return hosting?.viewColumn ?? active?.viewColumn;
+  return locateColumn(moved);
+}
+
+/**
+ * The view column of the group holding the tab `owns` matches.
+ *
+ * Tab state reaches the extension host asynchronously, so a group opened in
+ * this turn may not be visible yet; poll briefly rather than reading once.
+ */
+export async function locateColumn(
+  owns: (tab: vscode.Tab) => boolean,
+): Promise<vscode.ViewColumn | undefined> {
+  const deadline = Date.now() + TAB_STATE_TIMEOUT_MS;
+  for (;;) {
+    const hosting = vscode.window.tabGroups.all.find((group) =>
+      group.tabs.some(owns),
+    );
+    if (hosting) return hosting.viewColumn;
+    if (Date.now() >= deadline) return undefined;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
 }
 
 /**

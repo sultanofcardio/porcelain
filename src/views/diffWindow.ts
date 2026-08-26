@@ -3,6 +3,8 @@ import {
   detachActiveEditor,
   getSurfacePresentation,
   isLiveGroup,
+  locateColumn,
+  openEmptyFloatingWindow,
 } from "./floatingWindow";
 import { IDEA_GIT_SCHEME } from "./gitContentProvider";
 
@@ -81,13 +83,17 @@ export class DiffWindow {
       return;
     }
 
+    // Put an empty window up first so the diff renders where it belongs. The
+    // new window's group is focused, so ViewColumn.Active is already it.
+    const opened = await openEmptyFloatingWindow();
     await vscode.commands.executeCommand("vscode.diff", left, right, title, {
       viewColumn: vscode.ViewColumn.Active,
       preview: true,
     });
-    this.column = await detachActiveEditor((tab) =>
-      showsDiff(tab, left, right),
-    );
+    const owns = (tab: vscode.Tab) => showsDiff(tab, left, right);
+    this.column = opened
+      ? await locateColumn(owns)
+      : await detachActiveEditor(owns);
   }
 
   /**
