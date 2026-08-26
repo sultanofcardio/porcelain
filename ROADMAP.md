@@ -1,4 +1,4 @@
-# BranchShift Roadmap
+# IDEA Git Roadmap
 
 This file records intentionally deferred Git dashboard work so temporary UI removals do not become forgotten features.
 

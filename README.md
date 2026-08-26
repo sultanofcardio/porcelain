@@ -2,9 +2,9 @@
 
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/VitalHex/branchshift/main/images/assets/logo-128.png" width="88" alt="BranchShift icon" />
+<img src="https://raw.githubusercontent.com/sultanofcardio/idea-git/main/images/assets/logo-128.png" width="88" alt="IDEA Git icon" />
 
-<h1>BranchShift</h1>
+<h1>IDEA Git</h1>
 
 **Switch editors, not your Git workflow.**
 
@@ -16,15 +16,15 @@ A JetBrains-style Git workflow for developers moving to **VS Code** or **Cursor*
 
 ---
 
-BranchShift keeps the Git habits you already know from JetBrains IDEs: a visual branch tree, compact commit graph, dedicated Commit tool window, Shelf and Stash, branch comparison, history rewriting, merge tools, and conflict resolution—without forcing you to relearn your workflow after changing editors.
+IDEA Git keeps the Git habits you already know from JetBrains IDEs: a visual branch tree, compact commit graph, dedicated Commit tool window, Shelf and Stash, branch comparison, history rewriting, merge tools, and conflict resolution—without forcing you to relearn your workflow after changing editors.
 
-> BranchShift is an independent open-source project and is not affiliated with or endorsed by JetBrains, Microsoft, GitHub, or Cursor.
+> IDEA Git is an independent open-source project and is not affiliated with or endorsed by JetBrains, Microsoft, GitHub, or Cursor.
 
-> This project is a fork of [zhyc9de/jet-git](https://github.com/zhyc9de/jet-git). The original repository and its contributors remain credited under [Project lineage](#project-lineage).
+> This project is a fork of [VitalHex/branchshift](https://github.com/VitalHex/branchshift). Upstream repositories and their contributors remain credited under [Project lineage](#project-lineage).
 
 ## Familiar workflow, new editor
 
-| JetBrains workflow | BranchShift in VS Code |
+| JetBrains workflow | IDEA Git in VS Code |
 | --- | --- |
 | Commit tool window | Dedicated Commit activity with partial commits, Amend, Commit & Push, Shelf, and Stash |
 | Git Log | Branch tree, compact graph, refs, filters, changed files, and commit details |
@@ -53,7 +53,7 @@ BranchShift keeps the Git habits you already know from JetBrains IDEs: a visual 
 
 ### Branch comparison
 
-Compare a local branch, remote branch, or tag with the current branch. BranchShift opens a dedicated editor tab with commits unique to each side, independent filters, changed files, and commit details.
+Compare a local branch, remote branch, or tag with the current branch. IDEA Git opens a dedicated editor tab with commits unique to each side, independent filters, changed files, and commit details.
 
 ### Context menus where you expect them
 
@@ -68,19 +68,19 @@ Right-click branches, commits, and changed files to access checkout, cherry-pick
 
 ### Multi-root workspace support
 
-BranchShift discovers one Git repository per workspace folder and exposes a shared active-repository selector in both Commit and Git Log. Nested repositories inside a single workspace folder are intentionally deferred to a later release.
+IDEA Git discovers one Git repository per workspace folder and exposes a shared active-repository selector in both Commit and Git Log. Nested repositories inside a single workspace folder are intentionally deferred to a later release.
 
 ## Installation
 
-> Upgrading from a JetGit Plus development VSIX? Uninstall `strNewBee.jetgit-plus` first. BranchShift uses the extension ID `vitalhex.branchshift`, so VS Code treats it as a separate extension.
+> Upgrading from a JetGit Plus development VSIX? Uninstall `strNewBee.jetgit-plus` first. IDEA Git uses the extension ID `sultanofcardio.idea-git`, so VS Code treats it as a separate extension.
 
 ### VS Code Marketplace
 
-Search for **BranchShift** or **Git** in the Extensions view.
+Search for **IDEA Git** or **Git** in the Extensions view.
 
 ### VSIX
 
-1. Download the latest `.vsix` from [Releases](https://github.com/VitalHex/branchshift/releases).
+1. Download the latest `.vsix` from [Releases](https://github.com/sultanofcardio/idea-git/releases).
 2. Run **Extensions: Install from VSIX...** from the Command Palette.
 
 ## Requirements
@@ -91,8 +91,8 @@ Search for **BranchShift** or **Git** in the Extensions view.
 ## Local development
 
 ```bash
-git clone https://github.com/VitalHex/branchshift.git
-cd branchshift
+git clone https://github.com/sultanofcardio/idea-git.git
+cd idea-git
 pnpm install
 cd webview && pnpm install && cd ..
 ```
@@ -107,10 +107,10 @@ pnpm run vsce:package   # Build a VSIX package
 
 ## Project lineage
 
-BranchShift began as a fork of [zhyc9de/jet-git](https://github.com/zhyc9de/jet-git) and retains the original project's Git graph and merge foundations. This fork has since added the JetBrains-style Commit/Shelf/Stash workflow, extensive context actions, branch comparison, multi-root repository support, and independent branding.
+IDEA Git is a fork of [VitalHex/branchshift](https://github.com/VitalHex/branchshift), which itself began as a fork of [zhyc9de/jet-git](https://github.com/zhyc9de/jet-git). Both upstream projects are MIT licensed and retain credit for the Git graph, merge, and JetBrains-style Commit/Shelf/Stash foundations this fork builds on.
 
-Some interface icons are derived from [IntelliJ Platform Icons](https://intellij-icons.jetbrains.design/) under the Apache 2.0 license. The BranchShift application icon is an original project asset.
+Some interface icons are derived from [IntelliJ Platform Icons](https://intellij-icons.jetbrains.design/) under the Apache 2.0 license. The IDEA Git application icon is an original project asset.
 
 ## License
 
-BranchShift remains available under the [MIT License](./LICENSE). Copyright and attribution notices are preserved in the license file and project history.
+IDEA Git remains available under the [MIT License](./LICENSE). Copyright and attribution notices are preserved in the license file and project history.
