@@ -2,7 +2,7 @@
 
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/sultanofcardio/porcelain/main/images/assets/logo-128.png" width="88" alt="Porcelain 图标" />
+<img src="./images/assets/logo-128.png" width="88" alt="Porcelain 图标" />
 
 <h1>Porcelain</h1>
 
