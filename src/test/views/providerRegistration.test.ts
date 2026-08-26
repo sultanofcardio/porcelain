@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { RepoRegistry } from "../../git/repoRegistry";
 import { DiffEditorManager } from "../../views/diffEditorManager";
+import { DiffWindow } from "../../views/diffWindow";
 import {
   GitContentProvider,
   IDEA_GIT_SCHEME,
@@ -28,7 +29,7 @@ describe("provider registration with no active repo", () => {
     // Tier 1: the guard's precondition (active repo needed) is false — these
     // constructors must not throw when no repo is active.
     const contentProvider = new GitContentProvider(repoRegistry);
-    const diffManager = new DiffEditorManager(repoRegistry);
+    const diffManager = new DiffEditorManager(repoRegistry, new DiffWindow());
 
     assert.ok(
       contentProvider,

@@ -31,6 +31,7 @@ import {
 } from "./views/comparePanelManager";
 import { ConflictsManager } from "./views/conflictsManager";
 import { DiffEditorManager } from "./views/diffEditorManager";
+import { DiffWindow } from "./views/diffWindow";
 import {
   GitContentProvider,
   IDEA_GIT_SCHEME,
@@ -165,7 +166,8 @@ export async function activate(context: vscode.ExtensionContext) {
     ),
   );
 
-  const diffManager = new DiffEditorManager(repoRegistry);
+  const diffWindow = new DiffWindow();
+  const diffManager = new DiffEditorManager(repoRegistry, diffWindow);
 
   // 2c. CommitViewProvider (always registered)
   const commitProvider = new CommitViewProvider(
@@ -1438,8 +1440,7 @@ export async function activate(context: vscode.ExtensionContext) {
         ctx.repoId,
       );
     };
-    await vscode.commands.executeCommand(
-      "vscode.diff",
+    await diffWindow.show(
       toUri(resources.left),
       toUri(resources.right),
       staged
@@ -1509,8 +1510,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // Show diff between the stash version and the parent (before stash)
     const stashUri = buildGitContentUri(stashId, filePath, ctx.repoId);
     const parentUri = buildGitContentUri(`${stashId}^`, filePath, ctx.repoId);
-    await vscode.commands.executeCommand(
-      "vscode.diff",
+    await diffWindow.show(
       parentUri,
       stashUri,
       `${filePath} (Shelved: ${stashId})`,
@@ -1620,8 +1620,7 @@ export async function activate(context: vscode.ExtensionContext) {
       shelfDiffContent.set(baseUri.toString(), baseContent);
       shelfDiffContent.set(modifiedUri.toString(), modifiedContent);
 
-      await vscode.commands.executeCommand(
-        "vscode.diff",
+      await diffWindow.show(
         baseUri,
         modifiedUri,
         `${filePath.split("/").pop()} (Shelved in ${shelfName})`,

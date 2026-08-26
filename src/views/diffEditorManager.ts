@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { IdeaGitError, IdeaGitErrorCode } from "../git/errors";
 import type { RepoRegistry } from "../git/repoRegistry";
 import type { DiffFile } from "../git/types";
+import type { DiffWindow } from "./diffWindow";
 import { buildGitContentUri } from "./gitUri";
 
 export class DiffEditorManager {
@@ -13,7 +14,10 @@ export class DiffEditorManager {
   private diffBaseRef?: string;
   private diffCherryPickHashes?: string[];
 
-  constructor(private readonly registry: RepoRegistry) {}
+  constructor(
+    private readonly registry: RepoRegistry,
+    private readonly diffWindow: DiffWindow,
+  ) {}
 
   /** Set the file list for diff navigation */
   setDiffFileList(
@@ -166,11 +170,6 @@ export class DiffEditorManager {
           ? `${fileName} (${baseRef.substring(0, 7)}..${shortHash})`
           : `${fileName} (${shortHash})`;
 
-    await vscode.commands.executeCommand(
-      "vscode.diff",
-      leftUri,
-      rightUri,
-      title,
-    );
+    await this.diffWindow.show(leftUri, rightUri, title);
   }
 }

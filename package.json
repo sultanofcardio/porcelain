@@ -19,7 +19,7 @@
     "theme": "dark"
   },
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.86.0"
   },
   "categories": [
     "SCM Providers",
@@ -176,6 +176,24 @@
         "category": "IDEA Git"
       }
     ],
+    "configuration": {
+      "title": "IDEA Git",
+      "properties": {
+        "ideaGit.diff.openIn": {
+          "type": "string",
+          "enum": [
+            "floatingWindow",
+            "editorTab"
+          ],
+          "enumDescriptions": [
+            "Open diffs in a separate window, reused for every diff. Closest to the JetBrains behaviour.",
+            "Open diffs as a diff tab in the main window."
+          ],
+          "default": "floatingWindow",
+          "markdownDescription": "Where IDEA Git shows file diffs and changed-file lists opened from the Git Log, a comparison, or the Commit panel. Falls back to editor tabs when the editor build cannot open a separate window."
+        }
+      }
+    },
     "menus": {
       "view/title": [],
       "scm/title": [
