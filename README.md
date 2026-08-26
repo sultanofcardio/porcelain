@@ -117,8 +117,10 @@ pnpm run vsce:package   # Build a VSIX package
 
 IDEA Git is a fork of [VitalHex/branchshift](https://github.com/VitalHex/branchshift), which itself began as a fork of [zhyc9de/jet-git](https://github.com/zhyc9de/jet-git). Both upstream projects are MIT licensed and retain credit for the Git graph, merge, and JetBrains-style Commit/Shelf/Stash foundations this fork builds on.
 
-Some interface icons are derived from [IntelliJ Platform Icons](https://intellij-icons.jetbrains.design/) under the Apache 2.0 license. The IDEA Git application icon is an original project asset.
+Eighteen icons in the Commit tool window are used verbatim from [IntelliJ Platform Icons](https://intellij-icons.jetbrains.design/), copyright JetBrains s.r.o. and contributors, under the Apache 2.0 license. They are unmodified. The IDEA Git application icon is an original project asset.
 
 ## License
 
-IDEA Git remains available under the [MIT License](./LICENSE). Copyright and attribution notices are preserved in the license file and project history.
+IDEA Git is available under the [MIT License](./LICENSE), which preserves the copyright notices of both upstream projects.
+
+Third-party material in the packaged extension, including the JetBrains icons above, the Visual Studio Code Codicons, and every bundled npm dependency, is listed with its required notices in `THIRD-PARTY-NOTICES.md`, which ships inside the extension package. Neither the MIT nor the Apache 2.0 license grants trademark rights; IDEA Git is not affiliated with or endorsed by JetBrains, Microsoft, GitHub, or Cursor.

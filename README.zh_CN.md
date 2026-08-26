@@ -113,4 +113,6 @@ IDEA Git Fork 自 [VitalHex/branchshift](https://github.com/VitalHex/branchshift
 
 ## 许可证
 
-IDEA Git 继续使用 [MIT License](./LICENSE)。原有版权与归属信息保留在许可证文件和项目历史中。
+IDEA Git 继续使用 [MIT License](./LICENSE)，并保留两个上游项目的版权声明。
+
+打包扩展中包含的第三方素材（JetBrains 图标、Visual Studio Code Codicons，以及所有被打包的 npm 依赖）及其所需的声明，统一列于扩展包内的 `THIRD-PARTY-NOTICES.md`。MIT 与 Apache 2.0 许可证均不授予商标权；IDEA Git 与 JetBrains、Microsoft、GitHub、Cursor 无从属或背书关系。
