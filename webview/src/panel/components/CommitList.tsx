@@ -24,10 +24,13 @@ const DEFAULT_COLUMN_WIDTHS: ColumnWidths = {
 export function CommitList({
   onScroll,
   onHeaderHeight,
+  onGraphOffset,
   onRefreshComparison,
 }: {
   onScroll?: (scrollTop: number) => void;
   onHeaderHeight?: (height: number) => void;
+  /** Where the graph strip starts, so the overlay can line up with the rows. */
+  onGraphOffset?: (x: number) => void;
   onRefreshComparison?: () => void | Promise<void>;
 }) {
   const visibleCommits = useGitLogStore((s) => s.visibleCommits);
@@ -54,6 +57,15 @@ export function CommitList({
   } | null>(null);
   const columnWidthsRef = useRef(columnWidths);
   columnWidthsRef.current = columnWidths;
+
+  // The author column leads the row, so the graph starts after it. Reported up
+  // because the overlay is a sibling of this list, not a child of the rows.
+  const graphOffset = visibleColumns.author
+    ? columnWidths.author + COMMIT_COLUMN_GUTTER_WIDTH
+    : 0;
+  useEffect(() => {
+    onGraphOffset?.(graphOffset);
+  }, [graphOffset, onGraphOffset]);
 
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -195,7 +207,14 @@ export function CommitList({
   const [resizing, setResizing] = useState<string | null>(null);
 
   const startResize = useCallback(
-    (column: "author" | "date" | "hash", e: React.MouseEvent) => {
+    (
+      column: "author" | "date" | "hash",
+      e: React.MouseEvent,
+      // Which edge the handle sits on. The author column leads the row, so its
+      // handle is on the right and dragging right widens it; the trailing
+      // columns keep their handle on the left, where dragging left widens.
+      edge: "leading" | "trailing" = "leading",
+    ) => {
       e.preventDefault();
       e.stopPropagation();
       const startX = e.clientX;
@@ -207,7 +226,8 @@ export function CommitList({
       document.body.style.userSelect = "none";
 
       const onMouseMove = (ev: MouseEvent) => {
-        const diff = startX - ev.clientX;
+        const diff =
+          edge === "trailing" ? ev.clientX - startX : startX - ev.clientX;
         const newWidth = Math.max(
           column === "author" ? 40 : column === "date" ? 60 : 50,
           startWidth + diff,
@@ -248,7 +268,6 @@ export function CommitList({
           display: "flex",
           alignItems: "center",
           height: 24,
-          paddingLeft: messageColumnOffset,
           paddingRight: 8,
           borderBottom: "1px solid var(--border, #333)",
           fontSize: "11px",
@@ -260,13 +279,8 @@ export function CommitList({
           background: "var(--app-bg, #1e1e1e)",
         }}
       >
-        <span style={{ flex: 1, paddingRight: 4 }}>Message</span>
         {visibleColumns.author && (
           <>
-            <ColumnResizeHandle
-              active={resizing === "author"}
-              onMouseDown={(e) => startResize("author", e)}
-            />
             <span
               style={{
                 flexShrink: 0,
@@ -276,8 +290,18 @@ export function CommitList({
             >
               Author
             </span>
+            <ColumnResizeHandle
+              active={resizing === "author"}
+              onMouseDown={(e) => startResize("author", e, "trailing")}
+            />
           </>
         )}
+        {/* Reserves the strip the graph overlay draws into. */}
+        <span
+          aria-hidden="true"
+          style={{ flexShrink: 0, width: messageColumnOffset }}
+        />
+        <span style={{ flex: 1, paddingRight: 4 }}>Message</span>
         {visibleColumns.date && (
           <>
             <ColumnResizeHandle

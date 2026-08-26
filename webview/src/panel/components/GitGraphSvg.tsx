@@ -220,11 +220,14 @@ export function GitGraphSvg({
   scrollTop,
   height,
   topOffset = 0,
+  leftOffset = 0,
 }: {
   scrollGroupRef?: Ref<SVGGElement>;
   scrollTop: number;
   height: number;
   topOffset?: number;
+  /** Horizontal start of the graph strip, past any column that precedes it. */
+  leftOffset?: number;
 }) {
   const visibleCommits = useGitLogStore((s) => s.visibleCommits);
   const commits = useGitLogStore((s) => s.commits);
@@ -451,7 +454,7 @@ export function GitGraphSvg({
       style={{
         position: "absolute",
         top: topOffset,
-        left: 0,
+        left: leftOffset,
         pointerEvents: "none",
         zIndex: 2,
       }}

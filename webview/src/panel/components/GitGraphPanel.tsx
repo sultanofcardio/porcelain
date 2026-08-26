@@ -10,6 +10,7 @@ export function GitGraphPanel({
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(600);
   const [headerHeight, setHeaderHeight] = useState(0);
+  const [graphOffset, setGraphOffset] = useState(0);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const graphScrollGroupRef = useRef<SVGGElement | null>(null);
   const pendingScrollTopRef = useRef(0);
@@ -69,6 +70,7 @@ export function GitGraphPanel({
       <CommitList
         onScroll={handleScroll}
         onHeaderHeight={setHeaderHeight}
+        onGraphOffset={setGraphOffset}
         onRefreshComparison={onRefreshComparison}
       />
       <GitGraphSvg
@@ -76,6 +78,7 @@ export function GitGraphPanel({
         scrollTop={scrollTop}
         height={svgHeight > 0 ? svgHeight : 0}
         topOffset={headerHeight}
+        leftOffset={graphOffset}
       />
     </div>
   );

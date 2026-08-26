@@ -239,11 +239,36 @@ export function CommitRow({
         display: "flex",
         alignItems: "center",
         height: ROW_HEIGHT,
-        paddingLeft: getCommitMessageOffset(rowMaxColumn),
         paddingRight: 8,
         color: isSelected ? "var(--selected-fg)" : "inherit",
       }}
     >
+      {/* Author column: leads the row, matching IntelliJ's log */}
+      {visibleColumns?.author !== false && (
+        <>
+          <span
+            style={{
+              flexShrink: 0,
+              width: columnWidths.author,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              opacity: 0.7,
+              paddingLeft: 8,
+            }}
+          >
+            {commit.authorName}
+          </span>
+          <ColumnGutter />
+        </>
+      )}
+
+      {/* Reserves the strip the graph overlay draws into. */}
+      <span
+        aria-hidden="true"
+        style={{ flexShrink: 0, width: getCommitMessageOffset(rowMaxColumn) }}
+      />
+
       {/* Subject + refs column (flex) */}
       <span
         style={{
@@ -341,26 +366,6 @@ export function CommitRow({
           </span>
         )}
       </span>
-
-      {/* Author column */}
-      {visibleColumns?.author !== false && (
-        <>
-          <ColumnGutter />
-          <span
-            style={{
-              flexShrink: 0,
-              width: columnWidths.author,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              opacity: 0.7,
-              paddingLeft: 8,
-            }}
-          >
-            {commit.authorName}
-          </span>
-        </>
-      )}
 
       {/* Date column */}
       {visibleColumns?.date !== false && (
