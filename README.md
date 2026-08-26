@@ -2,15 +2,13 @@
 
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/sultanofcardio/idea-git/main/images/assets/logo-128.png" width="88" alt="IDEA Git icon" />
+<img src="./images/assets/logo-128.png" width="88" alt="IDEA Git icon" />
 
 <h1>IDEA Git</h1>
 
 **Switch editors, not your Git workflow.**
 
 A JetBrains-style Git workflow for developers moving to **VS Code** or **Cursor**.
-
-**English** · [简体中文](./README.zh_CN.md)
 
 </div>
 
