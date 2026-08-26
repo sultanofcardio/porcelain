@@ -1,5 +1,16 @@
 # Changelog / 更新日志
 
+## [0.7.0] - 2026-08-26
+
+### Added / 新增
+- **Compare Versions** — selecting two commits in the Git Log and right-clicking now offers Compare Versions, showing the net difference between the two snapshots, ordered oldest to newest whichever way they were selected / 在 Git Log 中选择两个提交后右键即可使用 Compare Versions，展示两个快照之间的净差异，并始终按由旧到新排序
+- **Floating diff windows** — diffs and comparison file lists open in detached windows, with a single diff window reused for every file; `ideaGit.diff.openIn` switches back to editor tabs / 差异与比较文件列表在独立窗口中打开，所有文件复用同一个差异窗口；可通过 `ideaGit.diff.openIn` 切换回编辑器标签页
+
+### Changed / 变更
+- **IDEA Git rebrand** — the fork is renamed from BranchShift to IDEA Git, moving the extension ID to `sultanofcardio.idea-git`, commands to `ideaGit.*`, and the content URI scheme to `idea-git:`. Keybindings bound to `branchshift.*` need repointing / Fork 由 BranchShift 更名为 IDEA Git，扩展 ID 改为 `sultanofcardio.idea-git`，命令改为 `ideaGit.*`，内容 URI scheme 改为 `idea-git:`。绑定到 `branchshift.*` 的快捷键需要重新指向
+- **Single-commit actions during multi-selection** — reset, revert, drop, checkout, cherry-pick, and branch/tag creation are disabled while several commits are selected, since the right-clicked row is not an obvious target / 多选提交时禁用 reset、revert、drop、checkout、cherry-pick 与分支/标签创建，因为右键所在行并非明确的操作目标
+- **Minimum editor version** — requires VS Code 1.86 for detached windows / 因需要独立窗口能力，最低支持 VS Code 1.86
+
 ## [0.6.4] - 2026-08-03
 
 ### Changed / 变更

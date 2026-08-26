@@ -3,7 +3,7 @@
   "displayName": "IDEA Git: JetBrains-style Git for VS Code",
   "publisher": "sultanofcardio",
   "description": "Keep your JetBrains-style Git workflow in VS Code and Cursor with Git graph, commit and shelf tools, branch comparison, rebase, merge, conflicts, and multi-repo support.",
-  "version": "0.6.4",
+  "version": "0.7.0",
   "license": "MIT",
   "icon": "images/icon.png",
   "repository": {

@@ -55,6 +55,16 @@ IDEA Git keeps the Git habits you already know from JetBrains IDEs: a visual bra
 
 Compare a local branch, remote branch, or tag with the current branch. IDEA Git opens a dedicated editor tab with commits unique to each side, independent filters, changed files, and commit details.
 
+### Compare Versions
+
+Select two commits in the Git Log, right-click, and choose **Compare Versions** to see everything that differs between them. The result is the net difference between the two snapshots, always read oldest to newest whichever order you selected them in, so work that was added and later reverted between them correctly shows as no change.
+
+### Floating diff windows
+
+Diffs open in their own window instead of competing with your code for editor space. Compare Versions opens a Changes window listing the files that differ; double-clicking a file opens the diff in a second window that every later diff reuses, so you never accumulate diff tabs. Pin a diff to keep it out of that cycle.
+
+Set `ideaGit.diff.openIn` to `editorTab` if you would rather keep diffs in the main window. On editor builds that cannot open a separate window, IDEA Git falls back to editor tabs and says so once.
+
 ### Context menus where you expect them
 
 Right-click branches, commits, and changed files to access checkout, cherry-pick, reset, revert, merge, rebase, diff, history, source navigation, and other repository-bound actions.
@@ -72,7 +82,7 @@ IDEA Git discovers one Git repository per workspace folder and exposes a shared 
 
 ## Installation
 
-> Upgrading from a JetGit Plus development VSIX? Uninstall `strNewBee.jetgit-plus` first. IDEA Git uses the extension ID `sultanofcardio.idea-git`, so VS Code treats it as a separate extension.
+> IDEA Git uses the extension ID `sultanofcardio.idea-git` and the `ideaGit.*` command IDs. It is a separate extension from BranchShift, so keybindings bound to `branchshift.*` commands need repointing.
 
 ### VS Code Marketplace
 
