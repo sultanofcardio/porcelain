@@ -34,6 +34,28 @@ export class WorkingTreeService {
     );
   }
 
+  /**
+   * Files that differ between two commits, as the net change from `fromRef` to
+   * `toRef`. This is a two-snapshot diff, not a union of the commits between
+   * them: work added and later reverted in that span shows as no change.
+   */
+  async getComparisonFiles(
+    fromRef: string,
+    toRef: string,
+  ): Promise<DiffFile[]> {
+    return parseNameStatusZ(
+      await this.git.buffer([
+        "diff",
+        "--name-status",
+        "-z",
+        "-M",
+        "-C",
+        fromRef,
+        toRef,
+      ]),
+    );
+  }
+
   getIndexFileContent(path: string): Promise<Buffer> {
     return this.git.buffer(["show", `:${path}`]);
   }

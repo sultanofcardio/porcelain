@@ -184,6 +184,8 @@ export type CommandType =
   | "executeRollback"
   | "closeRollbackPanel"
   | "openCompareWithCurrent"
+  | "openCompareVersions"
+  | "getComparisonFiles"
   | "getRepos"
   | "selectRepo";
 

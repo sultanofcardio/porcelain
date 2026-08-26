@@ -479,6 +479,59 @@ export class GitService {
     return Array.from(merged.values());
   }
 
+  /**
+   * Files that differ between two commits, ordered oldest-first regardless of
+   * the order they were selected in.
+   */
+  async getComparisonFiles(
+    fromRef: string,
+    toRef: string,
+  ): Promise<DiffFile[]> {
+    return this.workingTreeService.getComparisonFiles(fromRef, toRef);
+  }
+
+  /** True when `ancestor` is reachable from `descendant`. */
+  async isAncestor(ancestor: string, descendant: string): Promise<boolean> {
+    try {
+      await this.execGit(["merge-base", "--is-ancestor", ancestor, descendant]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Order two commits oldest-first so a comparison always reads the way the
+   * history reads. Ancestry decides it when the commits are on the same line;
+   * otherwise commit date breaks the tie, and identical dates keep the given
+   * order so the result stays stable.
+   */
+  async orderCommitsOldestFirst(
+    a: string,
+    b: string,
+  ): Promise<{ from: string; to: string }> {
+    if (a === b) return { from: a, to: b };
+    if (await this.isAncestor(a, b)) return { from: a, to: b };
+    if (await this.isAncestor(b, a)) return { from: b, to: a };
+    const [dateA, dateB] = await Promise.all([
+      this.getCommitTimestamp(a),
+      this.getCommitTimestamp(b),
+    ]);
+    return dateB < dateA ? { from: b, to: a } : { from: a, to: b };
+  }
+
+  /** Committer timestamp in seconds, or 0 when it cannot be read. */
+  private async getCommitTimestamp(hash: string): Promise<number> {
+    const output = await this.execGit([
+      "show",
+      "-s",
+      "--format=%ct",
+      hash,
+    ]).catch(() => "");
+    const parsed = Number.parseInt(output.trim(), 10);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+
   async findFileRange(
     hashes: string[],
     filePath: string,
