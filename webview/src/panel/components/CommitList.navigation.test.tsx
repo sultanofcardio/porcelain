@@ -97,16 +97,38 @@ describe("CommitList ref navigation", () => {
     });
 
     const view = render(<CommitList />, { wrapper: StoreWrapper });
-    const header = view.getByText("Message").parentElement as HTMLElement;
-    const firstRow = view
-      .getByText("Lane zero")
-      .closest(".commit-row") as HTMLElement;
-    const secondRow = view
-      .getByText("Lane two")
-      .closest(".commit-row") as HTMLElement;
 
-    expect(firstRow.style.paddingLeft).toBe(header.style.paddingLeft);
-    expect(secondRow.style.paddingLeft).toBe(header.style.paddingLeft);
+    // Everything left of the summary has to be the same width in the header and
+    // in every row, or the graph strip lands under the wrong column. jsdom does
+    // not lay out, so compare the declared widths of the preceding siblings.
+    const widthsBefore = (label: string, container: Element) => {
+      // The subject sits inside a tooltip wrapper, so climb to the cell that is
+      // a direct child of the row before walking its preceding siblings.
+      let cell = view.getByText(label) as HTMLElement;
+      while (cell.parentElement && cell.parentElement !== container) {
+        cell = cell.parentElement;
+      }
+      const widths: string[] = [];
+      for (
+        let sibling = cell.previousElementSibling;
+        sibling;
+        sibling = sibling.previousElementSibling
+      ) {
+        widths.unshift((sibling as HTMLElement).style.width || "auto");
+      }
+      return widths;
+    };
+
+    const rowOf = (label: string) =>
+      view.getByText(label).closest(".commit-row") as HTMLElement;
+
+    const header = widthsBefore(
+      "Message",
+      view.getByText("Message").parentElement as HTMLElement,
+    );
+    expect(header).not.toHaveLength(0);
+    expect(widthsBefore("Lane zero", rowOf("Lane zero"))).toEqual(header);
+    expect(widthsBefore("Lane two", rowOf("Lane two"))).toEqual(header);
   });
 
   it("left-aligns the Date header with the commit date values", () => {
