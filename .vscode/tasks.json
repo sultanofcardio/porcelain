@@ -1,0 +1,100 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build",
+      "detail": "Compile the extension host and the webview bundle",
+      "type": "npm",
+      "script": "build",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$tsc"],
+      "presentation": { "reveal": "silent", "clear": true }
+    },
+    {
+      "label": "Watch",
+      "detail": "Rebuild host and webview on change, for F5 development",
+      "type": "npm",
+      "script": "watch",
+      "isBackground": true,
+      "group": "build",
+      "problemMatcher": ["$tsc-watch"],
+      "presentation": { "reveal": "never" }
+    },
+    {
+      "label": "Test: extension host",
+      "detail": "Run the vscode-test suite in a real extension host",
+      "type": "npm",
+      "script": "test",
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": [],
+      "presentation": { "clear": true }
+    },
+    {
+      "label": "Test: webview",
+      "detail": "Run the vitest suite for the React surfaces",
+      "type": "npm",
+      "script": "test:web",
+      "group": "test",
+      "problemMatcher": [],
+      "presentation": { "clear": true }
+    },
+    {
+      "label": "Verify",
+      "detail": "Types, lint, both bundles and both test suites. The release gate.",
+      "type": "npm",
+      "script": "verify",
+      "group": "test",
+      "problemMatcher": ["$tsc"],
+      "presentation": { "clear": true }
+    },
+
+    {
+      "label": "Release: package VSIX",
+      "detail": "Verify, then build porcelain-<version>.vsix in the repo root",
+      "type": "npm",
+      "script": "vsce:package",
+      "dependsOn": ["Verify"],
+      "dependsOrder": "sequence",
+      "group": "build",
+      "problemMatcher": [],
+      "presentation": { "clear": true }
+    },
+    {
+      "label": "Release: publish to Open VSX",
+      "detail": "Publish the packaged VSIX. Needs OVSX_PAT in the environment.",
+      "type": "npm",
+      "script": "ovsx:publish",
+      "dependsOn": ["Release: package VSIX"],
+      "dependsOrder": "sequence",
+      "problemMatcher": [],
+      "presentation": { "clear": true, "focus": true }
+    },
+    {
+      "label": "Release: publish to VS Code Marketplace",
+      "detail": "Needs a Marketplace token. PATs are retired on 2026-12-01; see the README.",
+      "type": "npm",
+      "script": "vsce:publish",
+      "dependsOn": ["Verify"],
+      "dependsOrder": "sequence",
+      "problemMatcher": [],
+      "presentation": { "clear": true, "focus": true }
+    },
+
+    {
+      "label": "Open VSX: create namespace",
+      "detail": "One time only, before the first publish. Needs OVSX_PAT.",
+      "type": "npm",
+      "script": "ovsx:namespace",
+      "problemMatcher": [],
+      "presentation": { "clear": true, "focus": true }
+    },
+    {
+      "label": "Open VSX: verify token",
+      "detail": "Check OVSX_PAT can publish to the namespace, without publishing",
+      "type": "npm",
+      "script": "ovsx:verify",
+      "problemMatcher": [],
+      "presentation": { "clear": true, "focus": true }
+    }
+  ]
+}

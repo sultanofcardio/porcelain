@@ -3,7 +3,9 @@ out
 dist
 node_modules
 .vscode-test/
-.vscode/
+.vscode/*
+!.vscode/tasks.json
+!.vscode/launch.json
 .idea/
 .kiro/
 .omc/

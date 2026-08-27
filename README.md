@@ -111,36 +111,70 @@ Porcelain discovers one Git repository per workspace folder and exposes a shared
 
 > Porcelain uses the extension ID `sultanofcardio.porcelain` and the `porcelain.*` command IDs. It is a separate extension from BranchShift, so keybindings bound to `branchshift.*` commands need repointing.
 
-### VS Code Marketplace
-
-Search for **Porcelain** or **Git** in the Extensions view.
-
 ### VSIX
 
 1. Download the latest `.vsix` from [Releases](https://github.com/sultanofcardio/idea-git/releases).
 2. Run **Extensions: Install from VSIX...** from the Command Palette.
 
+Works in VS Code and Cursor alike, and needs no account.
+
+### Open VSX
+
+Once published, search for **Porcelain** in the Extensions view. This is the
+registry Cursor reads, so it is the route that gets you search-and-install
+there rather than a manual download.
+
 ## Requirements
 
-- VS Code 1.85.0 or later
+- VS Code 1.86.0 or later, for the detached windows the diff surfaces use
 - Git available on `PATH`
 
 ## Local development
 
 ```bash
 git clone https://github.com/sultanofcardio/idea-git.git
-cd porcelain
+cd idea-git
 pnpm install
 cd webview && pnpm install && cd ..
 ```
 
-Press **F5** to launch the Extension Development Host.
+Press **F5** to launch the Extension Development Host. The launch configurations
+all pass `--disable-extensions`, so nothing else you have installed can appear
+alongside Porcelain; there is a third one that adds `--profile-temp` for a
+throwaway profile, which is what the screenshots above were taken with.
 
 ```bash
-pnpm run watch          # Development watch mode
-pnpm run build          # Extension host + webview production build
-pnpm run vsce:package   # Build a VSIX package
+pnpm run watch          # Rebuild host and webview on change
+pnpm run build          # Production build of both
+pnpm run test           # Extension host suite, in a real host
+pnpm run test:web       # Webview suite
+pnpm run verify         # All of the above. The release gate.
 ```
+
+Everything here is also a VS Code task, under **Tasks: Run Task**.
+
+### Releasing
+
+`Verify` has to pass before either release task will package anything, and
+packaging happens before publishing, so a release is one task away:
+
+```bash
+pnpm run vsce:package   # Verify, then build porcelain-<version>.vsix
+pnpm run ovsx:publish   # Publish that VSIX to Open VSX
+```
+
+Open VSX reads its token from `OVSX_PAT` in the environment, so it never
+reaches a command line or a config file. Before the first publish, claim the
+namespace once with `pnpm run ovsx:namespace`, and check the token works
+without publishing anything using `pnpm run ovsx:verify`.
+
+Versions must strictly increase and can never be reused, so a bad publish is
+fixed by bumping rather than replacing.
+
+Publishing to the VS Code Marketplace instead is `pnpm run vsce:publish`, but
+note that Azure DevOps retires the personal access tokens it depends on
+on 1 December 2026. After that it needs a Microsoft Entra ID setup built for
+CI pipelines, which is why Open VSX is the route above.
 
 ## Project lineage
 
