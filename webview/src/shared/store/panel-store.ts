@@ -496,9 +496,9 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
     scrollTargetHash: null,
     branchGroupByDirectory: (() => {
       try {
-        return localStorage.getItem("branchGroupByDirectory") === "true";
+        return localStorage.getItem("branchGroupByDirectory") !== "false";
       } catch {
-        return false;
+        return true;
       }
     })(),
 
