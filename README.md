@@ -14,7 +14,13 @@ A JetBrains-style Git workflow for developers moving to **VS Code** or **Cursor*
 
 ---
 
-Porcelain keeps the Git habits you already know from JetBrains IDEs: a visual branch tree, compact commit graph, dedicated Commit tool window, Shelf and Stash, branch comparison, history rewriting, merge tools, and conflict resolution—without forcing you to relearn your workflow after changing editors.
+Porcelain keeps the Git habits you already know from JetBrains IDEs: a visual branch tree, compact commit graph, dedicated Commit tool window, Shelf and Stash, branch comparison, history rewriting, merge tools and conflict resolution, without forcing you to relearn your workflow after changing editors.
+
+<div align="center">
+  <img src="./images/screenshots/git-log-panel.png" width="920" alt="The Porcelain panel across the bottom of VS Code. On the left a branch tree lists local branches, remotes and tags. In the middle a colour-coded commit graph shows merge bubbles and parallel lanes, with author, message, relative date and hash columns. On the right, the changed files and details of the selected commit." />
+  <br />
+  <sub>Branch tree, commit graph, changed files and commit details, in one panel.</sub>
+</div>
 
 > Porcelain is an independent open-source project and is not affiliated with or endorsed by JetBrains, Microsoft, GitHub, or Cursor.
 
@@ -49,6 +55,10 @@ Porcelain keeps the Git habits you already know from JetBrains IDEs: a visual br
 - JetBrains-compatible Shelf data stored under `.idea/shelf/`
 - Native Git stash management
 
+![The Commit tool window. A Changes group lists five files with checkboxes, some ticked and some not, each marked with its status letter. Unversioned files sit in their own group below. A commit message is typed underneath, above Commit and Commit and Push buttons.](./images/screenshots/commit-tool-window.png)
+
+*Tick the files you want. Staging never enters into it: the checkboxes are the commit, and the file is committed as it is on disk.*
+
 ### Branch comparison
 
 Compare a local branch, remote branch, or tag with the current branch. Porcelain opens a dedicated editor tab with commits unique to each side, independent filters, changed files, and commit details.
@@ -57,11 +67,19 @@ Compare a local branch, remote branch, or tag with the current branch. Porcelain
 
 Select two commits in the Git Log, right-click, and choose **Compare Versions** to see everything that differs between them. The result is the net difference between the two snapshots, always read oldest to newest whichever order you selected them in, so work that was added and later reverted between them correctly shows as no change.
 
+![The commit list with two commits highlighted and the context menu open. Compare Versions is highlighted. Copy Revision Numbers sits at the top, and the single-commit actions below, Checkout Revision, Reset, Revert, Drop, New Branch and New Tag, are all greyed out.](./images/screenshots/compare-versions.png)
+
+*With two commits selected the single-commit actions grey out, because the row you happened to right-click is not an obvious target for a reset or a revert.*
+
 ### Floating diff windows
 
 Diffs open in their own window instead of competing with your code for editor space. Compare Versions opens a Changes window listing the files that differ; double-clicking a file opens the diff in a second window that every later diff reuses, so you never accumulate diff tabs. Pin a diff to keep it out of that cycle.
 
-Set `porcelain.diff.openIn` to `editorTab` if you would rather keep diffs in the main window. On editor builds that cannot open a separate window, Porcelain falls back to editor tabs and says so once.
+![Two compact windows floating over a dimmed VS Code. The smaller one lists the files that differ between two commits, grouped by directory. The larger one shows a side-by-side diff of pool.ts with an added block highlighted in green.](./images/screenshots/floating-diff-windows.png)
+
+*Both windows open compact, stripped back to their content. The file list stays put while the diff window is reused for every file you open.*
+
+Set `porcelain.diff.openIn` to `editorTab` if you would rather keep everything in the main window. On editor builds that cannot open a separate window, Porcelain falls back to editor tabs and says so once.
 
 ### Context menus where you expect them
 
@@ -69,10 +87,21 @@ Right-click branches, commits, and changed files to access checkout, cherry-pick
 
 ### Conflicts and 3-way merge
 
-- Dedicated conflict list with Accept Yours, Accept Theirs, and Merge actions
-- Three-column Theirs / Result / Yours editor
-- Per-conflict actions and syntax highlighting
-- Integration with the built-in VS Code Source Control view
+A conflicted merge is three steps, and Porcelain gives each one a surface.
+
+**1. Notice.** Unmerged files appear as a Merge Conflicts group nested inside Changes, the way IntelliJ shows them, rather than a separate list that repeats the same file twice. A banner names the branch being merged and offers to continue or abort.
+
+![The Commit tool window during a merge. A banner reads Merging fix/pool-leak with continue and abort buttons. Below it, a Changes group contains a nested Merge Conflicts group with a Resolve link, holding a single conflicted file, pool.ts.](./images/screenshots/merge-conflicts-commit-window.png)
+
+**2. Triage.** **Resolve** opens the conflict list in its own compact window, showing how each side touched every file. Take one side wholesale, or open the file to work through it.
+
+![A compact floating window titled Conflicts. It lists one conflicted file, pool.ts under src/db, with columns showing that both Yours and Theirs modified it, and buttons for Accept Yours, Accept Theirs and Merge.](./images/screenshots/merge-conflicts-floating-window.png)
+
+**3. Resolve.** Double-clicking a conflicted file opens the three-way editor in its own window: Theirs on the left, your working result in the middle, Yours on the right, with each conflict individually acceptable.
+
+![The three-way merge editor in a compact window. Three syntax-highlighted columns are labelled Left (Theirs), Center (Result) and Right (Yours). Two conflicting regions are highlighted in red with per-conflict accept and dismiss controls, and the header reads 2 changes, 2 conflicts.](./images/screenshots/merge-conflicts-3-way-resolution.png)
+
+Each conflict can be taken individually rather than the whole file at once, and everything stays syntax-highlighted throughout. Porcelain also integrates with the built-in VS Code Source Control view, so conflicts raised elsewhere land here too.
 
 ### Multi-root workspace support
 
