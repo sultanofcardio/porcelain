@@ -7,6 +7,7 @@ node_modules
 .idea/
 .kiro/
 .omc/
+.lavish/
 *.vsix
 webview/node_modules
 docs/superpowers/
