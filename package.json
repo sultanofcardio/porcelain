@@ -8,11 +8,11 @@
   "icon": "images/icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/sultanofcardio/idea-git"
+    "url": "https://github.com/sultanofcardio/porcelain"
   },
-  "homepage": "https://github.com/sultanofcardio/idea-git#readme",
+  "homepage": "https://github.com/sultanofcardio/porcelain#readme",
   "bugs": {
-    "url": "https://github.com/sultanofcardio/idea-git/issues"
+    "url": "https://github.com/sultanofcardio/porcelain/issues"
   },
   "galleryBanner": {
     "color": "#1B1D22",

@@ -113,7 +113,7 @@ Porcelain discovers one Git repository per workspace folder and exposes a shared
 
 ### VSIX
 
-1. Download the latest `.vsix` from [Releases](https://github.com/sultanofcardio/idea-git/releases).
+1. Download the latest `.vsix` from [Releases](https://github.com/sultanofcardio/porcelain/releases).
 2. Run **Extensions: Install from VSIX...** from the Command Palette.
 
 Works in VS Code and Cursor alike, and needs no account.
@@ -132,8 +132,8 @@ there rather than a manual download.
 ## Local development
 
 ```bash
-git clone https://github.com/sultanofcardio/idea-git.git
-cd idea-git
+git clone https://github.com/sultanofcardio/porcelain.git
+cd porcelain
 pnpm install
 cd webview && pnpm install && cd ..
 ```
