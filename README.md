@@ -75,7 +75,7 @@ Select two commits in the Git Log, right-click, and choose **Compare Versions** 
 
 Diffs open in their own window instead of competing with your code for editor space. Compare Versions opens a Changes window listing the files that differ; double-clicking a file opens the diff in a second window that every later diff reuses, so you never accumulate diff tabs. Pin a diff to keep it out of that cycle.
 
-![Two compact windows floating over a dimmed VS Code. The smaller one lists the files that differ between two commits, grouped by directory. The larger one shows a side-by-side diff of pool.ts with an added block highlighted in green.](./images/screenshots/floating-diff-windows.png)
+![Two compact windows floating over a dimmed VS Code. The smaller one lists the files that differ between two commits, grouped by directory. The larger one shows a side-by-side diff of pool.ts with an added block highlighted in green.](./images/screenshots/floating-diff-windows-transparent.png)
 
 *Both windows open compact, stripped back to their content. The file list stays put while the diff window is reused for every file you open.*
 
