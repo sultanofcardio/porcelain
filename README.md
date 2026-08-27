@@ -151,7 +151,20 @@ pnpm run test:web       # Webview suite
 pnpm run verify         # All of the above. The release gate.
 ```
 
-Everything here is also a VS Code task, under **Tasks: Run Task**.
+Everything here is also a run configuration. Open the **Run and Debug** view
+(<kbd>Ctrl/Cmd</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd>), pick one from the dropdown
+at the top, and press the green play button or <kbd>F5</kbd>:
+
+| Group | Configurations |
+| --- | --- |
+| Run | Run Porcelain, and the no-rebuild and clean-profile variants |
+| Check | Build, Verify, Test: extension host, Test: webview |
+| Release | Package VSIX, Publish to Open VSX, Open VSX: verify token |
+
+The same commands are VS Code tasks as well, which is what
+<kbd>Ctrl/Cmd</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> runs and where the release
+pipeline is expressed as task dependencies. Reach them from **Terminal → Run
+Task…**, or **Tasks: Run Task** in the Command Palette.
 
 ### Releasing
 

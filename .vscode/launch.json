@@ -10,7 +10,8 @@
         "--disable-extensions"
       ],
       "outFiles": ["${workspaceFolder}/dist/**/*.js"],
-      "preLaunchTask": "npm: build"
+      "preLaunchTask": "Build",
+      "presentation": { "group": "1-run", "order": 1 }
     },
     {
       "name": "Run Porcelain (no rebuild)",
@@ -20,7 +21,8 @@
         "--extensionDevelopmentPath=${workspaceFolder}",
         "--disable-extensions"
       ],
-      "outFiles": ["${workspaceFolder}/dist/**/*.js"]
+      "outFiles": ["${workspaceFolder}/dist/**/*.js"],
+      "presentation": { "group": "1-run", "order": 2 }
     },
     {
       "name": "Run Porcelain (clean profile, for screenshots)",
@@ -31,7 +33,73 @@
         "--disable-extensions",
         "--profile-temp"
       ],
-      "outFiles": ["${workspaceFolder}/dist/**/*.js"]
+      "outFiles": ["${workspaceFolder}/dist/**/*.js"],
+      "presentation": { "group": "1-run", "order": 3 }
+    },
+
+    {
+      "name": "Build",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "pnpm run build",
+      "cwd": "${workspaceFolder}",
+      "autoAttachChildProcesses": false,
+      "presentation": { "group": "2-check", "order": 1 }
+    },
+    {
+      "name": "Verify (release gate)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "pnpm run verify",
+      "cwd": "${workspaceFolder}",
+      "autoAttachChildProcesses": false,
+      "presentation": { "group": "2-check", "order": 2 }
+    },
+    {
+      "name": "Test: extension host",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "pnpm run test",
+      "cwd": "${workspaceFolder}",
+      "autoAttachChildProcesses": false,
+      "presentation": { "group": "2-check", "order": 3 }
+    },
+    {
+      "name": "Test: webview",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "pnpm run test:web",
+      "cwd": "${workspaceFolder}",
+      "autoAttachChildProcesses": false,
+      "presentation": { "group": "2-check", "order": 4 }
+    },
+
+    {
+      "name": "Release: package VSIX",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "pnpm run verify && pnpm run vsce:package",
+      "cwd": "${workspaceFolder}",
+      "autoAttachChildProcesses": false,
+      "presentation": { "group": "3-release", "order": 1 }
+    },
+    {
+      "name": "Release: publish to Open VSX",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "pnpm run verify && pnpm run vsce:package && pnpm run ovsx:publish",
+      "cwd": "${workspaceFolder}",
+      "autoAttachChildProcesses": false,
+      "presentation": { "group": "3-release", "order": 2 }
+    },
+    {
+      "name": "Open VSX: verify token",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "pnpm run ovsx:verify",
+      "cwd": "${workspaceFolder}",
+      "autoAttachChildProcesses": false,
+      "presentation": { "group": "3-release", "order": 3 }
     }
   ]
 }
