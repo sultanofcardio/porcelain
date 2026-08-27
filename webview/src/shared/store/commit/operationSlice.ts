@@ -147,6 +147,15 @@ export function createOperationSlice({
         reportOperationError("showDiff", error);
       }
     },
+    async openMergeEditor(filePath) {
+      try {
+        await runOperation("openMergeEditor", () =>
+          request("openMergeEditor", { file: filePath }),
+        );
+      } catch (error) {
+        reportOperationError("openMergeEditor", error);
+      }
+    },
 
     async shelveChanges(message, filePaths) {
       clearOperationError();

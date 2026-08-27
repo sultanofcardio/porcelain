@@ -2,6 +2,11 @@ import * as vscode from "vscode";
 import type { RepoRegistry } from "../git/repoRegistry";
 import { formatRepoLabel } from "../git/repoRegistry";
 import type { MessageRouter } from "../messages/messageRouter";
+import {
+  detachActiveEditor,
+  getSurfacePresentation,
+  openEmptyFloatingWindow,
+} from "./floatingWindow";
 import { getWebviewHtml } from "./html";
 
 export class ConflictsManager {
@@ -23,7 +28,7 @@ export class ConflictsManager {
     return formatRepoLabel(target, this.repoRegistry.list());
   }
 
-  openConflictsPanel(repoId: string): void {
+  async openConflictsPanel(repoId: string): Promise<void> {
     const repoName = this.repoLabelFor(repoId);
     if (this.panel) {
       this.panel.reveal();
@@ -39,10 +44,14 @@ export class ConflictsManager {
       return;
     }
 
+    // Put an empty window up first so the list renders where it belongs.
+    const floating = getSurfacePresentation() === "floatingWindow";
+    const detached = floating ? await openEmptyFloatingWindow() : false;
+
     const panel = vscode.window.createWebviewPanel(
       "porcelain.conflicts",
       "Conflicts",
-      vscode.ViewColumn.One,
+      vscode.ViewColumn.Active,
       {
         enableScripts: true,
         retainContextWhenHidden: true,
@@ -64,5 +73,13 @@ export class ConflictsManager {
       this.panel = null;
       routerDisposable.dispose();
     });
+
+    if (floating && !detached) {
+      await detachActiveEditor(
+        (tab) =>
+          tab.input instanceof vscode.TabInputWebview &&
+          tab.label === panel.title,
+      );
+    }
   }
 }

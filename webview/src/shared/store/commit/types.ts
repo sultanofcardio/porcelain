@@ -95,6 +95,8 @@ export interface CommitOperationSlice {
   commitAndPush: () => Promise<boolean>;
   rollbackFile: (filePath: string) => Promise<void>;
   showDiff: (filePath: string) => Promise<void>;
+  /** Open a conflicted file in the three-way merge editor. */
+  openMergeEditor: (filePath: string) => Promise<void>;
   shelveChanges: (message?: string, filePaths?: string[]) => Promise<void>;
   unshelveChanges: (stashId: string, drop?: boolean) => Promise<void>;
   deleteShelve: (stashId: string) => Promise<void>;

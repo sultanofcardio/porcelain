@@ -237,7 +237,10 @@ export async function activate(context: vscode.ExtensionContext) {
       (file?: string) => {
         const runtime = repoRegistry.getActive();
         if (!runtime) return;
-        mergeManager.openMergeEditor(runtime.descriptor.id, file ?? "untitled");
+        void mergeManager.openMergeEditor(
+          runtime.descriptor.id,
+          file ?? "untitled",
+        );
       },
     ),
     vscode.commands.registerCommand(
@@ -284,7 +287,7 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("porcelain.openConflicts", () => {
       const runtime = repoRegistry.getActive();
       if (!runtime) return;
-      conflictsManager.openConflictsPanel(runtime.descriptor.id);
+      void conflictsManager.openConflictsPanel(runtime.descriptor.id);
     }),
     vscode.commands.registerCommand(
       "porcelain.openMergeEditorFromSCM",
@@ -298,7 +301,7 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         const runtime = repoRegistry.getActive();
         if (!runtime) return;
-        mergeManager.openMergeEditor(runtime.descriptor.id, filePath);
+        void mergeManager.openMergeEditor(runtime.descriptor.id, filePath);
       },
     ),
     vscode.commands.registerCommand(
@@ -393,7 +396,7 @@ export async function activate(context: vscode.ExtensionContext) {
   messageRouter.handle("openMergeEditor", async (params, ctx) => {
     if (!ctx) return NOT_GIT_REPO;
     const file = (params.file as string) ?? "untitled";
-    mergeManager.openMergeEditor(ctx.repoId, file);
+    await mergeManager.openMergeEditor(ctx.repoId, file);
     return undefined;
   });
 
@@ -636,7 +639,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   messageRouter.handle("openConflictsPanel", async (_params, ctx) => {
     if (!ctx) return NOT_GIT_REPO;
-    conflictsManager.openConflictsPanel(ctx.repoId);
+    await conflictsManager.openConflictsPanel(ctx.repoId);
     return { success: true };
   });
 
