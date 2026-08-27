@@ -268,6 +268,19 @@
 }
 
 /* ─── File Item ────────────────────────────────────────────────── */
+/*
+ * A nested group, such as Merge Conflicts inside Changes. Indent its header to
+ * the same gutter the parent's files sit at, and its own files one step
+ * further, so the hierarchy is legible rather than a flat run of rows.
+ */
+.commit-group-files .commit-group > .commit-group-header {
+  padding-left: 20px;
+}
+
+.commit-group-files .commit-group .commit-file-item {
+  padding-left: 40px;
+}
+
 .commit-file-item {
   display: flex;
   align-items: center;

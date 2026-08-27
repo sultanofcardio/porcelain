@@ -23,6 +23,7 @@ export function CommitTab() {
     setFileKeys,
     highlightFile,
     showDiff,
+    openMergeEditor,
     fetchChanges,
     ideaShelveChanges,
   } = useCommitStore();
@@ -62,6 +63,10 @@ export function CommitTab() {
         }
       }
     }
+    // Git reports an unmerged path as `UU`, which also yields a working-tree
+    // record flattened to "modified". Without this the same file sits in both
+    // lists, once as a conflict and once as an ordinary change.
+    for (const file of conflicted) changed.delete(file.path);
     return {
       changedFiles: [...changed.values()],
       untrackedFiles: untracked,
@@ -136,46 +141,14 @@ export function CommitTab() {
       />
 
       <div className="commit-file-list">
-        {/* Merge Conflicts */}
-        {conflictedFiles.length > 0 && (
-          <FileGroup
-            label="Merge Conflicts"
-            files={conflictedFiles}
-            count={conflictedFiles.length}
-            expanded={expandedGroups.has("conflicts")}
-            groupByDirectory={groupByDirectory}
-            onToggle={() => toggleGroup("conflicts")}
-            selectedFiles={selectedFiles}
-            highlightedFiles={highlightedFiles}
-            onToggleFile={toggleFileSelection}
-            onSetFileKeys={setFileKeys}
-            onHighlightFile={highlightFile}
-            onShowDiff={showDiff}
-            onContextMenu={handleContextMenu}
-            onDirContextMenu={handleDirContextMenu}
-            action={
-              <span
-                className="commit-group-resolve-link"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  bridge.request("openConflictsPanel");
-                }}
-                onKeyDown={() => {}}
-                role="button"
-                tabIndex={0}
-              >
-                Resolve
-              </span>
-            }
-          />
-        )}
-
-        {/* Changes (tracked, modified) */}
-        {changedFiles.length > 0 && (
+        {/* Changes, with Merge Conflicts nested inside the way IntelliJ
+            shows them: unmerged paths are part of the changelist, not a
+            list of their own alongside it. */}
+        {(changedFiles.length > 0 || conflictedFiles.length > 0) && (
           <FileGroup
             label="Changes"
             files={changedFiles}
-            count={changedFiles.length}
+            count={changedFiles.length + conflictedFiles.length}
             expanded={expandedGroups.has("changes")}
             groupByDirectory={groupByDirectory}
             onToggle={() => toggleGroup("changes")}
@@ -187,7 +160,42 @@ export function CommitTab() {
             onShowDiff={showDiff}
             onContextMenu={handleContextMenu}
             onDirContextMenu={handleDirContextMenu}
-          />
+          >
+            {conflictedFiles.length > 0 && (
+              <FileGroup
+                label="Merge Conflicts"
+                files={conflictedFiles}
+                count={conflictedFiles.length}
+                expanded={expandedGroups.has("conflicts")}
+                groupByDirectory={groupByDirectory}
+                onToggle={() => toggleGroup("conflicts")}
+                selectedFiles={selectedFiles}
+                highlightedFiles={highlightedFiles}
+                onToggleFile={toggleFileSelection}
+                onSetFileKeys={setFileKeys}
+                onHighlightFile={highlightFile}
+                // A conflicted file has no meaningful two-sided diff yet, so
+                // opening it goes straight to the three-way merge editor.
+                onShowDiff={openMergeEditor}
+                onContextMenu={handleContextMenu}
+                onDirContextMenu={handleDirContextMenu}
+                action={
+                  <span
+                    className="commit-group-resolve-link"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      bridge.request("openConflictsPanel");
+                    }}
+                    onKeyDown={() => {}}
+                    role="button"
+                    tabIndex={0}
+                  >
+                    Resolve
+                  </span>
+                }
+              />
+            )}
+          </FileGroup>
         )}
 
         {/* Unversioned Files */}
@@ -258,6 +266,8 @@ interface FileGroupProps {
     dirName: string,
   ) => void;
   action?: React.ReactNode;
+  /** Rendered above this group's own files, for a nested group. */
+  children?: React.ReactNode;
 }
 
 function FileGroup({
@@ -276,6 +286,7 @@ function FileGroup({
   onContextMenu,
   onDirContextMenu,
   action,
+  children,
 }: FileGroupProps) {
   const allKeys = useMemo(() => files.map((f) => workingTreeKey(f)), [files]);
   const allSelected = allKeys.every((k) => selectedFiles.has(k));
@@ -375,6 +386,7 @@ function FileGroup({
           tabIndex={0}
           onKeyDown={handleKeyDown}
         >
+          {children}
           {groupByDirectory ? (
             <DirectoryTree
               files={files}

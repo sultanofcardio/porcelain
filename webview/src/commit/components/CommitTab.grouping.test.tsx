@@ -11,6 +11,7 @@ vi.mock("../../shared/bridge", () => ({
 
 const { useCommitStore } = await import("../../shared/store/commit-store");
 const { CommitTab } = await import("./CommitTab");
+const { bridge } = await import("../../shared/bridge");
 
 afterEach(cleanup);
 
@@ -64,5 +65,86 @@ describe("Commit panel grouping", () => {
     const { getByText } = renderTab();
     expect(getByText(/Unversioned Files/i)).toBeTruthy();
     expect(getByText("NOTES.md")).toBeTruthy();
+  });
+
+  it("nests merge conflicts inside Changes rather than beside it", () => {
+    useCommitStore.setState({
+      changes: [
+        // Git reports an unmerged path as UU, which also yields a working-tree
+        // record flattened to "modified".
+        { path: "src/db/pool.ts", status: "conflicted", staged: true },
+        { path: "src/db/pool.ts", status: "modified", staged: false },
+        { path: "src/config.ts", status: "modified", staged: false },
+      ] as never,
+      selectedFiles: new Set<string>(),
+      highlightedFiles: new Set<string>(),
+      loading: false,
+    });
+    const { getByText, getAllByText } = render(<CommitTab />);
+
+    const conflicts = getByText("Merge Conflicts").closest(".commit-group");
+    const changes = getByText("Changes").closest(".commit-group");
+
+    expect(changes).not.toBeNull();
+    expect(conflicts).not.toBeNull();
+    expect(changes?.contains(conflicts as Node)).toBe(true);
+
+    // The conflicted path appears once, under the nested group, not also as an
+    // ordinary change in the parent.
+    expect(getAllByText("pool.ts")).toHaveLength(1);
+    expect(conflicts?.contains(getByText("pool.ts"))).toBe(true);
+  });
+
+  it("counts the nested conflicts in the parent group total", () => {
+    useCommitStore.setState({
+      changes: [
+        { path: "src/db/pool.ts", status: "conflicted", staged: true },
+        { path: "src/db/pool.ts", status: "modified", staged: false },
+        { path: "src/config.ts", status: "modified", staged: false },
+      ] as never,
+      selectedFiles: new Set<string>(),
+      highlightedFiles: new Set<string>(),
+      loading: false,
+    });
+    const { getByText } = render(<CommitTab />);
+
+    const header = getByText("Changes").closest(".commit-group-header");
+    expect(header?.textContent).toContain("2 files");
+  });
+
+  it("still shows Changes when a conflict is the only entry", () => {
+    useCommitStore.setState({
+      changes: [
+        { path: "src/db/pool.ts", status: "conflicted", staged: true },
+        { path: "src/db/pool.ts", status: "modified", staged: false },
+      ] as never,
+      selectedFiles: new Set<string>(),
+      highlightedFiles: new Set<string>(),
+      loading: false,
+    });
+    const { getByText } = render(<CommitTab />);
+
+    // Without this the conflicts would have nowhere to nest and vanish.
+    expect(getByText("Changes")).toBeTruthy();
+    expect(getByText("Merge Conflicts")).toBeTruthy();
+  });
+
+  it("opens a conflicted file in the merge editor, not a diff", async () => {
+    vi.mocked(bridge.request).mockClear();
+    useCommitStore.setState({
+      changes: [
+        { path: "src/db/pool.ts", status: "conflicted", staged: true },
+      ] as never,
+      selectedFiles: new Set<string>(),
+      highlightedFiles: new Set<string>(),
+      loading: false,
+    });
+    const { getByText } = render(<CommitTab />);
+
+    await useCommitStore.getState().openMergeEditor("src/db/pool.ts");
+    expect(getByText("Merge Conflicts")).toBeTruthy();
+    expect(bridge.request).toHaveBeenCalledWith("openMergeEditor", {
+      file: "src/db/pool.ts",
+    });
   });
 });
