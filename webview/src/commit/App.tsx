@@ -481,16 +481,26 @@ export function MergeBanner({ repoId }: { repoId: string | null }) {
         alignItems: "center",
         gap: 8,
         padding: "6px 12px",
-        background: "#e8f5e9",
-        borderBottom: "1px solid #c8e6c9",
+        // The banner tokens are made for exactly this: a notice strip whose
+        // foreground is guaranteed readable on its own background in every
+        // theme. The previous pairing was a fixed light green under
+        // --app-fg, which is a light foreground, so the label washed out.
+        background: "var(--vscode-banner-background, #04395e)",
+        color: "var(--vscode-banner-foreground, #fff)",
+        borderBottom: "1px solid var(--border, #333)",
         fontSize: 12,
         flexShrink: 0,
       }}
     >
-      <span style={{ fontSize: 14 }}>⚠️</span>
-      <span style={{ fontWeight: 600, flex: 1, color: "var(--app-fg, #ccc)" }}>
-        {label}
+      <span
+        style={{
+          fontSize: 14,
+          color: "var(--vscode-banner-iconForeground, #3794ff)",
+        }}
+      >
+        ⚠️
       </span>
+      <span style={{ fontWeight: 600, flex: 1 }}>{label}</span>
       <Tooltip text="Resolve Conflicts" position="top">
         <div
           role="button"
