@@ -94,6 +94,8 @@ export type CommandType =
   | "getTags"
   | "getDiff"
   | "getFileContent"
+  | "getDiffSides"
+  | "stepDiffFile"
   | "getCommitFiles"
   | "getStatus"
   | "openDiffEditor"

@@ -5,6 +5,7 @@ import { CommitApp } from "./commit/App";
 import { CompareApp } from "./compare/App";
 import { ConflictsApp } from "./conflicts/App";
 import { MergeStandaloneApp } from "./conflicts/MergeStandaloneApp";
+import { DiffApp } from "./diff/App";
 import { PanelApp } from "./panel/App";
 import { PushApp } from "./push/App";
 import { RollbackApp } from "./rollback/App";
@@ -33,6 +34,7 @@ const mode = root.dataset.mode as
   | "rollback"
   | "compare"
   | "changes"
+  | "diff"
   | undefined;
 
 // Initialize the bridge's repo context from the host-supplied data-repo-id
@@ -42,7 +44,9 @@ if (initialRepoId) bridge.setRepoContext(initialRepoId);
 
 createRoot(root).render(
   <StrictMode>
-    {mode === "merge" ? (
+    {mode === "diff" ? (
+      <DiffApp />
+    ) : mode === "merge" ? (
       <MergeStandaloneApp />
     ) : mode === "conflicts" ? (
       <ConflictsApp />

@@ -1,5 +1,22 @@
 # Changelog / 更新日志
 
+## [Unreleased]
+
+### Added
+- **Porcelain diff viewer** — an optional JetBrains-style diff surface rendered in a webview, behind `porcelain.diff.viewer`. Paired centre gutter with each side's own line numbers, curved Bézier connectors between changed regions, per-side revision headers, a live difference count, a change stripe with click-to-jump, and a settings menu whose options apply to that window only and are forgotten when it closes
+- **Per-window diff options** — ignore whitespace, highlight granularity (line / word / character / off), collapse unchanged fragments and synchronised scrolling. VS Code's `diffEditor.*` equivalents are global settings, so these have no native counterpart
+
+### Changed
+- **Diff titles carry position and both revisions** — a diff is now titled `panel-store.ts · 3 of 7 · 07748ba ↔ af89dd2`. File-stepper position used to be reported through a transient status-bar message, which the compact floating diff window never shows
+- **`Next File Diff` / `Previous File Diff` renamed** to `Next File` / `Previous File`
+
+### Fixed
+- **Branch and tag names no longer truncated in diff titles** — the title shortened every ref with a blind `substring(0, 7)`, turning `feature/long-name` into `feature`. Only actual object names are abbreviated now
+- **Unsupported languages are no longer highlighted as TypeScript** — the merge editor fell back to TypeScript's grammar for anything outside the six Shiki loads, colouring Go, Python and YAML with confidently wrong rules. The diff viewer falls back to plain text instead
+
+### Notes
+- The diff viewer defaults to **off**. Diffs against the working tree always use the built-in editor so that side stays editable, and binary, image and very large diffs will fall back to it too. It needs find, keyboard navigation and a screen-reader story before it can reasonably become the default
+
 ## [0.8.0] - 2026-08-26
 
 ### Changed / 变更

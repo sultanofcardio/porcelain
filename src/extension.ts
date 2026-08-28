@@ -32,6 +32,7 @@ import {
 } from "./views/comparePanelManager";
 import { ConflictsManager } from "./views/conflictsManager";
 import { DiffEditorManager } from "./views/diffEditorManager";
+import { DiffViewerManager } from "./views/diffViewerManager";
 import { DiffWindow } from "./views/diffWindow";
 import {
   GitContentProvider,
@@ -168,7 +169,9 @@ export async function activate(context: vscode.ExtensionContext) {
     ),
   );
 
-  const diffWindow = new DiffWindow();
+  const diffViewer = new DiffViewerManager(context.extensionUri, messageRouter);
+  context.subscriptions.push({ dispose: () => diffViewer.dispose() });
+  const diffWindow = new DiffWindow(diffViewer);
   const diffManager = new DiffEditorManager(repoRegistry, diffWindow);
 
   // 2c. CommitViewProvider (always registered)
@@ -502,6 +505,44 @@ export async function activate(context: vscode.ExtensionContext) {
     const ref = params.ref as string;
     const filePath = params.filePath as string;
     return ctx.gitService.getFileContent(ref, filePath);
+  });
+
+  messageRouter.handle("getDiffSides", async (params, ctx) => {
+    if (!ctx) {
+      return NOT_GIT_REPO;
+    }
+    const filePath = params.filePath as string;
+    const leftRef = params.leftRef as string;
+    const rightRef = params.rightRef as string;
+
+    // A side missing from its revision is not an error: it is how an added or
+    // deleted file diffs, and the empty string is exactly what the model needs.
+    const read = async (ref: string) => {
+      if (!ref || ref === EMPTY_CONTENT_REF) return "";
+      try {
+        return await ctx.gitService.getFileContent(ref, filePath);
+      } catch {
+        return "";
+      }
+    };
+
+    const [left, right] = await Promise.all([read(leftRef), read(rightRef)]);
+    return {
+      left,
+      right,
+      filePath,
+      leftRef,
+      rightRef,
+      language: extToLanguage(filePath.split(".").pop() ?? ""),
+    };
+  });
+
+  messageRouter.handle("stepDiffFile", async (params) => {
+    // The file list lives on the host; the webview only says which way to go.
+    const delta = Number(params.delta ?? 1);
+    const moved =
+      delta > 0 ? await diffManager.nextDiff() : await diffManager.prevDiff();
+    return { moved };
   });
 
   messageRouter.handle("getCommitFiles", async (params, ctx) => {

@@ -123,14 +123,14 @@
       },
       {
         "command": "porcelain.nextDiff",
-        "title": "Next File Diff",
-        "icon": "$(arrow-down)",
+        "title": "Next File",
+        "icon": "$(chevron-right)",
         "category": "Porcelain"
       },
       {
         "command": "porcelain.prevDiff",
-        "title": "Previous File Diff",
-        "icon": "$(arrow-up)",
+        "title": "Previous File",
+        "icon": "$(chevron-left)",
         "category": "Porcelain"
       },
       {
@@ -191,6 +191,19 @@
           ],
           "default": "floatingWindow",
           "markdownDescription": "Where Porcelain shows file diffs, changed-file lists, the conflicts view and the three-way merge editor. Separate windows open compact, stripped back to their content. Falls back to editor tabs when the editor build cannot open a separate window."
+        },
+        "porcelain.diff.viewer": {
+          "type": "string",
+          "enum": [
+            "native",
+            "porcelain"
+          ],
+          "enumDescriptions": [
+            "VS Code's built-in diff editor. Keeps find, hovers, go-to-definition and screen-reader support.",
+            "Porcelain's own diff surface: paired centre gutter, curved connectors, per-side revision headers and a live difference count."
+          ],
+          "default": "native",
+          "markdownDescription": "Which renderer shows file diffs. Diffs against the working tree always use the built-in editor, so that side stays editable."
         }
       }
     },

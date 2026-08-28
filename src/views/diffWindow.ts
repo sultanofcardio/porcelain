@@ -1,5 +1,10 @@
 import * as vscode from "vscode";
 import {
+  type DiffViewerManager,
+  getConfiguredViewer,
+  toDiffSpec,
+} from "./diffViewerManager";
+import {
   detachActiveEditor,
   getSurfacePresentation,
   isLiveGroup,
@@ -58,6 +63,14 @@ export function supersededDiffTabs(
 export class DiffWindow {
   private column: vscode.ViewColumn | undefined;
 
+  /**
+   * `viewer` is the Porcelain diff surface, when one is available. Routing
+   * lives here because every diff in the extension funnels through `show()`,
+   * so one decision covers commit diffs, comparisons, shelves and history
+   * without touching any of their call sites.
+   */
+  constructor(private readonly viewer?: DiffViewerManager) {}
+
   /** The view column currently hosting the diff window, if it is still open. */
   get activeColumn(): vscode.ViewColumn | undefined {
     return this.liveColumn();
@@ -68,6 +81,15 @@ export class DiffWindow {
     right: vscode.Uri,
     title: string,
   ): Promise<void> {
+    const spec =
+      this.viewer && getConfiguredViewer() === "porcelain"
+        ? toDiffSpec(left, right, title)
+        : null;
+    if (this.viewer && spec) {
+      await this.viewer.show(spec);
+      return;
+    }
+
     if (getSurfacePresentation() === "editorTab") {
       await vscode.commands.executeCommand("vscode.diff", left, right, title);
       return;

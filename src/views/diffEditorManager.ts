@@ -5,6 +5,48 @@ import type { DiffFile } from "../git/types";
 import type { DiffWindow } from "./diffWindow";
 import { buildGitContentUri } from "./gitUri";
 
+/**
+ * Shorten a revision for display. Only abbreviates things that actually look
+ * like object names — a branch or tag keeps its full name, which the previous
+ * blind `substring(0, 7)` did not (it turned `feature/long-name` into
+ * `feature`).
+ */
+export function shortenRef(ref: string): string {
+  if (!ref) return "";
+  return /^[0-9a-f]{8,40}$/i.test(ref) ? ref.slice(0, 7) : ref;
+}
+
+/**
+ * The diff title, which is also where the file-stepper position is reported:
+ * VS Code has no API for a toolbar item with a runtime label, and the compact
+ * floating window shows no status bar, so the title is the only place a live
+ * readout can go.
+ *
+ * `panel-store.ts · 3 of 7 · 07748ba ↔ af89dd2`
+ */
+export function buildDiffTitle(parts: {
+  filePath: string;
+  leftRef: string;
+  rightRef: string;
+  position?: { current: number; total: number } | null;
+  cherryPickCount?: number;
+}): string {
+  const { filePath, leftRef, rightRef, position, cherryPickCount } = parts;
+  const segments = [filePath.split("/").pop() || filePath];
+
+  if (position) segments.push(`${position.current} of ${position.total}`);
+
+  if (cherryPickCount && cherryPickCount > 1) {
+    segments.push(`${cherryPickCount} commits`);
+  } else {
+    const left = shortenRef(leftRef);
+    const right = shortenRef(rightRef);
+    segments.push(left ? `${left} ↔ ${right}` : right);
+  }
+
+  return segments.join(" · ");
+}
+
 export class DiffEditorManager {
   /** Current diff navigation state */
   private diffFiles: DiffFile[] = [];
@@ -40,6 +82,19 @@ export class DiffEditorManager {
     this.diffIndex = index;
   }
 
+  /**
+   * Where the open diff sits in the file list, 1-based, or null when there is
+   * no list or nothing has been opened from it yet.
+   *
+   * This is what the diff title reports. VS Code has no API for a toolbar item
+   * with a runtime label, so the readout lives in the title rather than beside
+   * the file-stepper buttons.
+   */
+  get position(): { current: number; total: number } | null {
+    if (this.diffFiles.length === 0 || this.diffIndex < 0) return null;
+    return { current: this.diffIndex + 1, total: this.diffFiles.length };
+  }
+
   /** Navigate to next file diff */
   async nextDiff(): Promise<boolean> {
     if (this.diffFiles.length === 0) {
@@ -73,14 +128,8 @@ export class DiffEditorManager {
     if (!file) return;
     const filePath = file.newPath || file.oldPath;
 
-    // Show status message
-    const total = this.diffFiles.length;
-    const current = this.diffIndex + 1;
-    void vscode.window.setStatusBarMessage(
-      `$(arrow-right) File ${current}/${total}: ${filePath.split("/").pop()}  —  Press again to go to the next file`,
-      5000,
-    );
-
+    // No status-bar message: the position is in the diff title now, which is
+    // visible from the floating window. The status bar is not.
     await this.openDiffEditor(
       this.diffRepoId,
       this.diffCommit,
@@ -160,15 +209,13 @@ export class DiffEditorManager {
         break;
     }
 
-    // Build title
-    const fileName = filePath.split("/").pop() ?? filePath;
-    const shortHash = commit.substring(0, 7);
-    const title =
-      cherryPickHashes && cherryPickHashes.length > 1
-        ? `${fileName} (${cherryPickHashes.length} commits)`
-        : baseRef
-          ? `${fileName} (${baseRef.substring(0, 7)}..${shortHash})`
-          : `${fileName} (${shortHash})`;
+    const title = buildDiffTitle({
+      filePath,
+      leftRef,
+      rightRef,
+      position: this.position,
+      cherryPickCount: cherryPickHashes?.length,
+    });
 
     await this.diffWindow.show(leftUri, rightUri, title);
   }
