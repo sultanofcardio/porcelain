@@ -32,7 +32,7 @@ import {
 } from "./views/comparePanelManager";
 import { ConflictsManager } from "./views/conflictsManager";
 import { DiffEditorManager } from "./views/diffEditorManager";
-import { DiffViewerManager } from "./views/diffViewerManager";
+import { DiffViewerManager, refLabel } from "./views/diffViewerManager";
 import { DiffWindow } from "./views/diffWindow";
 import {
   GitContentProvider,
@@ -48,6 +48,8 @@ import {
   EMPTY_CONTENT_REF,
   getWorkingTreeDiffKind,
   getWorkingTreeDiffResources,
+  WORKING_INDEX_REF,
+  WORKING_TREE_REF,
   type WorkingTreeDiffResource,
 } from "./views/workingTreeDiffModel";
 import { GitWatcher } from "./watchers/gitWatcher";
@@ -517,9 +519,24 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // A side missing from its revision is not an error: it is how an added or
     // deleted file diffs, and the empty string is exactly what the model needs.
+    // The same is true of a working-tree read for a file that is not there.
     const read = async (ref: string) => {
       if (!ref || ref === EMPTY_CONTENT_REF) return "";
       try {
+        if (ref === WORKING_TREE_REF) {
+          const onDisk = vscode.Uri.joinPath(
+            vscode.Uri.file(ctx.paths.workTreeRoot),
+            filePath,
+          );
+          return Buffer.from(
+            await vscode.workspace.fs.readFile(onDisk),
+          ).toString("utf8");
+        }
+        if (ref === WORKING_INDEX_REF) {
+          return (await ctx.gitService.getIndexFileContent(filePath)).toString(
+            "utf8",
+          );
+        }
         return await ctx.gitService.getFileContent(ref, filePath);
       } catch {
         return "";
@@ -533,6 +550,8 @@ export async function activate(context: vscode.ExtensionContext) {
       filePath,
       leftRef,
       rightRef,
+      leftLabel: refLabel(leftRef),
+      rightLabel: refLabel(rightRef),
       language: extToLanguage(filePath.split(".").pop() ?? ""),
     };
   });

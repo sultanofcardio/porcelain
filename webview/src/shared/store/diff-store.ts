@@ -28,6 +28,9 @@ export interface DiffStoreState {
   filePath: string;
   leftRef: string;
   rightRef: string;
+  /** Display labels from the host, which owns how content is addressed. */
+  leftLabel: string;
+  rightLabel: string;
   language: string;
   loading: boolean;
   error: string | null;
@@ -53,6 +56,8 @@ export interface DiffStoreState {
     filePath: string;
     leftRef: string;
     rightRef: string;
+    leftLabel: string;
+    rightLabel: string;
     language: string;
   }) => void;
   setError: (message: string | null) => void;
@@ -100,6 +105,8 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
   filePath: "",
   leftRef: "",
   rightRef: "",
+  leftLabel: "",
+  rightLabel: "",
   language: "plaintext",
   loading: true,
   error: null,
@@ -155,6 +162,8 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         right: state.left,
         leftRef: state.rightRef,
         rightRef: state.leftRef,
+        leftLabel: state.rightLabel,
+        rightLabel: state.leftLabel,
       };
       return {
         ...swapped,

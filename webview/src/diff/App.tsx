@@ -22,6 +22,8 @@ interface DiffSides {
   filePath: string;
   leftRef: string;
   rightRef: string;
+  leftLabel: string;
+  rightLabel: string;
   language: string;
 }
 

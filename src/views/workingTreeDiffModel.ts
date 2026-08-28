@@ -3,6 +3,16 @@ import type { WorkingTreeFile } from "../git/types";
 export const WORKING_INDEX_REF = "__porcelain_index__";
 export const EMPTY_CONTENT_REF = "empty";
 
+/**
+ * Stands in for the file on disk where a ref is expected.
+ *
+ * The native diff addresses the working tree with a real `file:` URI, which is
+ * what keeps that side editable. The Porcelain viewer has no URI to hand — it
+ * asks the host for content by ref — so it names the working tree the same way
+ * the index is already named.
+ */
+export const WORKING_TREE_REF = "__porcelain_worktree__";
+
 export type WorkingTreeDiffKind =
   | { left: "head"; right: "index" }
   | { left: "index"; right: "workingTree" }
