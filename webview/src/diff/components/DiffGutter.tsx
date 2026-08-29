@@ -7,13 +7,7 @@ import {
   displayToSource,
   type FoldRegion,
 } from "../utils/diff-model";
-import {
-  GUTTER_GAP_END,
-  GUTTER_GAP_START,
-  GUTTER_NUMBER_WIDTH,
-  GUTTER_WIDTH,
-  LINE_HEIGHT,
-} from "./metrics";
+import { gutterMetrics, LINE_HEIGHT } from "./metrics";
 
 interface DiffGutterProps {
   chunks: DiffChunk[];
@@ -71,6 +65,11 @@ export function DiffGutter({
 }: DiffGutterProps) {
   const height = (visibleLines + 2) * LINE_HEIGHT;
 
+  // Sized from the larger side's line count, so a five-digit file widens the
+  // columns instead of crowding them. The connectors' bend stays confined to
+  // the gap because the gap moves with the columns.
+  const metrics = gutterMetrics(Math.max(leftLineCount, rightLineCount));
+
   // Offsets and edges are display rows; with no folds that is source lines,
   // and the arithmetic is unchanged. Connector edges sit on non-equal chunk
   // boundaries, which folds never hide — but the folds *above* an edge shift
@@ -98,9 +97,9 @@ export function DiffGutter({
         path: connectorPath(
           { ay0, ay1, by0, by1 },
           {
-            width: GUTTER_WIDTH,
-            gapStart: GUTTER_GAP_START,
-            gapEnd: GUTTER_GAP_END,
+            width: metrics.width,
+            gapStart: metrics.gapStart,
+            gapEnd: metrics.gapEnd,
             // Matches `.diff-anchor`, so the band leaves the gutter at exactly
             // the thickness the pane's marker continues at.
             minThickness: ANCHOR_THICKNESS,
@@ -146,7 +145,7 @@ export function DiffGutter({
 
   if (only) {
     return (
-      <div className="diff-gutter" style={{ width: GUTTER_NUMBER_WIDTH + 8 }}>
+      <div className="diff-gutter" style={{ width: metrics.numberWidth + 8 }}>
         <div className="diff-gutter-column" style={{ left: 0, right: 0 }}>
           {only === "left"
             ? numbers(leftOffset, leftLineCount, "right", "left")
@@ -157,10 +156,10 @@ export function DiffGutter({
   }
 
   return (
-    <div className="diff-gutter" style={{ width: GUTTER_WIDTH }}>
+    <div className="diff-gutter" style={{ width: metrics.width }}>
       <svg
         className="diff-gutter-connectors"
-        width={GUTTER_WIDTH}
+        width={metrics.width}
         height={height}
         aria-hidden="true"
       >
@@ -177,13 +176,13 @@ export function DiffGutter({
           clear for the connectors to bend in. */}
       <div
         className="diff-gutter-column"
-        style={{ left: 0, width: GUTTER_NUMBER_WIDTH }}
+        style={{ left: 0, width: metrics.numberWidth }}
       >
         {numbers(leftOffset, leftLineCount, "right", "left")}
       </div>
       <div
         className="diff-gutter-column"
-        style={{ right: 0, width: GUTTER_NUMBER_WIDTH }}
+        style={{ right: 0, width: metrics.numberWidth }}
       >
         {numbers(rightOffset, rightLineCount, "left", "right")}
       </div>
