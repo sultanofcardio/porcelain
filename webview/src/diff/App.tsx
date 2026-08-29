@@ -128,9 +128,19 @@ export function DiffApp() {
         return;
       }
       // IntelliJ's diff bindings. Not while typing: the find input owns its
-      // own keys, and stealing arrows from it would break editing.
+      // own keys, and stealing arrows from it would break editing. Only
+      // editable elements qualify — buttons also carry a `value` property,
+      // and a focused toolbar button must not swallow F7.
       const target = event.target as HTMLElement | null;
-      if (target && ("value" in target || target.isContentEditable)) return;
+      const tag = target?.tagName;
+      if (
+        target &&
+        (tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          target.isContentEditable)
+      )
+        return;
       if (event.key === "F7") {
         stepRef.current(event.shiftKey ? -1 : 1);
         event.preventDefault();
@@ -162,10 +172,19 @@ export function DiffApp() {
   const { matches, chunks, folds, axis: axisTotal } = store;
   const matchPositions = useMemo(() => {
     if (matches.length === 0) return [];
+    // Axis positions memoised per (side, line), the same way computeMatches
+    // does: sideToAxis walks the chunk list, and a busy query can hit
+    // thousands of matches on far fewer distinct lines.
+    const axisOf = new Map<string, number>();
     const seen = new Set<number>();
     const positions: number[] = [];
     for (const match of matches) {
-      const axis = sideToAxis(chunks, match.line, match.side, folds);
+      const key = `${match.side}:${match.line}`;
+      let axis = axisOf.get(key);
+      if (axis === undefined) {
+        axis = sideToAxis(chunks, match.line, match.side, folds);
+        axisOf.set(key, axis);
+      }
       const cell = Math.round((axis / Math.max(1, axisTotal)) * 400);
       if (seen.has(cell)) continue;
       seen.add(cell);

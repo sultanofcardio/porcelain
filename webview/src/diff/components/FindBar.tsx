@@ -31,16 +31,19 @@ export function FindBar({ onJump }: FindBarProps) {
   }, []);
 
   // Every path that changes the active match funnels through here, so typing,
-  // stepping and option toggles all reveal their result the same way.
-  const { activeMatch } = store;
+  // stepping and option toggles all reveal their result the same way. Keyed on
+  // the match itself, not its index: a query change recomputes the list and
+  // resets the index to 0, so a new first match at an unchanged index must
+  // still re-fire the reveal.
+  const currentMatch = store.matches[store.activeMatch];
   useEffect(() => {
-    if (activeMatch < 0) return;
+    if (!currentMatch) return;
     // A hit inside a collapsed run expands its fold first — jumping to a
     // match the viewer then cannot show would make the count read as a lie.
     useDiffStore.getState().revealActiveMatch();
     const axis = useDiffStore.getState().activeMatchAxis();
     if (axis !== null) onJump(Math.max(0, axis - 2));
-  }, [activeMatch, onJump]);
+  }, [currentMatch, onJump]);
 
   const count = store.matches.length;
 

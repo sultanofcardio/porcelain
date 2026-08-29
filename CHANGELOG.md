@@ -15,7 +15,7 @@
 - **Unsupported languages are no longer highlighted as TypeScript** — the merge editor fell back to TypeScript's grammar for anything outside the six Shiki loads, colouring Go, Python and YAML with confidently wrong rules. The diff viewer falls back to plain text instead
 
 ### Notes
-- The diff viewer defaults to **off**. Diffs against the working tree always use the built-in editor so that side stays editable, and binary, image and very large diffs will fall back to it too. It needs find, keyboard navigation and a screen-reader story before it can reasonably become the default
+- The diff viewer still defaults to **off**. Working-tree diffs route to the Porcelain viewer too — that side is no longer editable in place, and Edit Source is the way back to the real file. Binary and image diffs and very large text diffs show an in-viewer placeholder with an **Open in editor** action (images render side by side, oversized text offers Show anyway). Find, keyboard navigation and the screen-reader story are now in place; flipping the default to `porcelain` is a deliberate follow-up
 
 ## [0.8.0] - 2026-08-26
 

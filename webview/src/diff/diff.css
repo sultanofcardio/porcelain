@@ -449,6 +449,13 @@ button.diff-menu-step:focus-visible {
   overflow-y: auto;
   overflow-x: hidden;
 }
+/* The viewport is focusable (it carries the native keyboard scrolling), so a
+   keyboard user needs to see when it holds focus, same as every button. Inset
+   so the ring survives the panes painting edge to edge. */
+.diff-viewport:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, #4d9de0);
+  outline-offset: -1px;
+}
 /* Gives the scrollbar its range; the panes are painted over it. */
 .diff-axis {
   width: 1px;

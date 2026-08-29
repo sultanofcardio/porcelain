@@ -20,9 +20,11 @@ export type DiffViewer = "native" | "porcelain";
 export const VIEWER_SETTING = "diff.viewer";
 
 /**
- * Read the configured diff viewer. Defaults to the native editor: the webview
- * surface has to earn the default by being at least as capable, and until it
- * has find, keyboard navigation and a screen-reader story it is not.
+ * Read the configured diff viewer. Still defaults to the native editor even
+ * though the surface now handles working-tree diffs, shows in-viewer
+ * placeholders for binary, image and oversized content, and has find,
+ * keyboard navigation and a screen-reader story — flipping the default to
+ * "porcelain" is a deliberate follow-up, not blocked on capability.
  */
 export function getConfiguredViewer(): DiffViewer {
   const configured = vscode.workspace
