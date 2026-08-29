@@ -745,6 +745,11 @@ button.diff-fold-row:focus-visible {
   min-width: 0;
   height: 100%;
   cursor: text;
+  /* The host speaks the rows' own typeface, so anything measuring or
+     inheriting from it — the caret geometry, the IME popup's font — agrees
+     with what the pane renders. */
+  font-family: var(--editor-font);
+  font-size: var(--editor-font-size);
 }
 .diff-editor-overlay {
   position: absolute;

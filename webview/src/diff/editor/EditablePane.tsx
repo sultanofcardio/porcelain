@@ -60,17 +60,33 @@ interface EditablePaneProps {
 
 const PANE_TEXT_PADDING = 10;
 
-/** Width of one monospace cell in the editor font, in px. */
+/**
+ * Width of one monospace cell in the *editor* font, in px.
+ *
+ * Measured from the `--editor-font` custom properties, never from the host's
+ * computed font: the host inherits the app's UI font, and a cell width taken
+ * from 13px sans-serif overshoots the mono rows' true width — which drew the
+ * caret a few columns right of where edits actually landed, growing with
+ * indent depth (the hand-test's "text is 4 places left of the caret").
+ */
 function useCharWidth(host: React.RefObject<HTMLDivElement | null>): number {
   const [width, setWidth] = useState(7.2);
   useEffect(() => {
     const element = host.current;
     if (!element) return;
     const style = window.getComputedStyle(element);
+    const fontSize =
+      style.getPropertyValue("--editor-font-size").trim() ||
+      style.fontSize ||
+      "12px";
+    const fontFamily =
+      style.getPropertyValue("--editor-font").trim() ||
+      style.fontFamily ||
+      "monospace";
     const canvas = document.createElement("canvas");
     const context = canvas.getContext("2d");
     if (!context) return;
-    context.font = `${style.fontSize || "12px"} ${style.fontFamily || "monospace"}`;
+    context.font = `${fontSize} ${fontFamily}`;
     const measured = context.measureText("0").width;
     if (measured > 0) setWidth(measured);
   }, [host]);
