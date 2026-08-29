@@ -213,15 +213,29 @@ button.diff-btn-on {
   border-color: var(--border);
 }
 
-/* ── find bar ────────────────────────────────────────────── */
+/* ── find bars ───────────────────────────────────────────── */
+/* One bar per pane. The grid's middle column is set inline to the gutter's
+   width, so each bar sits exactly over the pane it searches. */
+.diff-find-row {
+  display: grid;
+  border-bottom: 1px solid var(--border);
+  background: var(--vscode-editorWidget-background, var(--panel, #2d2d30));
+  flex: none;
+}
+.diff-find-row-single {
+  display: block;
+}
+.diff-find-gap {
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
 .diff-find {
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 4px 8px;
-  border-bottom: 1px solid var(--border);
-  background: var(--vscode-editorWidget-background, var(--panel, #2d2d30));
-  flex: none;
+  min-width: 0;
 }
 .diff-find-input {
   flex: 1 1 160px;
@@ -269,19 +283,28 @@ button.diff-find-chip:focus-visible {
 }
 
 /* Matches on top of everything else the line carries — the modified-line
-   background, the word-level highlight — without displacing either. */
+   background, the word-level highlight — without displacing either. The
+   inset shadow is a visibility floor: it tints over whatever the theme's
+   token resolves to, so a theme with a faint find colour cannot wash the
+   matches out against the coloured diff rows. */
 .diff-found {
   background: var(
     --vscode-editor-findMatchHighlightBackground,
-    rgba(229, 192, 123, 0.35)
+    rgba(250, 190, 80, 0.4)
   );
+  box-shadow: inset 0 0 0 2em rgba(250, 190, 80, 0.25);
   border-radius: 2px;
 }
+/* The one the stepper is on wears a box, after IntelliJ — an outline rather
+   than a border, so the text never shifts. */
 .diff-found-active {
   background: var(
     --vscode-editor-findMatchBackground,
-    rgba(229, 192, 123, 0.55)
+    rgba(250, 190, 80, 0.55)
   );
+  box-shadow: inset 0 0 0 2em rgba(250, 190, 80, 0.3);
+  outline: 1.5px solid var(--vscode-editor-findMatchBorder, #ffcc66);
+  outline-offset: 1px;
   border-radius: 2px;
 }
 

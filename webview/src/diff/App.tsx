@@ -15,7 +15,7 @@ import { DiffGutter } from "./components/DiffGutter";
 import { DiffPane } from "./components/DiffPane";
 import { DiffToolbar } from "./components/DiffToolbar";
 import { FindBar } from "./components/FindBar";
-import { LINE_HEIGHT } from "./components/metrics";
+import { gutterMetrics, LINE_HEIGHT } from "./components/metrics";
 import { RevisionHeader } from "./components/RevisionHeader";
 import { UnifiedPane } from "./components/UnifiedPane";
 import {
@@ -165,7 +165,20 @@ export function DiffApp() {
   const rightLines = splitLines(store.right);
   const visibleLines = Math.ceil(viewportHeight / LINE_HEIGHT);
 
-  const activeMatch = store.matches[store.activeMatch] ?? null;
+  // Both bars' hits highlight; the box goes to the current match of the bar
+  // that last acted.
+  const { findLeft, findRight, activeFindSide } = store;
+  const matches = useMemo(
+    () => [...findLeft.matches, ...findRight.matches],
+    [findLeft.matches, findRight.matches],
+  );
+  const activeFind =
+    activeFindSide === null
+      ? null
+      : activeFindSide === "left"
+        ? findLeft
+        : findRight;
+  const activeMatch = activeFind?.matches[activeFind.activeMatch] ?? null;
 
   // An added or deleted file collapses to one pane — see `chooseLayout` —
   // and the unified toggle has nothing to unify there.
@@ -212,7 +225,7 @@ export function DiffApp() {
   // stripe is a few hundred pixels tall, and a common query in a big file can
   // hit thousands of lines — distinct marks past one per half-percent are
   // just DOM.
-  const { matches, chunks, folds } = store;
+  const { chunks, folds } = store;
   const matchPositions = useMemo(() => {
     if (matches.length === 0) return [];
     // Positions memoised per (side, line), the same way computeMatches does:
@@ -277,7 +290,41 @@ export function DiffApp() {
         onEditSource={() => void bridge.request("openFile", { filePath })}
         onFile={(delta) => void bridge.request("stepDiffFile", { delta })}
       />
-      {store.findOpen && <FindBar key={findNonce} onJump={scrollToAxis} />}
+      {store.findOpen &&
+        (layout.mode === "single" ? (
+          // One pane, one bar — the absent side has nothing to search.
+          <div className="diff-find-row diff-find-row-single">
+            <FindBar
+              key={findNonce}
+              side={layout.side}
+              onJump={scrollToAxis}
+              autoFocus
+            />
+          </div>
+        ) : (
+          // One bar per pane, the IntelliJ shape. In split view the row's
+          // middle column mirrors the gutter, so each bar sits exactly over
+          // the pane it searches; unified has no gutter to mirror.
+          <div
+            className="diff-find-row"
+            style={
+              unified
+                ? { gridTemplateColumns: "1fr 1fr" }
+                : {
+                    gridTemplateColumns: `1fr ${gutterMetrics(Math.max(leftLines.length, rightLines.length)).width}px 1fr`,
+                  }
+            }
+          >
+            <FindBar key={`l${findNonce}`} side="left" onJump={scrollToAxis} />
+            {!unified && <div className="diff-find-gap" />}
+            <FindBar
+              key={`r${findNonce}`}
+              side="right"
+              onJump={scrollToAxis}
+              autoFocus
+            />
+          </div>
+        ))}
       <RevisionHeader />
       <div className="diff-body">
         {/* Focusable so the keyboard can drive it: a focused scroll
@@ -309,7 +356,7 @@ export function DiffApp() {
                   onToggleFold={(fold) =>
                     useDiffStore.getState().toggleFold(fold.left.start)
                   }
-                  matches={store.matches}
+                  matches={matches}
                   activeMatch={activeMatch}
                 />
               ) : layout.mode === "single" ? (
@@ -338,7 +385,7 @@ export function DiffApp() {
                     onToggleFold={(fold) =>
                       useDiffStore.getState().toggleFold(fold.left.start)
                     }
-                    matches={store.matches}
+                    matches={matches}
                     activeMatch={activeMatch}
                   />
                 </>
@@ -357,7 +404,7 @@ export function DiffApp() {
                     onToggleFold={(fold) =>
                       useDiffStore.getState().toggleFold(fold.left.start)
                     }
-                    matches={store.matches}
+                    matches={matches}
                     activeMatch={activeMatch}
                   />
                   <DiffGutter
@@ -383,7 +430,7 @@ export function DiffApp() {
                     onToggleFold={(fold) =>
                       useDiffStore.getState().toggleFold(fold.left.start)
                     }
-                    matches={store.matches}
+                    matches={matches}
                     activeMatch={activeMatch}
                   />
                 </>

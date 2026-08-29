@@ -174,7 +174,6 @@ describe("fold state", () => {
       syncScroll: true,
       expandedFolds: new Set<number>(),
       findOpen: false,
-      findQuery: "",
     });
     longRun();
   });
@@ -227,17 +226,29 @@ describe("fold state", () => {
   it("expands the fold hiding the active find match", () => {
     useDiffStore.getState().openFind();
     // line20 is buried in the middle of the folded run.
-    useDiffStore.getState().setFindQuery("line20");
-    expect(useDiffStore.getState().matches.length).toBeGreaterThan(0);
+    useDiffStore.getState().setFindQuery("right", "line20");
+    expect(useDiffStore.getState().findRight.matches.length).toBeGreaterThan(0);
     expect(useDiffStore.getState().folds).toHaveLength(1);
-    useDiffStore.getState().revealActiveMatch();
+    useDiffStore.getState().revealActiveMatch("right");
     expect(useDiffStore.getState().folds).toHaveLength(0);
   });
 
   it("leaves the folds alone when the active match is already visible", () => {
     useDiffStore.getState().openFind();
-    useDiffStore.getState().setFindQuery("new");
-    useDiffStore.getState().revealActiveMatch();
+    useDiffStore.getState().setFindQuery("right", "new");
+    useDiffStore.getState().revealActiveMatch("right");
     expect(useDiffStore.getState().folds).toHaveLength(1);
+  });
+
+  it("keeps each bar's search independent of the other side", () => {
+    // The IntelliJ shape: two bars, two match walks. "old" exists only on
+    // the left, and the right bar must not see it.
+    useDiffStore.getState().openFind();
+    useDiffStore.getState().setFindQuery("left", "old");
+    useDiffStore.getState().setFindQuery("right", "old");
+    expect(useDiffStore.getState().findLeft.matches).toHaveLength(1);
+    expect(useDiffStore.getState().findRight.matches).toHaveLength(0);
+    // The box follows the bar that last acted.
+    expect(useDiffStore.getState().activeFindSide).toBe("right");
   });
 });

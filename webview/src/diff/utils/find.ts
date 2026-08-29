@@ -1,4 +1,4 @@
-import { type DiffChunk, type Side, sideToAxis } from "./diff-model";
+import type { Side } from "./diff-model";
 
 /** One find hit: a character range on one line of one side. */
 export interface FindMatch {
@@ -8,13 +8,10 @@ export interface FindMatch {
   end: number;
 }
 
-export type FindScope = "both" | "left" | "right";
-
 export interface FindOptions {
   caseSensitive: boolean;
   wholeWord: boolean;
   regex: boolean;
-  scope: FindScope;
 }
 
 /**
@@ -44,37 +41,17 @@ export function compileQuery(
   }
 }
 
-function matchLine(
-  pattern: RegExp,
-  text: string,
-  side: Side,
-  line: number,
-  out: FindMatch[],
-): void {
-  pattern.lastIndex = 0;
-  for (const hit of text.matchAll(pattern)) {
-    if (hit[0].length === 0) continue;
-    out.push({
-      side,
-      line,
-      start: hit.index,
-      end: hit.index + hit[0].length,
-    });
-  }
-}
-
 /**
- * Every hit across both documents, in reading order.
+ * Every hit in one side's document, in document order.
  *
- * Reading order means axis order, not line order: past an unequal chunk the
- * same line number sits at different heights on each side, and stepping
- * through matches has to move down the screen, not jump by line arithmetic.
- * Within one axis position, left before right, then left-to-right.
+ * Each side has its own find bar and therefore its own match list — the
+ * IntelliJ shape, where a diff's two editors search independently. Within a
+ * single side, document order and screen order agree, so no axis arithmetic
+ * is needed here.
  */
-export function computeMatches(
-  leftLines: readonly string[],
-  rightLines: readonly string[],
-  chunks: readonly DiffChunk[],
+export function sideMatches(
+  lines: readonly string[],
+  side: Side,
   query: string,
   options: FindOptions,
 ): FindMatch[] {
@@ -82,46 +59,17 @@ export function computeMatches(
   if (!pattern) return [];
 
   const matches: FindMatch[] = [];
-  if (options.scope !== "right") {
-    for (let line = 0; line < leftLines.length; line++) {
-      matchLine(pattern, leftLines[line], "left", line, matches);
+  for (let line = 0; line < lines.length; line++) {
+    pattern.lastIndex = 0;
+    for (const hit of lines[line].matchAll(pattern)) {
+      if (hit[0].length === 0) continue;
+      matches.push({
+        side,
+        line,
+        start: hit.index,
+        end: hit.index + hit[0].length,
+      });
     }
   }
-  if (options.scope !== "left") {
-    for (let line = 0; line < rightLines.length; line++) {
-      matchLine(pattern, rightLines[line], "right", line, matches);
-    }
-  }
-
-  // Axis positions are memoised per (side, line): sideToAxis walks the chunk
-  // list, and a busy query can hit thousands of lines.
-  const axisOf = new Map<string, number>();
-  const axis = (match: FindMatch) => {
-    const key = `${match.side}:${match.line}`;
-    let value = axisOf.get(key);
-    if (value === undefined) {
-      value = sideToAxis(chunks, match.line, match.side);
-      axisOf.set(key, value);
-    }
-    return value;
-  };
-
-  matches.sort(
-    (a, b) =>
-      axis(a) - axis(b) ||
-      (a.side === b.side ? 0 : a.side === "left" ? -1 : 1) ||
-      a.start - b.start,
-  );
   return matches;
-}
-
-/** The ranges of `matches` that sit on one line of one side. */
-export function matchesOnLine(
-  matches: readonly FindMatch[],
-  side: Side,
-  line: number,
-): Array<{ start: number; end: number }> {
-  return matches
-    .filter((match) => match.side === side && match.line === line)
-    .map((match) => ({ start: match.start, end: match.end }));
 }

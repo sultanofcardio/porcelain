@@ -7,14 +7,11 @@ import {
   countDifferences,
   type DiffChunk,
   type FoldRegion,
+  type Side,
   sideToAxis,
   splitLines,
 } from "../../diff/utils/diff-model";
-import {
-  computeMatches,
-  type FindMatch,
-  type FindScope,
-} from "../../diff/utils/find";
+import { type FindMatch, sideMatches } from "../../diff/utils/find";
 import {
   unifiedChunkRow,
   unifiedRowOf,
@@ -96,17 +93,15 @@ export interface DiffStoreState {
    * The panes are virtualised to roughly a viewport of rows, which is what
    * rules out the webview's native find widget: it would silently match only
    * what happens to be on screen.
+   *
+   * One state per side, the IntelliJ shape: each pane carries its own find
+   * bar with its own query, options and match walk. `activeFindSide` names
+   * the bar that last acted — its current match is the one wearing the box.
    */
   findOpen: boolean;
-  findQuery: string;
-  findCase: boolean;
-  findWord: boolean;
-  findRegex: boolean;
-  findScope: FindScope;
-  /** Every hit, in reading (axis) order. */
-  matches: FindMatch[];
-  /** Index into `matches`, or -1 when there is none. */
-  activeMatch: number;
+  findLeft: SideFindState;
+  findRight: SideFindState;
+  activeFindSide: Side | null;
 
   setSides: (sides: DiffSidesResult) => void;
   setError: (message: string | null) => void;
@@ -131,21 +126,40 @@ export interface DiffStoreState {
 
   openFind: () => void;
   closeFind: () => void;
-  setFindQuery: (query: string) => void;
-  toggleFindCase: () => void;
-  toggleFindWord: () => void;
-  toggleFindRegex: () => void;
-  cycleFindScope: () => void;
-  /** Move to the next (+1) or previous (-1) match, wrapping. */
-  stepMatch: (delta: number) => void;
+  setFindQuery: (side: Side, query: string) => void;
+  toggleFindCase: (side: Side) => void;
+  toggleFindWord: (side: Side) => void;
+  toggleFindRegex: (side: Side) => void;
+  /** Move one side's bar to its next (+1) or previous (-1) match, wrapping. */
+  stepMatch: (side: Side, delta: number) => void;
   /**
-   * Expand the fold hiding the active match, if one does. Jumping to a match
-   * the viewer then cannot show would make the count read as a lie.
+   * Expand the fold hiding one side's active match, if one does. Jumping to
+   * a match the viewer then cannot show would make the count read as a lie.
    */
-  revealActiveMatch: () => void;
-  /** Axis position that reveals the active match, or null when there is none. */
-  activeMatchAxis: () => number | null;
+  revealActiveMatch: (side: Side) => void;
+  /** Position that reveals one side's active match, in the current view's scroll units. */
+  activeMatchAxis: (side: Side) => number | null;
 }
+
+/** One find bar's whole world: query, options, and its walk through the hits. */
+export interface SideFindState {
+  query: string;
+  caseSensitive: boolean;
+  wholeWord: boolean;
+  regex: boolean;
+  matches: FindMatch[];
+  /** Index into `matches`, or -1 when there is none. */
+  activeMatch: number;
+}
+
+const EMPTY_SIDE_FIND: SideFindState = {
+  query: "",
+  caseSensitive: false,
+  wholeWord: false,
+  regex: false,
+  matches: [],
+  activeMatch: -1,
+};
 
 function chunkOptionsFor(whitespace: Whitespace): ChunkOptions {
   return { ignoreWhitespace: whitespace === "trim" };
@@ -209,40 +223,47 @@ function derive(state: {
 }
 
 /**
- * Recompute the match list from the texts and the current find options.
+ * Recompute one bar's match list from its side's text and options.
  *
  * Runs on every keystroke without debouncing: the tooLarge gate caps text
  * diffs at 25k lines, and a substring scan over that is single-digit
  * milliseconds. The first match becomes active so typing jumps to it, which
  * is what every editor's find does.
  */
+function recomputeSide(
+  text: string,
+  side: Side,
+  sideState: SideFindState,
+  open: boolean,
+): SideFindState {
+  const matches =
+    open && sideState.query !== ""
+      ? sideMatches(splitLines(text), side, sideState.query, {
+          caseSensitive: sideState.caseSensitive,
+          wholeWord: sideState.wholeWord,
+          regex: sideState.regex,
+        })
+      : [];
+  return { ...sideState, matches, activeMatch: matches.length > 0 ? 0 : -1 };
+}
+
+/** Both bars, refreshed against the current texts. */
 function deriveFind(state: {
   left: string;
   right: string;
-  chunks: DiffChunk[];
   findOpen: boolean;
-  findQuery: string;
-  findCase: boolean;
-  findWord: boolean;
-  findRegex: boolean;
-  findScope: FindScope;
+  findLeft: SideFindState;
+  findRight: SideFindState;
 }) {
-  const matches =
-    state.findOpen && state.findQuery !== ""
-      ? computeMatches(
-          splitLines(state.left),
-          splitLines(state.right),
-          state.chunks,
-          state.findQuery,
-          {
-            caseSensitive: state.findCase,
-            wholeWord: state.findWord,
-            regex: state.findRegex,
-            scope: state.findScope,
-          },
-        )
-      : [];
-  return { matches, activeMatch: matches.length > 0 ? 0 : -1 };
+  return {
+    findLeft: recomputeSide(state.left, "left", state.findLeft, state.findOpen),
+    findRight: recomputeSide(
+      state.right,
+      "right",
+      state.findRight,
+      state.findOpen,
+    ),
+  };
 }
 
 export const useDiffStore = create<DiffStoreState>((set, get) => ({
@@ -274,13 +295,9 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
   activeChunk: -1,
 
   findOpen: false,
-  findQuery: "",
-  findCase: false,
-  findWord: false,
-  findRegex: false,
-  findScope: "both",
-  matches: [],
-  activeMatch: -1,
+  findLeft: EMPTY_SIDE_FIND,
+  findRight: EMPTY_SIDE_FIND,
+  activeFindSide: null,
 
   setSides: (sides) =>
     set((state) => {
@@ -308,27 +325,20 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
             // quiet.
             { left: "", right: "", fallback: sides };
       const next = { ...state, ...meta, ...text };
-      const derived = derive(next);
       return {
         ...meta,
         ...text,
-        ...derived,
-        ...deriveFind({ ...next, ...derived }),
+        ...derive(next),
+        ...deriveFind(next),
       };
     }),
 
   setError: (message) => set({ error: message, loading: false }),
 
   setWhitespace: (whitespace) =>
-    set((state) => {
-      const derived = derive({ ...state, whitespace });
-      return {
-        whitespace,
-        ...derived,
-        // Chunks moved, so the matches' reading order may have too.
-        ...deriveFind({ ...state, ...derived }),
-      };
-    }),
+    // Per-side match lists are ordered within their own document, so a
+    // re-chunk moves nothing in them — no find recompute needed here.
+    set((state) => ({ whitespace, ...derive({ ...state, whitespace }) })),
 
   setGranularity: (granularity) => set({ granularity }),
 
@@ -391,7 +401,6 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
       // Expansion is keyed on left start lines, and the swap moves every
       // fold to the other side's numbering — so everything re-collapses.
       const expandedFolds = new Set<number>();
-      const derived = derive({ ...state, ...swapped, expandedFolds });
       return {
         ...swapped,
         // The placeholder's per-side facts swap with the labels above them;
@@ -400,8 +409,10 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         swapped: !state.swapped,
         activeChunk: -1,
         expandedFolds,
-        ...derived,
-        ...deriveFind({ ...state, ...swapped, ...derived }),
+        ...derive({ ...state, ...swapped, expandedFolds }),
+        // The bars are positional — each keeps its query and re-searches the
+        // text that now sits under it.
+        ...deriveFind({ ...state, ...swapped }),
       };
     }),
 
@@ -444,69 +455,76 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
   },
 
   openFind: () =>
-    // Reopening with a query still typed brings its matches straight back.
+    // Reopening with queries still typed brings their matches straight back.
     set((state) => {
       const opened = { ...state, findOpen: true };
       return { findOpen: true, ...deriveFind(opened) };
     }),
 
   closeFind: () =>
-    // The query survives the close — reopening restores it, the way every
-    // editor's find behaves — but the highlights go with the bar.
-    set({ findOpen: false, matches: [], activeMatch: -1 }),
+    // The queries survive the close — reopening restores them, the way every
+    // editor's find behaves — but the highlights go with the bars.
+    set((state) => ({
+      findOpen: false,
+      findLeft: { ...state.findLeft, matches: [], activeMatch: -1 },
+      findRight: { ...state.findRight, matches: [], activeMatch: -1 },
+      activeFindSide: null,
+    })),
 
-  setFindQuery: (findQuery) =>
-    set((state) => ({ findQuery, ...deriveFind({ ...state, findQuery }) })),
+  setFindQuery: (side, query) =>
+    set((state) => updateSideFind(state, side, { query })),
 
-  toggleFindCase: () =>
+  toggleFindCase: (side) =>
     set((state) => {
-      const findCase = !state.findCase;
-      return { findCase, ...deriveFind({ ...state, findCase }) };
+      const current = side === "left" ? state.findLeft : state.findRight;
+      return updateSideFind(state, side, {
+        caseSensitive: !current.caseSensitive,
+      });
     }),
 
-  toggleFindWord: () =>
+  toggleFindWord: (side) =>
     set((state) => {
-      const findWord = !state.findWord;
-      return { findWord, ...deriveFind({ ...state, findWord }) };
+      const current = side === "left" ? state.findLeft : state.findRight;
+      return updateSideFind(state, side, { wholeWord: !current.wholeWord });
     }),
 
-  toggleFindRegex: () =>
+  toggleFindRegex: (side) =>
     set((state) => {
-      const findRegex = !state.findRegex;
-      return { findRegex, ...deriveFind({ ...state, findRegex }) };
+      const current = side === "left" ? state.findLeft : state.findRight;
+      return updateSideFind(state, side, { regex: !current.regex });
     }),
 
-  cycleFindScope: () =>
+  stepMatch: (side, delta) =>
     set((state) => {
-      const order: FindScope[] = ["both", "left", "right"];
-      const findScope =
-        order[(order.indexOf(state.findScope) + 1) % order.length];
-      return { findScope, ...deriveFind({ ...state, findScope }) };
+      const current = side === "left" ? state.findLeft : state.findRight;
+      if (current.matches.length === 0) return {};
+      const next = {
+        ...current,
+        activeMatch:
+          (current.activeMatch + delta + current.matches.length) %
+          current.matches.length,
+      };
+      return side === "left"
+        ? { findLeft: next, activeFindSide: side }
+        : { findRight: next, activeFindSide: side };
     }),
 
-  stepMatch: (delta) =>
-    set((state) => {
-      if (state.matches.length === 0) return {};
-      const next =
-        (state.activeMatch + delta + state.matches.length) %
-        state.matches.length;
-      return { activeMatch: next };
-    }),
-
-  revealActiveMatch: () => {
-    const { folds, matches, activeMatch, toggleFold } = get();
-    const match = matches[activeMatch];
+  revealActiveMatch: (side) => {
+    const state = get();
+    const current = side === "left" ? state.findLeft : state.findRight;
+    const match = current.matches[current.activeMatch];
     if (!match) return;
-    const hiddenIn = folds.find((fold) => {
+    const hiddenIn = state.folds.find((fold) => {
       const span = match.side === "left" ? fold.left : fold.right;
       return match.line >= span.start && match.line < span.start + span.count;
     });
-    if (hiddenIn) toggleFold(hiddenIn.left.start);
+    if (hiddenIn) state.toggleFold(hiddenIn.left.start);
   },
 
-  activeMatchAxis: () => {
-    const { chunks, folds, matches, activeMatch, viewMode } = get();
-    const match = matches[activeMatch];
+  activeMatchAxis: (side) => {
+    const { chunks, folds, viewMode, findLeft, findRight } = get();
+    const current = side === "left" ? findLeft : findRight;
+    const match = current.matches[current.activeMatch];
     if (!match) return null;
     if (viewMode === "unified") {
       const row = unifiedRowOf(
@@ -519,3 +537,27 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
     return sideToAxis(chunks, match.line, match.side, folds);
   },
 }));
+
+/**
+ * One bar changed its query or an option: re-search that side only, and hand
+ * it the active box — acting in a bar is what makes it the current one.
+ */
+function updateSideFind(
+  state: DiffStoreState,
+  side: Side,
+  change: Partial<
+    Pick<SideFindState, "query" | "caseSensitive" | "wholeWord" | "regex">
+  >,
+): Partial<DiffStoreState> {
+  const current = side === "left" ? state.findLeft : state.findRight;
+  const text = side === "left" ? state.left : state.right;
+  const next = recomputeSide(
+    text,
+    side,
+    { ...current, ...change },
+    state.findOpen,
+  );
+  return side === "left"
+    ? { findLeft: next, activeFindSide: side }
+    : { findRight: next, activeFindSide: side };
+}

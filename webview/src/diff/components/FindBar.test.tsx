@@ -40,16 +40,16 @@ describe("FindBar reveal", () => {
     useDiffStore.getState().openFind();
 
     const onJump = vi.fn();
-    render(<FindBar onJump={onJump} />);
-    const input = screen.getByLabelText("Find in diff");
+    render(<FindBar side="right" onJump={onJump} />);
+    const input = screen.getByLabelText("Find in right side");
 
     fireEvent.change(input, { target: { value: "ap" } });
-    expect(useDiffStore.getState().activeMatch).toBe(0);
+    expect(useDiffStore.getState().findRight.activeMatch).toBe(0);
     expect(onJump).toHaveBeenCalledTimes(1);
     const firstJump = onJump.mock.calls[0][0];
 
     fireEvent.change(input, { target: { value: "app" } });
-    expect(useDiffStore.getState().activeMatch).toBe(0);
+    expect(useDiffStore.getState().findRight.activeMatch).toBe(0);
     // The new first match sits at an unchanged index; the reveal must still
     // fire, and at the deeper line's axis position.
     expect(onJump).toHaveBeenCalledTimes(2);
@@ -66,8 +66,8 @@ describe("FindBar reveal", () => {
     expect(useDiffStore.getState().folds.length).toBeGreaterThan(0);
     useDiffStore.getState().openFind();
 
-    render(<FindBar onJump={() => {}} />);
-    fireEvent.change(screen.getByLabelText("Find in diff"), {
+    render(<FindBar side="right" onJump={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Find in right side"), {
       target: { value: "needle" },
     });
     expect(useDiffStore.getState().folds).toHaveLength(0);
