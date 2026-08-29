@@ -114,6 +114,12 @@ export interface DiffStoreState {
   setGranularity: (value: Granularity) => void;
   toggleSyncScroll: () => void;
   toggleCollapseUnchanged: () => void;
+  /**
+   * Collapse every unchanged region again, or expand them all. Distinct from
+   * the feature toggle: with collapsing on and some folds hand-expanded,
+   * "collapse" must re-collapse those rather than turn the feature off.
+   */
+  setCollapsed: (collapsed: boolean) => void;
   setContextLines: (value: number) => void;
   setViewMode: (mode: ViewMode) => void;
   /** Expand or re-collapse one fold, identified by its left start line. */
@@ -338,6 +344,18 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         collapseUnchanged,
         expandedFolds,
         ...derive({ ...state, collapseUnchanged, expandedFolds }),
+      };
+    }),
+
+  setCollapsed: (collapsed) =>
+    set((state) => {
+      // Collapsing forgets expansion history either way: "collapse" means
+      // everything, and expanded-all needs no per-fold bookkeeping.
+      const expandedFolds = new Set<number>();
+      return {
+        collapseUnchanged: collapsed,
+        expandedFolds,
+        ...derive({ ...state, collapseUnchanged: collapsed, expandedFolds }),
       };
     }),
 

@@ -204,6 +204,26 @@ describe("fold state", () => {
     expect(useDiffStore.getState().folds).toHaveLength(1);
   });
 
+  it("re-collapses hand-expanded folds without touching the feature toggle", () => {
+    // The toolbar's collapse toggle: with collapsing on and a fold expanded,
+    // "collapse" must fold it again rather than turn collapsing off.
+    useDiffStore
+      .getState()
+      .toggleFold(useDiffStore.getState().folds[0].left.start);
+    expect(useDiffStore.getState().folds).toHaveLength(0);
+    useDiffStore.getState().setCollapsed(true);
+    const state = useDiffStore.getState();
+    expect(state.collapseUnchanged).toBe(true);
+    expect(state.folds).toHaveLength(1);
+  });
+
+  it("expands everything when the collapse toggle is released", () => {
+    useDiffStore.getState().setCollapsed(false);
+    const state = useDiffStore.getState();
+    expect(state.folds).toHaveLength(0);
+    expect(state.axis).toBe(41);
+  });
+
   it("expands the fold hiding the active find match", () => {
     useDiffStore.getState().openFind();
     // line20 is buried in the middle of the folded run.

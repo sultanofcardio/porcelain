@@ -30,7 +30,7 @@ describe("diff surface accessibility", () => {
       "Edit source",
       "Previous file",
       "Next file",
-      "Collapse unchanged fragments",
+      "Collapse unchanged regions",
       "Synchronise scrolling",
       "Find in diff",
       "Diff settings",
@@ -48,7 +48,7 @@ describe("diff surface accessibility", () => {
       />,
     );
     const collapse = screen.getByRole("button", {
-      name: "Collapse unchanged fragments",
+      name: "Collapse unchanged regions",
     });
     expect(collapse.getAttribute("aria-pressed")).not.toBeNull();
   });

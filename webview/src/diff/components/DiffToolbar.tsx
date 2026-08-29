@@ -39,7 +39,13 @@ export function DiffToolbar({
     .map(({ index }) => index);
   const position = changed.indexOf(activeChunk);
   const collapse = useDiffStore((s) => s.collapseUnchanged);
-  const toggleCollapse = useDiffStore((s) => s.toggleCollapseUnchanged);
+  const expandedFolds = useDiffStore((s) => s.expandedFolds);
+  const setCollapsed = useDiffStore((s) => s.setCollapsed);
+  // Pressed means "everything foldable is folded": hand-expanding a fold
+  // unpresses it, and clicking then re-collapses the lot — which is the whole
+  // reason this is a toggle rather than the bare feature switch the settings
+  // menu already offers.
+  const fullyCollapsed = collapse && expandedFolds.size === 0;
   const sync = useDiffStore((s) => s.syncScroll);
   const toggleSync = useDiffStore((s) => s.toggleSyncScroll);
   const viewMode = useDiffStore((s) => s.viewMode);
@@ -101,15 +107,36 @@ export function DiffToolbar({
         </button>
       </Tooltip>
       <span className="diff-sep" />
-      <Tooltip text="Collapse unchanged fragments">
+      <Tooltip
+        text={
+          fullyCollapsed
+            ? "Expand unchanged regions"
+            : "Collapse unchanged regions"
+        }
+      >
         <button
           type="button"
-          className={`diff-btn ${collapse ? "diff-btn-on" : ""}`}
-          aria-label="Collapse unchanged fragments"
-          aria-pressed={collapse}
-          onClick={toggleCollapse}
+          className={`diff-btn ${fullyCollapsed ? "diff-btn-on" : ""}`}
+          aria-label="Collapse unchanged regions"
+          aria-pressed={fullyCollapsed}
+          onClick={() => setCollapsed(!fullyCollapsed)}
         >
-          ⤢
+          {/* Chevrons folding toward each other, after VS Code's fold icon. */}
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M4 3l4 3.5L12 3M4 13l4-3.5 4 3.5"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
         </button>
       </Tooltip>
       {viewMode === "split" && (
