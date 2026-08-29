@@ -744,9 +744,16 @@ button.diff-fold-row:focus-visible {
 .diff-find-row-merge {
   display: grid;
 }
-/* A gutter wrapper so region verbs can overlay the connectors. */
+/* A gutter wrapper so region verbs can overlay the connectors. Both levels
+   need explicit height: every child of the real gutter is absolutely
+   positioned, so without these the gutter collapses to zero height and its
+   numbers, connectors and background all render into an invisible strip. */
 .merge-gutter {
   position: relative;
+  height: 100%;
+}
+.merge-gutter > .diff-gutter {
+  height: 100%;
 }
 .merge-gutter-actions {
   position: absolute;
