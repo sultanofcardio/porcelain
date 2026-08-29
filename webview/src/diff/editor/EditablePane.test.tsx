@@ -242,6 +242,42 @@ describe("EditablePane", () => {
     expect(state.allResolved).toBe(true);
   });
 
+  it("typing with no caret never piles up as a stale dump", () => {
+    const field = input();
+    expect(useMergeStore.getState().cursor).toBeNull();
+    field.value = "ghost";
+    fireEvent.input(field);
+    expect(field.value).toBe("");
+    expect(lines()).toEqual(["a", "b", "c"]);
+    caret(0, 1);
+    field.value = "x";
+    fireEvent.input(field);
+    expect(lines()[0]).toBe("ax");
+  });
+
+  it("focusing with no caret seeds one at the top of the viewport", () => {
+    const field = input();
+    expect(useMergeStore.getState().cursor).toBeNull();
+    fireEvent.focus(field);
+    expect(useMergeStore.getState().cursor?.head).toEqual({ line: 0, col: 0 });
+  });
+
+  it("a click mid-composition commits the session before moving the caret", () => {
+    caret(1, 1);
+    const field = input();
+    fireEvent.compositionStart(field);
+    field.value = "に";
+    fireEvent.input(field);
+    expect(useMergeStore.getState().composition).not.toBeNull();
+    const host = field.closest(".diff-editor-host") as HTMLElement;
+    fireEvent.mouseDown(host, { clientX: 12, clientY: 4, detail: 1 });
+    const state = useMergeStore.getState();
+    expect(state.composition).toBeNull();
+    expect(state.result.lines[1]).toBe("bに");
+    expect(state.cursor?.head.line).toBe(0);
+    expect(field.value).toBe("");
+  });
+
   it("mouse down places the caret and focuses the input", () => {
     const host = input().closest(".diff-editor-host") as HTMLElement;
     fireEvent.mouseDown(host, { clientX: 12, clientY: 4, detail: 1 });

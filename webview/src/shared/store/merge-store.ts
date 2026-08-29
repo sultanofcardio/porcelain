@@ -107,7 +107,12 @@ export interface MergeStoreState {
    */
   cursor: EditorSelection | null;
   goalVisual: number | null;
-  composition: { start: Position; endLine: number } | null;
+  composition: {
+    start: Position;
+    endLine: number;
+    /** Whether the session's history step has been recorded yet. */
+    recorded: boolean;
+  } | null;
   /** One timeline for typed edits and structural acts alike. */
   history: EditHistory<MergeSnapshot>;
   canUndo: boolean;
@@ -384,6 +389,15 @@ function applyEditToState(
   selection: EditorSelection,
   text: string,
 ): { patch: Partial<MergeStoreState>; caret: Position } {
+  // A collapsed selection replaced by nothing changes nothing: it must not
+  // resolve the region under the caret, dirty the buffer, or remap anything.
+  // A non-collapsed deletion with empty text is still a real edit.
+  if (text === "" && isCaret(selection)) {
+    return {
+      patch: {},
+      caret: clampPosition(state.result.lines, selection.head),
+    };
+  }
   const edit = applyTextEdit(state.result.lines, selection, text);
   const result: TextDoc = {
     lines: edit.lines,
@@ -496,6 +510,7 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
           regions: [],
           ...derive({
             ...state,
+            ...meta,
             ours: EMPTY_DOC,
             theirs: EMPTY_DOC,
             result: EMPTY_DOC,
@@ -514,7 +529,7 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
         result: initial.result,
         regions: initial.regions,
       };
-      const next = { ...state, ...docs };
+      const next = { ...state, ...meta, ...docs };
       return {
         ...meta,
         ...docs,
@@ -600,7 +615,9 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
 
   setCursor: (selection, goalVisual = null) =>
     set((state) => {
-      if (state.fallback || state.loading) return {};
+      // The head anchors the live composition range: moving it mid-session
+      // would make the next update replace an arbitrary span.
+      if (state.fallback || state.loading || state.composition) return {};
       if (!selection) return { cursor: null, goalVisual: null };
       const clamped = {
         anchor: clampPosition(state.result.lines, selection.anchor),
@@ -637,22 +654,22 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
   beginComposition: () =>
     set((state) => {
       if (!state.cursor || state.composition) return {};
-      // One history step for the whole composition session.
-      state.history.record(snapshotOf(state), null, Date.now());
-      // A selection is consumed as the session opens; the composition range
-      // then starts collapsed where it stood.
+      // One history step for the whole composition session — recorded lazily
+      // on the first update that changes anything, so a session cancelled
+      // before producing text leaves no undo step behind. A selection is
+      // consumed as the session opens (a real change, recorded at once); the
+      // composition range then starts collapsed where it stood.
       if (isCaret(state.cursor)) {
         const start = clampPosition(state.result.lines, state.cursor.head);
         return {
-          composition: { start, endLine: start.line },
-          canUndo: state.history.canUndo,
-          canRedo: state.history.canRedo,
+          composition: { start, endLine: start.line, recorded: false },
         };
       }
+      state.history.record(snapshotOf(state), null, Date.now());
       const { patch, caret } = applyEditToState(state, state.cursor, "");
       return {
         ...patch,
-        composition: { start: caret, endLine: caret.line },
+        composition: { start: caret, endLine: caret.line, recorded: true },
         canUndo: state.history.canUndo,
         canRedo: state.history.canRedo,
       };
@@ -662,6 +679,11 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
     set((state) => {
       const { composition, cursor } = state;
       if (!composition || !cursor) return {};
+      let recorded = composition.recorded;
+      if (!recorded && text !== "") {
+        state.history.record(snapshotOf(state), null, Date.now());
+        recorded = true;
+      }
       const { patch, caret } = applyEditToState(
         state,
         { anchor: composition.start, head: cursor.head },
@@ -669,7 +691,13 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
       );
       return {
         ...patch,
-        composition: { start: composition.start, endLine: caret.line },
+        composition: {
+          start: composition.start,
+          endLine: caret.line,
+          recorded,
+        },
+        canUndo: state.history.canUndo,
+        canRedo: state.history.canRedo,
       };
     }),
 
@@ -677,12 +705,20 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
     set((state) => {
       const { composition, cursor } = state;
       if (!composition || !cursor) return {};
+      if (!composition.recorded && text !== "") {
+        state.history.record(snapshotOf(state), null, Date.now());
+      }
       const { patch } = applyEditToState(
         state,
         { anchor: composition.start, head: cursor.head },
         text,
       );
-      return { ...patch, composition: null };
+      return {
+        ...patch,
+        composition: null,
+        canUndo: state.history.canUndo,
+        canRedo: state.history.canRedo,
+      };
     }),
 
   editRegionByHand: (index) =>
@@ -693,6 +729,33 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
         // An empty slot has no line to put a caret on: give it one, which is
         // itself the hand-edit that resolves it — and one undo step away.
         state.history.record(snapshotOf(state), null, Date.now());
+        if (region.start >= state.result.lines.length) {
+          // A slot at EOF sits past the last line, where applyTextEdit's
+          // clamp would split the last line instead: append the owned line
+          // directly, which also keeps an empty document to one line.
+          const lines = [...state.result.lines, ""];
+          const result: TextDoc = {
+            lines,
+            trailingNewline: state.result.trailingNewline,
+          };
+          const start = lines.length - 1;
+          const regions = state.regions.map((r, i) =>
+            i === index ? { ...r, start, count: 1, edited: true } : r,
+          );
+          const next = { ...state, result, regions } as MergeStoreState;
+          return {
+            result,
+            regions,
+            cursor: caretAt(start, 0),
+            goalVisual: null,
+            dirty: true,
+            activeRegion: index,
+            canUndo: state.history.canUndo,
+            canRedo: state.history.canRedo,
+            ...derive(next),
+            ...deriveFind(next),
+          };
+        }
         const { patch } = applyEditToState(
           state,
           caretAt(region.start, 0),

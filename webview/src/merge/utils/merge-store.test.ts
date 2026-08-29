@@ -132,6 +132,28 @@ describe("merge store", () => {
     expect(useMergeStore.getState().result.lines).toEqual(["a", "b", "c"]);
   });
 
+  it("a cancelled empty composition is a true no-op", () => {
+    useMergeStore.getState().setCursor(caretAt(1, 1));
+    useMergeStore.getState().beginComposition();
+    useMergeStore.getState().endComposition("");
+    const state = useMergeStore.getState();
+    expect(state.composition).toBeNull();
+    expect(state.result.lines).toEqual(["a", "b", "c"]);
+    expect(state.regions[0].edited).toBe(false);
+    expect(state.allResolved).toBe(false);
+    expect(state.dirty).toBe(false);
+    expect(state.canUndo).toBe(false);
+  });
+
+  it("the cursor head cannot move under an open composition", () => {
+    useMergeStore.getState().setCursor(caretAt(1, 1));
+    useMergeStore.getState().beginComposition();
+    useMergeStore.getState().setCursor(caretAt(0, 0));
+    expect(useMergeStore.getState().cursor?.head).toEqual({ line: 1, col: 1 });
+    useMergeStore.getState().updateComposition("に");
+    expect(useMergeStore.getState().result.lines[1]).toBe("bに");
+  });
+
   it("steps through pending conflicts, wrapping", () => {
     useMergeStore
       .getState()
@@ -216,6 +238,30 @@ describe("merge store", () => {
       const undone = useMergeStore.getState();
       expect(undone.result.lines).toEqual(["a", "shared", "c"]);
       expect(undone.regions[0]).toMatchObject({ start: 2, count: 0 });
+      expect(undone.allResolved).toBe(false);
+    });
+
+    it("the ✎ verb on an EOF slot appends its line — never splits the last", () => {
+      // Both sides appended past the base: the slot sits at EOF, one past
+      // the last buffer line, where a clamped edit would split "a" instead.
+      useMergeStore.getState().load(textVersions("a\n", "a\nX\n", "a\nY\n"));
+      expect(useMergeStore.getState().regions[0]).toMatchObject({
+        start: 1,
+        count: 0,
+      });
+      useMergeStore.getState().editRegionByHand(0);
+      const opened = useMergeStore.getState();
+      expect(opened.result.lines).toEqual(["a", ""]);
+      expect(opened.regions[0]).toMatchObject({
+        start: 1,
+        count: 1,
+        edited: true,
+      });
+      expect(opened.cursor?.head).toEqual({ line: 1, col: 0 });
+      useMergeStore.getState().undo();
+      const undone = useMergeStore.getState();
+      expect(undone.result.lines).toEqual(["a"]);
+      expect(undone.regions[0]).toMatchObject({ start: 1, count: 0 });
       expect(undone.allResolved).toBe(false);
     });
 

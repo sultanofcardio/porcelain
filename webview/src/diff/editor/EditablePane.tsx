@@ -155,6 +155,14 @@ export function EditablePane({
       const position = positionFromEvent(event);
       if (!position) return;
       event.preventDefault();
+      // preventDefault keeps the textarea focused, so blur-commit will never
+      // fire: a click mid-composition commits the session here, before the
+      // caret moves out from under the composition range.
+      if (composingRef.current) {
+        composingRef.current = false;
+        onCompositionEnd(inputRef.current?.value ?? "");
+        if (inputRef.current) inputRef.current.value = "";
+      }
       focusInput();
       goalRef.current = null;
       if (event.detail >= 3) {
@@ -184,7 +192,14 @@ export function EditablePane({
       }
       draggingRef.current = true;
     },
-    [positionFromEvent, focusInput, onSetCursor, cursor, lines],
+    [
+      positionFromEvent,
+      focusInput,
+      onSetCursor,
+      onCompositionEnd,
+      cursor,
+      lines,
+    ],
   );
 
   useEffect(() => {
@@ -312,11 +327,26 @@ export function EditablePane({
       onCompositionUpdate(input.value);
       return;
     }
-    if (input.value && cursor) {
-      onEdit(cursor, input.value, "type");
-      input.value = "";
-    }
+    if (input.value && cursor) onEdit(cursor, input.value, "type");
+    // Always consumed: text typed with no caret must not pile up invisibly
+    // and dump into the document with the first post-click keystroke.
+    input.value = "";
   }, [cursor, onEdit, onCompositionUpdate]);
+
+  // A Tab-reached editor with no caret yet gets one at the top of the
+  // viewport, so keyboard-only users can type without clicking first.
+  const onFocus = useCallback(() => {
+    if (cursor) return;
+    const first = Math.max(0, Math.floor(offset));
+    for (let row = first; row <= first + visibleLines; row++) {
+      const line = mapping.toSourceLine(row);
+      if (line !== null && line < lines.length) {
+        onSetCursor(caretAt(line, 0));
+        return;
+      }
+    }
+    onSetCursor(caretAt(0, 0));
+  }, [cursor, offset, visibleLines, mapping, lines, onSetCursor]);
 
   /* ── overlay geometry ─────────────────────────────────────────────────── */
 
@@ -440,6 +470,7 @@ export function EditablePane({
         autoCapitalize="off"
         onKeyDown={onKeyDown}
         onInput={onInput}
+        onFocus={onFocus}
         onCompositionStart={() => {
           composingRef.current = true;
           onCompositionBegin();
