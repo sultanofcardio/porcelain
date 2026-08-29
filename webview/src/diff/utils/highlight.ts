@@ -1,5 +1,5 @@
 import type { BundledLanguage, Highlighter, SpecialLanguage } from "shiki";
-import { calculateInlineDiffs } from "../../conflicts/utils/inline-diff";
+import { calculateInlineDiffs } from "../../shared/utils/inline-diff";
 
 export interface Piece {
   text: string;
