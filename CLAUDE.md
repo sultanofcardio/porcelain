@@ -13,7 +13,7 @@ webview/                Webview Frontend (React 19 + Vite)
       ├── panel/          Git Log panel (Graph, CommitList, BranchTree, DetailPanel)
       ├── conflicts/      Conflict list page
       ├── merge/          3-Way merge editor on the diff stack (result buffer, conflict regions, gutter verbs, fully editable result pane)
-      ├── diff/           Porcelain diff viewer (side-by-side + unified views, find, folds, change stripe, editable working-tree sides); editor/ is the hand-built editor core (editor-model, EditablePane) behind the merge result pane
+      ├── diff/           Porcelain diff viewer (side-by-side + unified views, find, folds, change stripe, editable working-tree sides); editor/ is the hand-built editor core (editor-model, EditablePane) behind both editable surfaces: the merge result pane and the working-tree diff side
       ├── shared/         Shared modules (bridge, store, hooks, components, theme)
       └── main.tsx        Router entry (mode: panel | merge | conflicts | commit | push | rollback | compare | changes | diff)
 ```

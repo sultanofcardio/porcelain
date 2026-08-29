@@ -287,3 +287,85 @@ describe("EditablePane", () => {
     expect(document.activeElement).toBe(input());
   });
 });
+
+/**
+ * The caret-drift regression: the cell width must be measured in the editor
+ * font the rows render in (`--editor-font`), never in the host's computed
+ * font, which inherits the app's UI face. jsdom has no canvas or cascade, so
+ * both are stubbed: a fake 2d context whose measured width depends on the
+ * font it was given, and a host style where the UI font measures wider than
+ * the editor font — the mismatch that drew the caret right of every edit.
+ */
+describe("EditablePane caret metrics", () => {
+  const EDITOR_CELL = 7;
+  const UI_CELL = 9;
+  const realGetComputedStyle = window.getComputedStyle;
+
+  beforeEach(() => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
+      function (this: HTMLCanvasElement) {
+        const context = {
+          font: "",
+          measureText: (_text: string) => ({
+            width: context.font === "12px TestMono" ? EDITOR_CELL : UI_CELL,
+          }),
+        };
+        return context as unknown as CanvasRenderingContext2D;
+      },
+    );
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (element: Element, pseudo?: string | null) => {
+        if (!(element instanceof HTMLElement)) {
+          return realGetComputedStyle(element, pseudo);
+        }
+        if (!element.classList.contains("diff-editor-host")) {
+          return realGetComputedStyle(element, pseudo);
+        }
+        const style = realGetComputedStyle(element, pseudo);
+        return new Proxy(style, {
+          get(target, property, receiver) {
+            if (property === "fontSize") return "13px";
+            if (property === "fontFamily") return "UISans";
+            if (property === "getPropertyValue") {
+              return (name: string) => {
+                if (name === "--editor-font-size") return "12px";
+                if (name === "--editor-font") return "TestMono";
+                return target.getPropertyValue(name);
+              };
+            }
+            return Reflect.get(target, property, receiver);
+          },
+        });
+      },
+    );
+    load("abcdefgh\n", "abcdefgh\n", "abcdefgh\n");
+    render(<Harness />);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("draws the caret from the editor font's cell, not the UI font's", () => {
+    caret(0, 4);
+    const caretEl = document.querySelector(".diff-editor-caret") as HTMLElement;
+    // 10px pane padding + 4 columns at the editor cell. Measuring the host's
+    // UI font instead would put it at 10 + 4 * 9 = 46px — right of the text.
+    expect(caretEl.style.left).toBe(`${10 + 4 * EDITOR_CELL}px`);
+  });
+
+  it("sizes selection rectangles with the same editor cell", () => {
+    act(() =>
+      useMergeStore.getState().setCursor({
+        anchor: { line: 0, col: 2 },
+        head: { line: 0, col: 6 },
+      }),
+    );
+    const rect = document.querySelector(
+      ".diff-editor-selection",
+    ) as HTMLElement;
+    expect(rect.style.left).toBe(`${10 + 2 * EDITOR_CELL}px`);
+    expect(rect.style.width).toBe(`${4 * EDITOR_CELL}px`);
+  });
+});

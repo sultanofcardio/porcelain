@@ -568,33 +568,6 @@ button.diff-menu-step:focus-visible {
   box-shadow: inset 3px 0 0 var(--diff-resolved-edge);
 }
 
-/* ── edit island ─────────────────────────────────────────── */
-/*
- * The one editable element on the surface: a native textarea sized and
- * typeset exactly like the rows it replaces, so swapping it in moves no
- * pixels. Its metrics must stay in lockstep with `.diff-line`.
- */
-textarea.diff-island {
-  position: absolute;
-  left: 0;
-  right: 0;
-  z-index: 2;
-  margin: 0;
-  padding: 0 0 0 10px;
-  border: none;
-  outline: 1px dashed var(--vscode-focusBorder, rgba(77, 157, 224, 0.7));
-  outline-offset: -1px;
-  border-radius: 0;
-  background: var(--vscode-editor-background, rgba(20, 22, 26, 0.9));
-  color: var(--app-fg);
-  font-family: var(--editor-font);
-  font-size: var(--editor-font-size);
-  line-height: 20px;
-  white-space: pre;
-  overflow: hidden;
-  resize: none;
-}
-
 /*
  * One collapsed run of unchanged lines. A pane-level row rather than one bar
  * across the whole surface: the drift above a fold can differ per side, so a
