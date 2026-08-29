@@ -12,7 +12,7 @@ webview/                Webview Frontend (React 19 + Vite)
   └── src/
       ├── panel/          Git Log panel (Graph, CommitList, BranchTree, DetailPanel)
       ├── conflicts/      Conflict list page + 3-Way Merge Editor
-      ├── diff/           Porcelain diff viewer (side-by-side panes, find, folds, change stripe)
+      ├── diff/           Porcelain diff viewer (side-by-side + unified views, find, folds, change stripe)
       ├── shared/         Shared modules (bridge, store, hooks, components, theme)
       └── main.tsx        Router entry (mode: panel | merge | conflicts | commit | push | rollback | compare | changes | diff)
 ```

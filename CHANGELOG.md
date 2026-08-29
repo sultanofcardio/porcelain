@@ -5,6 +5,7 @@
 ### Added
 - **Porcelain diff viewer** — an optional JetBrains-style diff surface rendered in a webview, behind `porcelain.diff.viewer`. Paired centre gutter with each side's own line numbers, curved Bézier connectors between changed regions, per-side revision headers, a live difference count, a change stripe with click-to-jump, and a settings menu whose options apply to that window only and are forgotten when it closes
 - **Per-window diff options** — ignore whitespace, highlight granularity (line / word / character / off), collapse unchanged fragments and synchronised scrolling. VS Code's `diffEditor.*` equivalents are global settings, so these have no native counterpart
+- **Unified view** — the settings menu can switch the diff from side-by-side to a single-column unified layout: old lines then new lines for each change, folds and find included. Modified lines keep their modified colouring on both halves rather than posing as removed/added — an edited line is not an addition. Sync-scroll controls hide in unified mode (one column has nothing to synchronise), and single-file layouts for added or deleted files ignore the toggle
 
 ### Changed
 - **Diff titles carry position and both revisions** — a diff is now titled `panel-store.ts · 3 of 7 · 07748ba ↔ af89dd2`. File-stepper position used to be reported through a transient status-bar message, which the compact floating diff window never shows
@@ -15,7 +16,7 @@
 - **Unsupported languages are no longer highlighted as TypeScript** — the merge editor fell back to TypeScript's grammar for anything outside the six Shiki loads, colouring Go, Python and YAML with confidently wrong rules. The diff viewer falls back to plain text instead
 
 ### Notes
-- The diff viewer still defaults to **off**. Working-tree diffs route to the Porcelain viewer too — that side is no longer editable in place, and Edit Source is the way back to the real file. Binary and image diffs and very large text diffs show an in-viewer placeholder with an **Open in editor** action (images render side by side, oversized text offers Show anyway). Find, keyboard navigation and the screen-reader story are now in place; flipping the default to `porcelain` is a deliberate follow-up
+- The diff viewer still defaults to **off**. Working-tree diffs route to the Porcelain viewer too — that side is no longer editable in place, and Edit Source is the way back to the real file. Binary and image diffs and very large text diffs show an in-viewer placeholder with an **Open in editor** action (images up to 10 MB per side render side by side, heavier ones degrade to the placeholder with both sizes; oversized text offers Show anyway). Find, keyboard navigation and the screen-reader story are now in place; flipping the default to `porcelain` is a deliberate follow-up
 
 ## [0.8.0] - 2026-08-26
 

@@ -246,9 +246,7 @@ function unionRanges(
   if (!right) return left;
   const merged = [...left];
   for (const range of right) {
-    if (
-      !merged.some((r) => r.start === range.start && r.end === range.end)
-    )
+    if (!merged.some((r) => r.start === range.start && r.end === range.end))
       merged.push(range);
   }
   return merged;
