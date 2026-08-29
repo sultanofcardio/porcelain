@@ -220,9 +220,10 @@ export function DiffApp() {
         event.preventDefault();
         return;
       }
-      // Save works from anywhere — muscle memory does not check focus. The
-      // island never sees this path: it stops propagation of its own keys
-      // and commits on Escape/blur first.
+      // Save works from anywhere — muscle memory does not check focus. This
+      // runs before the editable-target guard below so it fires while typing
+      // in the EditablePane textarea, which does not claim Cmd+S; composition
+      // text is live-applied to the store, so the save sees what's on screen.
       if ((event.metaKey || event.ctrlKey) && event.key === "s") {
         void saveRef.current();
         event.preventDefault();

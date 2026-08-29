@@ -59,9 +59,12 @@ export function MergeGutterVerbs({
 
         // Each flank's verbs follow that flank's own state, the IntelliJ
         // shape: an accepted side offers revert; an un-taken side keeps its
-        // accept verb — clicking it appends that slice below what already
-        // landed — and a still-pending side keeps its full set. Nothing here
-        // depends on whether the region as a whole counts as resolved.
+        // accept verb — clicking it splices that slice into the result
+        // alongside what already landed — and a still-pending side keeps its
+        // full set. Nothing here depends on whether the region as a whole
+        // counts as resolved. Accept stays even for an empty slice: an
+        // accepted empty flank is an accepted deletion, the one-click answer
+        // to delete-vs-modify.
         return (
           <div
             key={index}
@@ -71,11 +74,11 @@ export function MergeGutterVerbs({
               [flank === "ours" ? "left" : "right"]: 2,
             }}
           >
-            {state !== "accepted" && slice.length > 0 && (
+            {state !== "accepted" && (
               <Tooltip
                 text={
                   state === "ignored"
-                    ? `Also accept ${flank} below what landed`
+                    ? `Also accept ${flank} into the result`
                     : `Accept ${flank} into the result`
                 }
               >
