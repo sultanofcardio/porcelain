@@ -64,7 +64,7 @@ export interface ConflictRegion {
   theirsStart: number;
   oursState: SideDecision;
   theirsState: SideDecision;
-  /** A committed edit island overlapped this region: typing is resolving. */
+  /** A hand edit overlapped this region: typing is resolving. */
   edited: boolean;
 }
 
