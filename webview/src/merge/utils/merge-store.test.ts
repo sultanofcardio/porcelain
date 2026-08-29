@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { caretAt } from "../../diff/editor/editor-model";
 import type { FileVersionsResult } from "../../shared/bridge/types";
 import { useMergeStore } from "../../shared/store/merge-store";
 
@@ -70,41 +71,65 @@ describe("merge store", () => {
     expect(state.dirty).toBe(false);
   });
 
-  it("an island over the conflict commits as a manual resolution", () => {
-    useMergeStore.getState().openIsland(1);
-    const island = useMergeStore.getState().island;
-    expect(island).toEqual({
-      start: 1,
-      count: 1,
-      lines: ["b"],
-      zeroBase: false,
+  it("typing over the conflict line edits and resolves it in place", () => {
+    // Select the whole conflict line and type a replacement — the editor's
+    // path, no modes involved.
+    useMergeStore.getState().setCursor({
+      anchor: { line: 1, col: 0 },
+      head: { line: 1, col: 1 },
     });
-    useMergeStore.getState().commitIsland(["typed by hand"]);
+    useMergeStore
+      .getState()
+      .editAt(
+        { anchor: { line: 1, col: 0 }, head: { line: 1, col: 1 } },
+        "typed by hand",
+        "type",
+      );
     const state = useMergeStore.getState();
-    expect(state.island).toBeNull();
     expect(state.result.lines).toEqual(["a", "typed by hand", "c"]);
     expect(state.regions[0].edited).toBe(true);
     expect(state.allResolved).toBe(true);
     expect(state.resultKinds.get(1)).toBe("resolved");
+    expect(state.cursor?.head).toEqual({ line: 1, col: 13 });
   });
 
-  it("a commit that changed nothing leaves no history and no dirt", () => {
-    useMergeStore.getState().openIsland(1);
-    useMergeStore.getState().commitIsland(["b"]);
-    const state = useMergeStore.getState();
-    expect(state.undoStack).toHaveLength(0);
-    expect(state.dirty).toBe(false);
-    expect(state.regions[0].edited).toBe(false);
+  it("a typing run is one undo step, and redo brings it back", () => {
+    useMergeStore.getState().setCursor(caretAt(1, 1));
+    useMergeStore.getState().editAt(caretAt(1, 1), "x", "type");
+    useMergeStore.getState().editAt(caretAt(1, 2), "y", "type");
+    expect(useMergeStore.getState().result.lines[1]).toBe("bxy");
+    useMergeStore.getState().undo();
+    const undone = useMergeStore.getState();
+    expect(undone.result.lines).toEqual(["a", "b", "c"]);
+    expect(undone.dirty).toBe(false);
+    expect(undone.canRedo).toBe(true);
+    useMergeStore.getState().redo();
+    expect(useMergeStore.getState().result.lines[1]).toBe("bxy");
   });
 
-  it("live line-count changes grow the buffer and the axis while typing", () => {
-    useMergeStore.getState().openIsland(1);
+  it("newline edits grow the buffer, the axis, and every region below", () => {
     const before = useMergeStore.getState().axis.length;
-    useMergeStore.getState().islandLinesChanged(["b", "b2", "b3"]);
+    useMergeStore.getState().editAt(caretAt(1, 1), "1\n2", null);
     const state = useMergeStore.getState();
-    expect(state.result.lines).toEqual(["a", "b", "b2", "b3", "c"]);
+    expect(state.result.lines).toEqual(["a", "b1", "2", "c"]);
     expect(state.axis.length).toBeGreaterThan(before);
-    expect(state.island?.lines).toEqual(["b", "b2", "b3"]);
+    expect(state.regions[0].edited).toBe(true);
+    expect(state.cursor?.head).toEqual({ line: 2, col: 1 });
+  });
+
+  it("a composition session is one history step and lands as typed text", () => {
+    useMergeStore.getState().setCursor(caretAt(1, 1));
+    useMergeStore.getState().beginComposition();
+    useMergeStore.getState().updateComposition("に");
+    useMergeStore.getState().updateComposition("にほ");
+    expect(useMergeStore.getState().result.lines[1]).toBe("bにほ");
+    expect(useMergeStore.getState().composition).not.toBeNull();
+    useMergeStore.getState().endComposition("日本");
+    const state = useMergeStore.getState();
+    expect(state.composition).toBeNull();
+    expect(state.result.lines[1]).toBe("b日本");
+    useMergeStore.getState().undo();
+    expect(useMergeStore.getState().result.lines).toEqual(["a", "b", "c"]);
   });
 
   it("steps through pending conflicts, wrapping", () => {
@@ -168,33 +193,36 @@ describe("merge store", () => {
           ),
         );
 
-    it("opening the editor and escaping leaves the buffer untouched", () => {
+    it("the ✎ verb gives the slot a line to type on, one undo step away", () => {
       loadSlot();
       expect(useMergeStore.getState().regions[0]).toMatchObject({
         start: 2,
         count: 0,
       });
-      useMergeStore.getState().openIslandForRegion(0);
-      expect(useMergeStore.getState().island).toMatchObject({
+      useMergeStore.getState().editRegionByHand(0);
+      const opened = useMergeStore.getState();
+      // The inserted line belongs to the region — the neighbour below moved
+      // down intact, nothing was eaten.
+      expect(opened.result.lines).toEqual(["a", "shared", "", "c"]);
+      expect(opened.regions[0]).toMatchObject({
         start: 2,
-        count: 0,
-        lines: [""],
-        zeroBase: true,
+        count: 1,
+        edited: true,
       });
-      // The textarea's padding line is visual only: committing it must not
-      // eat the real line below the slot.
-      useMergeStore.getState().commitIsland([""]);
-      const state = useMergeStore.getState();
-      expect(state.result.lines).toEqual(["a", "shared", "c"]);
-      expect(state.regions[0].edited).toBe(false);
-      expect(state.dirty).toBe(false);
-      expect(state.undoStack).toHaveLength(0);
+      expect(opened.cursor?.head).toEqual({ line: 2, col: 0 });
+      expect(opened.allResolved).toBe(true);
+      // Undo takes the whole gesture back to a pending empty slot.
+      useMergeStore.getState().undo();
+      const undone = useMergeStore.getState();
+      expect(undone.result.lines).toEqual(["a", "shared", "c"]);
+      expect(undone.regions[0]).toMatchObject({ start: 2, count: 0 });
+      expect(undone.allResolved).toBe(false);
     });
 
-    it("typing into the slot inserts without eating the neighbour", () => {
+    it("typing on the slot's line fills the conflict without eating the neighbour", () => {
       loadSlot();
-      useMergeStore.getState().openIslandForRegion(0);
-      useMergeStore.getState().commitIsland(["typed"]);
+      useMergeStore.getState().editRegionByHand(0);
+      useMergeStore.getState().editAt(caretAt(2, 0), "typed", "type");
       const state = useMergeStore.getState();
       expect(state.result.lines).toEqual(["a", "shared", "typed", "c"]);
       expect(state.regions[0].edited).toBe(true);
@@ -202,21 +230,23 @@ describe("merge store", () => {
     });
   });
 
-  it("an island session that ends where it started rolls fully back", () => {
-    useMergeStore.getState().openIsland(1);
-    // A live count change resolves the region mid-session…
-    useMergeStore.getState().islandLinesChanged(["b", "x"]);
-    expect(useMergeStore.getState().regions[0].edited).toBe(true);
-    // …but ending back at the original content must undo all of it, or a
-    // pending conflict stays silently resolved-as-base with its undo point
-    // discarded.
-    useMergeStore.getState().commitIsland(["b"]);
+  it("an edit at the seam of an empty slot neither moves nor resolves it", () => {
+    useMergeStore
+      .getState()
+      .load(
+        textVersions("a\nc\n", "a\nshared\nmine\nc\n", "a\nshared\nyours\nc\n"),
+      );
+    // Edit the line the slot sits before ("c", line 2) — aimed at
+    // neighbouring text, not at the conflict.
+    useMergeStore.getState().editAt(caretAt(2, 1), "!", "type");
     const state = useMergeStore.getState();
-    expect(state.result.lines).toEqual(["a", "b", "c"]);
-    expect(state.regions[0].edited).toBe(false);
+    expect(state.result.lines).toEqual(["a", "shared", "c!"]);
+    expect(state.regions[0]).toMatchObject({
+      start: 2,
+      count: 0,
+      edited: false,
+    });
     expect(state.allResolved).toBe(false);
-    expect(state.dirty).toBe(false);
-    expect(state.undoStack).toHaveLength(0);
   });
 
   it("accepting a flank that deleted the base drops the lines from the merge", () => {
@@ -282,7 +312,7 @@ describe("merge store", () => {
     expect(useMergeStore.getState().folds.pairO).toHaveLength(0);
   });
 
-  it("opening an island expands any fold hiding part of its range", () => {
+  it("placing the caret inside a collapsed run expands its fold", () => {
     const body = Array.from({ length: 30 }, (_, i) => `line${i}`);
     useMergeStore
       .getState()
@@ -293,12 +323,13 @@ describe("merge store", () => {
           `T\n${body.join("\n")}\n`,
         ),
       );
-    expect(useMergeStore.getState().folds.pairO).toHaveLength(1);
-    // Line 2 sits in visible context, but the island's window reaches into
-    // the collapsed run — editing hidden lines through an overlay is not on.
-    useMergeStore.getState().openIsland(2);
+    const fold = useMergeStore.getState().folds.pairO[0];
+    expect(fold).toBeDefined();
+    // A caret must never sit on hidden content: setting it into the run
+    // expands the fold, so what the user edits is what they see.
+    useMergeStore.getState().setCursor(caretAt(fold.right.start + 2, 0));
     const state = useMergeStore.getState();
-    expect(state.island).not.toBeNull();
+    expect(state.cursor?.head.line).toBe(fold.right.start + 2);
     expect(state.folds.pairO).toHaveLength(0);
   });
 

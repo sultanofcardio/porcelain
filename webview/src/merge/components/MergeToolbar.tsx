@@ -32,8 +32,10 @@ export function MergeToolbar({
   const expandedFolds = useMergeStore((s) => s.expandedFolds);
   const setCollapsed = useMergeStore((s) => s.setCollapsed);
   const undo = useMergeStore((s) => s.undo);
-  const undoDepth = useMergeStore((s) => s.undoStack.length);
-  const island = useMergeStore((s) => s.island);
+  const redo = useMergeStore((s) => s.redo);
+  const canUndo = useMergeStore((s) => s.canUndo);
+  const canRedo = useMergeStore((s) => s.canRedo);
+  const composing = useMergeStore((s) => s.composition !== null);
 
   const fullyCollapsed = collapse && expandedFolds.size === 0;
   const pending = conflictTotal - conflictResolved;
@@ -66,10 +68,21 @@ export function MergeToolbar({
           type="button"
           className="diff-btn"
           aria-label="Undo"
-          disabled={undoDepth === 0 || island !== null}
+          disabled={!canUndo || composing}
           onClick={undo}
         >
           ↶
+        </button>
+      </Tooltip>
+      <Tooltip text="Redo (Cmd+Shift+Z)">
+        <button
+          type="button"
+          className="diff-btn"
+          aria-label="Redo"
+          disabled={!canRedo || composing}
+          onClick={redo}
+        >
+          ↷
         </button>
       </Tooltip>
       <span className="diff-sep" />

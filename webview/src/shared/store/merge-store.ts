@@ -1,19 +1,27 @@
 import { create } from "zustand";
 import {
+  applyTextEdit,
+  caretAt,
+  clampPosition,
+  EditHistory,
+  type EditorSelection,
+  isCaret,
+  ordered,
+  type Position,
+} from "../../diff/editor/editor-model";
+import {
   computeChunks,
   type DiffChunk,
   displayLine,
 } from "../../diff/utils/diff-model";
 import { type FindMatch, sideMatches } from "../../diff/utils/find";
 import {
-  applyIslandEdit,
   applyRegionDecision,
   buildInitialResult,
   buildMergeAxis,
   type ConflictRegion,
   computeMergeFolds,
   flankRegionKinds,
-  islandRangeAt,
   joinDoc,
   type MergeAxisMap,
   type MergeFolds,
@@ -21,6 +29,7 @@ import {
   type MergePane,
   paneToAxis,
   regionResolved,
+  remapRegionsForEdit,
   resultRegionKinds,
   splitDoc,
   type TextDoc,
@@ -36,9 +45,12 @@ import {
  * The rebuilt merge editor's store: one result buffer, a region list over it,
  * and two live 2-way diffs against the flanks — everything else (folds, the
  * axis, the paints, the counts) is derived and rebuilt wholesale by
- * `derive()`, the same shape the diff store uses. The legacy block model and
- * its four accept/skip booleans per block are gone; accepts and keystrokes
- * are both splices now, so one undo stack covers both.
+ * `derive()`, the same shape the diff store uses.
+ *
+ * Since the hand-test revision, the result pane is a full editor: a cursor,
+ * free-form edits through `editAt`, and one history covering typed edits and
+ * structural acts (accepts, ignores, reverts) alike — undo and redo walk a
+ * single timeline, the way an editor's should.
  */
 
 export type MergeFallbackInfo =
@@ -49,6 +61,7 @@ export type MergeFallbackInfo =
 interface MergeSnapshot {
   result: TextDoc;
   regions: ConflictRegion[];
+  cursor: EditorSelection | null;
 }
 
 export interface MergeStoreState {
@@ -88,19 +101,17 @@ export interface MergeStoreState {
   activeRegion: number;
 
   /**
-   * The island open on the result pane, when one is. `count` is how many
-   * buffer lines the island actually owns — zero for an empty-base slot,
-   * whose textarea is padded to one visual line the buffer does not have —
-   * and every splice uses it, never the padded line count. `zeroBase` marks
-   * that padding so clearing the textarea returns to the empty slot.
+   * The editor: cursor and selection over the result buffer, the visual goal
+   * column vertical movement carries, and the live composition range while an
+   * IME is mid-composition. Null cursor means the editor is unfocused.
    */
-  island: {
-    start: number;
-    count: number;
-    lines: string[];
-    zeroBase: boolean;
-  } | null;
-  undoStack: MergeSnapshot[];
+  cursor: EditorSelection | null;
+  goalVisual: number | null;
+  composition: { start: Position; endLine: number } | null;
+  /** One timeline for typed edits and structural acts alike. */
+  history: EditHistory<MergeSnapshot>;
+  canUndo: boolean;
+  canRedo: boolean;
 
   findOpen: boolean;
   findPanes: Record<MergePane, SideFindState>;
@@ -119,12 +130,30 @@ export interface MergeStoreState {
   /** Axis position revealing the active conflict, or null when none. */
   activeRegionAxis: () => number | null;
 
-  openIsland: (line: number) => void;
-  /** Open on a region's range directly — the gutter's edit affordance. */
-  openIslandForRegion: (index: number) => void;
-  islandLinesChanged: (lines: string[]) => void;
-  commitIsland: (lines: string[]) => void;
+  /** Place the cursor; folds hiding it expand so the caret is never invisible. */
+  setCursor: (
+    selection: EditorSelection | null,
+    goalVisual?: number | null,
+  ) => void;
+  /**
+   * The one editing primitive: replace `selection` with `text`. Regions the
+   * edit touches are resolved by it and absorb its range; everything keyed on
+   * result lines below shifts. `coalesceKey` groups typing runs into single
+   * undo steps; null records a discrete step.
+   */
+  editAt: (
+    selection: EditorSelection,
+    text: string,
+    coalesceKey: string | null,
+  ) => void;
+  /** IME composition: one history step at begin, live replaces until end. */
+  beginComposition: () => void;
+  updateComposition: (text: string) => void;
+  endComposition: (text: string) => void;
+  /** The ✎ verb: put the caret in a region (giving an empty slot a line). */
+  editRegionByHand: (index: number) => void;
   undo: () => void;
+  redo: () => void;
 
   toggleFold: (resultStart: number) => void;
   setCollapsed: (collapsed: boolean) => void;
@@ -318,53 +347,15 @@ function deriveFind(
   };
 }
 
-const UNDO_LIMIT = 100;
-
-function pushUndo(state: MergeStoreState): MergeSnapshot[] {
-  return [
-    ...state.undoStack.slice(-(UNDO_LIMIT - 1)),
-    { result: state.result, regions: state.regions },
-  ];
-}
-
-/** An island over a range, with the empty-slot padding kept visual-only. */
-function islandFor(
-  state: MergeStoreState,
-  start: number,
-  count: number,
-): NonNullable<MergeStoreState["island"]> {
-  return {
-    start,
-    count,
-    lines: count === 0 ? [""] : state.result.lines.slice(start, start + count),
-    zeroBase: count === 0,
-  };
+/** The state a mutation is about to replace, for the history timeline. */
+function snapshotOf(state: MergeStoreState): MergeSnapshot {
+  return { result: state.result, regions: state.regions, cursor: state.cursor };
 }
 
 /**
- * What the typed lines mean for the buffer: on an island opened over an
- * empty-base slot, a single empty line is the padding, not content — clearing
- * the textarea returns to the empty slot instead of leaving a blank line.
- */
-function effectiveIslandLines(
-  island: NonNullable<MergeStoreState["island"]>,
-  lines: string[],
-): string[] {
-  if (island.zeroBase && lines.length === 1 && lines[0] === "") return [];
-  return lines;
-}
-
-function sameBuffer(a: TextDoc, b: TextDoc): boolean {
-  return (
-    a.lines.length === b.lines.length &&
-    a.lines.every((line, i) => line === b.lines[i])
-  );
-}
-
-/**
- * Expand any fold hiding part of a result range an island is about to own —
- * the textarea covers the whole range, and editing lines the pane is hiding
- * would overlay the fold row and silently rewrite invisible content.
+ * Expand any fold hiding part of a result range the editor is about to own —
+ * a caret or an edit inside a collapsed run would otherwise operate on
+ * invisible content.
  */
 function expandFoldsForRange(
   state: MergeStoreState,
@@ -380,6 +371,50 @@ function expandFoldsForRange(
   const expandedFolds = new Set(state.expandedFolds);
   for (const fold of intersecting) expandedFolds.add(fold.right.start);
   return { expandedFolds, ...derive({ ...state, expandedFolds }) };
+}
+
+/**
+ * Apply one text edit to the buffer and carry every dependent structure with
+ * it: regions (touched ones resolve and absorb), fold-expansion keys, the
+ * find walk, the derived world, and the cursor. The shared tail of `editAt`
+ * and the composition actions.
+ */
+function applyEditToState(
+  state: MergeStoreState,
+  selection: EditorSelection,
+  text: string,
+): { patch: Partial<MergeStoreState>; caret: Position } {
+  const edit = applyTextEdit(state.result.lines, selection, text);
+  const result: TextDoc = {
+    lines: edit.lines,
+    trailingNewline: state.result.trailingNewline,
+  };
+  const regions = remapRegionsForEdit(
+    state.regions,
+    edit.replaced.start.line,
+    edit.replaced.end.line,
+    edit.lineDelta,
+  );
+  const splice: LineSplice = {
+    start: edit.replaced.start.line,
+    end: edit.replaced.end.line + 1,
+    delta: edit.lineDelta,
+  };
+  const expandedFolds = remapLineKeys(state.expandedFolds, splice);
+  const next = { ...state, result, regions, expandedFolds };
+  return {
+    patch: {
+      result,
+      regions,
+      expandedFolds,
+      cursor: caretAt(edit.caret.line, edit.caret.col),
+      goalVisual: null,
+      dirty: true,
+      ...derive(next),
+      ...deriveFind(next, splice),
+    },
+    caret: edit.caret,
+  };
 }
 
 export const useMergeStore = create<MergeStoreState>((set, get) => ({
@@ -420,8 +455,12 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
   expandedFolds: new Set<number>(),
   activeRegion: -1,
 
-  island: null,
-  undoStack: [],
+  cursor: null,
+  goalVisual: null,
+  composition: null,
+  history: new EditHistory<MergeSnapshot>(),
+  canUndo: false,
+  canRedo: false,
 
   findOpen: false,
   findPanes: { ours: EMPTY_FIND, result: EMPTY_FIND, theirs: EMPTY_FIND },
@@ -438,8 +477,12 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
         loading: false,
         error: null,
         activeRegion: -1,
-        island: null,
-        undoStack: [] as MergeSnapshot[],
+        cursor: null,
+        goalVisual: null,
+        composition: null,
+        history: new EditHistory<MergeSnapshot>(),
+        canUndo: false,
+        canRedo: false,
         dirty: false,
         expandedFolds: new Set<number>(),
       };
@@ -486,8 +529,8 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
   decideRegion: (index, change) =>
     set((state) => {
       const region = state.regions[index];
-      if (!region || state.island) return {};
-      const undoStack = pushUndo(state);
+      if (!region || state.composition) return {};
+      state.history.record(snapshotOf(state), null, Date.now());
       const edited = applyRegionDecision(
         state.result,
         state.regions,
@@ -510,9 +553,17 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
         result: edited.buffer,
         regions: edited.regions,
         expandedFolds,
-        undoStack,
+        canUndo: state.history.canUndo,
+        canRedo: state.history.canRedo,
         dirty: true,
         activeRegion: index,
+        // The buffer moved under the cursor; snap it into the new document.
+        cursor: state.cursor
+          ? {
+              anchor: clampPosition(edited.buffer.lines, state.cursor.anchor),
+              head: clampPosition(edited.buffer.lines, state.cursor.head),
+            }
+          : null,
         ...derive(next),
         ...deriveFind(next, splice),
       };
@@ -547,141 +598,161 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
     return paneToAxis(state.axis, "result", row);
   },
 
-  openIsland: (line) =>
+  setCursor: (selection, goalVisual = null) =>
     set((state) => {
-      if (state.island || state.fallback || state.loading) return {};
-      const range = islandRangeAt(
-        state.regions,
-        line,
-        state.result.lines.length,
-      );
+      if (state.fallback || state.loading) return {};
+      if (!selection) return { cursor: null, goalVisual: null };
+      const clamped = {
+        anchor: clampPosition(state.result.lines, selection.anchor),
+        head: clampPosition(state.result.lines, selection.head),
+      };
+      const span = ordered(clamped);
       return {
-        island: islandFor(state, range.start, range.count),
-        undoStack: pushUndo(state),
-        ...expandFoldsForRange(state, range.start, range.count),
+        cursor: clamped,
+        goalVisual,
+        ...expandFoldsForRange(
+          state,
+          span.start.line,
+          span.end.line - span.start.line + 1,
+        ),
       };
     }),
 
-  openIslandForRegion: (index) =>
+  editAt: (selection, text, coalesceKey) =>
     set((state) => {
-      const region = state.regions[index];
-      if (!region || state.island) return {};
+      if (state.fallback || state.loading || state.composition) return {};
+      state.history.record(snapshotOf(state), coalesceKey, Date.now());
+      const { patch, caret } = applyEditToState(state, selection, text);
+      const withEdit = { ...state, ...patch } as MergeStoreState;
       return {
-        island: islandFor(state, region.start, region.count),
-        undoStack: pushUndo(state),
-        activeRegion: index,
-        ...expandFoldsForRange(state, region.start, region.count),
+        ...patch,
+        canUndo: state.history.canUndo,
+        canRedo: state.history.canRedo,
+        // The caret must land visible: a paste or newline can push it into
+        // (or past) a collapsed run.
+        ...expandFoldsForRange(withEdit, caret.line, 1),
       };
     }),
 
-  islandLinesChanged: (lines) =>
+  beginComposition: () =>
     set((state) => {
-      const { island } = state;
-      if (!island) return {};
-      const effective = effectiveIslandLines(island, lines);
-      const edited = applyIslandEdit(
-        state.result,
-        state.regions,
-        island.start,
-        island.count,
-        effective,
-      );
-      const splice: LineSplice = {
-        start: island.start,
-        end: island.start + island.count,
-        delta: effective.length - island.count,
-      };
-      const expandedFolds = remapLineKeys(state.expandedFolds, splice);
-      const next = {
-        ...state,
-        result: edited.buffer,
-        regions: edited.regions,
-        expandedFolds,
-      };
-      return {
-        result: edited.buffer,
-        regions: edited.regions,
-        expandedFolds,
-        island: { ...island, lines, count: effective.length },
-        dirty: true,
-        ...derive(next),
-        ...deriveFind(next, splice),
-      };
-    }),
-
-  commitIsland: (lines) =>
-    set((state) => {
-      const { island } = state;
-      if (!island) return {};
-      const effective = effectiveIslandLines(island, lines);
-      const edited = applyIslandEdit(
-        state.result,
-        state.regions,
-        island.start,
-        island.count,
-        effective,
-      );
-      // "Nothing changed" is judged against the pre-island snapshot, not the
-      // live buffer: line-count edits were applied live, so a session that
-      // ends back where it started must roll the buffer, the regions (their
-      // `edited` flags included) and the snapshot all the way back — or a
-      // pending conflict would stay silently resolved-as-base with its undo
-      // point discarded.
-      const snapshot = state.undoStack[state.undoStack.length - 1];
-      if (snapshot && sameBuffer(edited.buffer, snapshot.result)) {
-        const next = {
-          ...state,
-          result: snapshot.result,
-          regions: snapshot.regions,
-        };
+      if (!state.cursor || state.composition) return {};
+      // One history step for the whole composition session.
+      state.history.record(snapshotOf(state), null, Date.now());
+      // A selection is consumed as the session opens; the composition range
+      // then starts collapsed where it stood.
+      if (isCaret(state.cursor)) {
+        const start = clampPosition(state.result.lines, state.cursor.head);
         return {
-          result: snapshot.result,
-          regions: snapshot.regions,
-          island: null,
-          undoStack: state.undoStack.slice(0, -1),
-          dirty: state.undoStack.length > 1,
-          ...derive(next),
-          ...deriveFind(next),
+          composition: { start, endLine: start.line },
+          canUndo: state.history.canUndo,
+          canRedo: state.history.canRedo,
         };
       }
-      const splice: LineSplice = {
-        start: island.start,
-        end: island.start + island.count,
-        delta: effective.length - island.count,
-      };
-      const expandedFolds = remapLineKeys(state.expandedFolds, splice);
-      const next = {
-        ...state,
-        result: edited.buffer,
-        regions: edited.regions,
-        expandedFolds,
-      };
+      const { patch, caret } = applyEditToState(state, state.cursor, "");
       return {
-        result: edited.buffer,
-        regions: edited.regions,
-        expandedFolds,
-        island: null,
-        dirty: true,
-        ...derive(next),
-        ...deriveFind(next, splice),
+        ...patch,
+        composition: { start: caret, endLine: caret.line },
+        canUndo: state.history.canUndo,
+        canRedo: state.history.canRedo,
+      };
+    }),
+
+  updateComposition: (text) =>
+    set((state) => {
+      const { composition, cursor } = state;
+      if (!composition || !cursor) return {};
+      const { patch, caret } = applyEditToState(
+        state,
+        { anchor: composition.start, head: cursor.head },
+        text,
+      );
+      return {
+        ...patch,
+        composition: { start: composition.start, endLine: caret.line },
+      };
+    }),
+
+  endComposition: (text) =>
+    set((state) => {
+      const { composition, cursor } = state;
+      if (!composition || !cursor) return {};
+      const { patch } = applyEditToState(
+        state,
+        { anchor: composition.start, head: cursor.head },
+        text,
+      );
+      return { ...patch, composition: null };
+    }),
+
+  editRegionByHand: (index) =>
+    set((state) => {
+      const region = state.regions[index];
+      if (!region || state.composition) return {};
+      if (region.count === 0) {
+        // An empty slot has no line to put a caret on: give it one, which is
+        // itself the hand-edit that resolves it — and one undo step away.
+        state.history.record(snapshotOf(state), null, Date.now());
+        const { patch } = applyEditToState(
+          state,
+          caretAt(region.start, 0),
+          "\n",
+        );
+        // The inserted line belongs to the region, not to the text below it —
+        // remap treated a seam insertion as neighbouring-text physics.
+        const regions = (patch.regions ?? state.regions).map((r, i) =>
+          i === index
+            ? { ...r, start: region.start, count: 1, edited: true }
+            : r,
+        );
+        const next = { ...state, ...patch, regions } as MergeStoreState;
+        return {
+          ...patch,
+          regions,
+          cursor: caretAt(region.start, 0),
+          activeRegion: index,
+          canUndo: state.history.canUndo,
+          canRedo: state.history.canRedo,
+          ...derive(next),
+        };
+      }
+      return {
+        activeRegion: index,
+        cursor: caretAt(region.start, 0),
+        goalVisual: null,
+        ...expandFoldsForRange(state, region.start, region.count),
       };
     }),
 
   undo: () =>
     set((state) => {
-      // Not while an island is open: its textarea owns undo until commit.
-      if (state.island || state.undoStack.length === 0) return {};
-      const snapshot = state.undoStack[state.undoStack.length - 1];
-      const next = {
-        ...state,
-        result: snapshot.result,
-        regions: snapshot.regions,
-      };
+      if (state.composition) return {};
+      const snapshot = state.history.undo(snapshotOf(state));
+      if (!snapshot) return {};
+      const next = { ...state, ...snapshot };
       return {
-        result: snapshot.result,
-        regions: snapshot.regions,
-        undoStack: state.undoStack.slice(0, -1),
-        dirty: state.undoStack.length > 1,
+        ...snapshot,
+        canUndo: state.history.canUndo,
+        canRedo: state.history.canRedo,
+        dirty: state.history.canUndo,
+        goalVisual: null,
+        ...derive(next),
+        ...deriveFind(next),
+      };
+    }),
+
+  redo: () =>
+    set((state) => {
+      if (state.composition) return {};
+      const snapshot = state.history.redo(snapshotOf(state));
+      if (!snapshot) return {};
+      const next = { ...state, ...snapshot };
+      return {
+        ...snapshot,
+        canUndo: state.history.canUndo,
+        canRedo: state.history.canRedo,
+        dirty: true,
+        goalVisual: null,
         ...derive(next),
         ...deriveFind(next),
       };

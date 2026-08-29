@@ -31,8 +31,10 @@ export function MergeGutterVerbs({
 }: MergeGutterVerbsProps) {
   const regions = useMergeStore((s) => s.regions);
   const decideRegion = useMergeStore((s) => s.decideRegion);
-  const openIslandForRegion = useMergeStore((s) => s.openIslandForRegion);
-  const island = useMergeStore((s) => s.island);
+  const editRegionByHand = useMergeStore((s) => s.editRegionByHand);
+  // Verbs sleep while an IME composition is live: a structural splice under
+  // an in-flight composition would corrupt what the IME believes it owns.
+  const composing = useMergeStore((s) => s.composition !== null);
 
   const pane = flank === "ours" ? "ours" : "theirs";
   const paneSide = flank === "ours" ? "left" : "right";
@@ -73,7 +75,7 @@ export function MergeGutterVerbs({
                     type="button"
                     className="merge-verb merge-verb-revert"
                     aria-label={`Revert ${ordinal}`}
-                    disabled={island !== null}
+                    disabled={composing}
                     onClick={() => decideRegion(index, { action: "revert" })}
                   >
                     ↺
@@ -88,7 +90,7 @@ export function MergeGutterVerbs({
                       type="button"
                       className="merge-verb merge-verb-accept"
                       aria-label={`Accept ${flank} for ${ordinal}`}
-                      disabled={island !== null}
+                      disabled={composing}
                       onClick={() =>
                         decideRegion(index, { action: "accept", side: flank })
                       }
@@ -105,7 +107,7 @@ export function MergeGutterVerbs({
                     type="button"
                     className="merge-verb merge-verb-accept"
                     aria-label={`Accept ${flank} for ${ordinal}`}
-                    disabled={island !== null || state === "accepted"}
+                    disabled={composing || state === "accepted"}
                     onClick={() =>
                       decideRegion(index, { action: "accept", side: flank })
                     }
@@ -118,7 +120,7 @@ export function MergeGutterVerbs({
                     type="button"
                     className="merge-verb merge-verb-ignore"
                     aria-label={`Ignore ${flank} for ${ordinal}`}
-                    disabled={island !== null || state === "ignored"}
+                    disabled={composing || state === "ignored"}
                     onClick={() =>
                       decideRegion(index, { action: "ignore", side: flank })
                     }
@@ -132,8 +134,8 @@ export function MergeGutterVerbs({
                       type="button"
                       className="merge-verb"
                       aria-label={`Edit result for ${ordinal}`}
-                      disabled={island !== null}
-                      onClick={() => openIslandForRegion(index)}
+                      disabled={composing}
+                      onClick={() => editRegionByHand(index)}
                     >
                       ✎
                     </button>

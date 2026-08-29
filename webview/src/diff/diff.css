@@ -734,6 +734,68 @@ button.diff-fold-row:focus-visible {
   pointer-events: none;
 }
 
+/* ── editor core ─────────────────────────────────────────── */
+/*
+ * The hand-built editor: porcelain rows underneath, a drawn caret and
+ * selection on top, and a hidden textarea receiving input at the caret so
+ * IME popups appear where the text will land.
+ */
+.diff-editor-host {
+  position: relative;
+  min-width: 0;
+  height: 100%;
+  cursor: text;
+}
+.diff-editor-overlay {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 2;
+}
+.diff-editor-caret {
+  position: absolute;
+  width: 2px;
+  height: 20px;
+  background: var(--vscode-editorCursor-foreground, #d7dce2);
+  animation: diff-caret-blink 1.1s steps(1) infinite;
+}
+@keyframes diff-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+.diff-editor-selection {
+  position: absolute;
+  height: 20px;
+  background: var(
+    --vscode-editor-selectionBackground,
+    rgba(90, 150, 220, 0.35)
+  );
+}
+.diff-editor-composition {
+  position: absolute;
+  height: 20px;
+  border-bottom: 1.5px solid var(--vscode-editorCursor-foreground, #d7dce2);
+}
+textarea.diff-editor-input {
+  position: absolute;
+  width: 2px;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  resize: none;
+  overflow: hidden;
+  z-index: 1;
+  font-family: var(--editor-font);
+  font-size: var(--editor-font-size);
+}
+
 /* ── merge surface ───────────────────────────────────────── */
 /* Three panes, two gutters: ours | gutter | result | gutter | theirs. The
    centre pane gets slightly more room — it is the one being read and edited. */

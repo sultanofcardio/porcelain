@@ -1,17 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { computeChunks } from "../../diff/utils/diff-model";
 import {
-  applyIslandEdit,
   applyRegionDecision,
   axisToOffsets,
   buildInitialResult,
   buildMergeAxis,
   computeMergeFolds,
   flankRegionKinds,
-  islandRangeAt,
   joinDoc,
   paneToAxis,
   regionResolved,
+  remapRegionsForEdit,
   resultRegionKinds,
   splitDoc,
 } from "./merge-model";
@@ -228,68 +227,6 @@ describe("applyRegionDecision", () => {
   });
 });
 
-describe("applyIslandEdit", () => {
-  it("resolves the region an island covered and keeps its slices", () => {
-    const { result, regions } = buildInitialResult(
-      "a\nb\nc\n",
-      "a\nOURS\nc\n",
-      "a\nTHEIRS\nc\n",
-    );
-    const next = applyIslandEdit(result, regions, 1, 1, ["typed", "byhand"]);
-    expect(next.buffer.lines).toEqual(["a", "typed", "byhand", "c"]);
-    expect(next.regions[0].edited).toBe(true);
-    expect(next.regions[0].count).toBe(2);
-    expect(regionResolved(next.regions[0])).toBe(true);
-  });
-
-  it("shifts regions below an island edit outside every region", () => {
-    const { result, regions } = buildInitialResult(
-      "a\nb\nc\nd\ne\n",
-      "a\nb\nc\nOURS\ne\n",
-      "a\nb\nc\nTHEIRS\ne\n",
-    );
-    expect(regions[0].start).toBe(3);
-    const next = applyIslandEdit(result, regions, 0, 1, ["a", "a2"]);
-    expect(next.buffer.lines).toEqual(["a", "a2", "b", "c", "d", "e"]);
-    expect(next.regions[0].start).toBe(4);
-    expect(next.regions[0].edited).toBe(false);
-  });
-});
-
-describe("islandRangeAt", () => {
-  const regions = [
-    {
-      start: 5,
-      count: 2,
-      ours: [],
-      theirs: [],
-      base: [],
-      oursStart: 0,
-      theirsStart: 0,
-      oursState: "pending" as const,
-      theirsState: "pending" as const,
-      edited: false,
-    },
-  ];
-
-  it("covers the whole region when opened inside one", () => {
-    expect(islandRangeAt(regions, 6, 100)).toEqual({ start: 5, count: 2 });
-  });
-
-  it("clamps a window so it never crosses a region boundary", () => {
-    const below = islandRangeAt(regions, 9, 100);
-    expect(below.start).toBe(7); // region ends at 7
-    const above = islandRangeAt(regions, 3, 100);
-    expect(above.start + above.count).toBe(5); // region starts at 5
-  });
-
-  it("caps a free-range island to the window", () => {
-    const range = islandRangeAt([], 50, 1000);
-    expect(range.start).toBe(30);
-    expect(range.count).toBe(41);
-  });
-});
-
 describe("computeMergeFolds", () => {
   const body = Array.from({ length: 30 }, (_, i) => `line${i}`);
 
@@ -467,5 +404,54 @@ describe("presentation helpers", () => {
     expect(resultRegionKinds(accepted.regions).get(1)).toBe("resolved");
     expect(flankRegionKinds(regions, "ours").get(1)).toBe("conflict");
     expect(flankRegionKinds(regions, "theirs").get(1)).toBe("conflict");
+  });
+});
+
+describe("remapRegionsForEdit", () => {
+  const region = (
+    start: number,
+    count: number,
+  ): Parameters<typeof remapRegionsForEdit>[0][number] => ({
+    start,
+    count,
+    ours: ["o"],
+    theirs: ["t"],
+    base: count > 0 ? Array.from({ length: count }, () => "b") : [],
+    oursStart: 0,
+    theirsStart: 0,
+    oursState: "pending",
+    theirsState: "pending",
+    edited: false,
+  });
+
+  it("an edit inside a region resolves it and adjusts its count", () => {
+    const [next] = remapRegionsForEdit([region(2, 2)], 3, 3, 1);
+    expect(next).toMatchObject({ start: 2, count: 3, edited: true });
+  });
+
+  it("an edit spanning a region boundary absorbs the union", () => {
+    const [next] = remapRegionsForEdit([region(2, 2)], 1, 2, -1);
+    expect(next).toMatchObject({ start: 1, count: 2, edited: true });
+  });
+
+  it("regions below the edit shift by the delta; above stay put", () => {
+    const [above, below] = remapRegionsForEdit(
+      [region(0, 1), region(6, 1)],
+      3,
+      3,
+      2,
+    );
+    expect(above).toMatchObject({ start: 0, edited: false });
+    expect(below).toMatchObject({ start: 8, edited: false });
+  });
+
+  it("a zero-length slot at the edit's own line neither moves nor resolves", () => {
+    const [slot] = remapRegionsForEdit([region(2, 0)], 2, 2, 1);
+    expect(slot).toMatchObject({ start: 2, count: 0, edited: false });
+  });
+
+  it("an edit spanning across a slot's seam resolves it", () => {
+    const [slot] = remapRegionsForEdit([region(2, 0)], 1, 3, 0);
+    expect(slot).toMatchObject({ edited: true });
   });
 });

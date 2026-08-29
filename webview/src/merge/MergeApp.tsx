@@ -7,10 +7,11 @@ import {
 } from "react";
 import { ChangeStripe } from "../diff/components/ChangeStripe";
 import { DiffGutter } from "../diff/components/DiffGutter";
-import { DiffPane, type PaneIsland } from "../diff/components/DiffPane";
+import { DiffPane } from "../diff/components/DiffPane";
 import { FindBarView } from "../diff/components/FindBar";
 import { gutterMetrics, LINE_HEIGHT } from "../diff/components/metrics";
-import { displayLine } from "../diff/utils/diff-model";
+import { type DisplayMapping, EditablePane } from "../diff/editor/EditablePane";
+import { displayLine, displayToSource } from "../diff/utils/diff-model";
 import { bridge } from "../shared/bridge";
 import type { FileVersionsResult } from "../shared/bridge/types";
 import {
@@ -136,8 +137,12 @@ export function MergeApp() {
         stepRef.current(event.shiftKey ? -1 : 1);
         event.preventDefault();
       }
-      if ((event.metaKey || event.ctrlKey) && event.key === "z") {
-        useMergeStore.getState().undo();
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        (event.key === "z" || event.key === "Z")
+      ) {
+        if (event.shiftKey) useMergeStore.getState().redo();
+        else useMergeStore.getState().undo();
         event.preventDefault();
       }
     };
@@ -255,22 +260,17 @@ export function MergeApp() {
   const activeFind = activePane ? store.findPanes[activePane] : null;
   const activeMatch = activeFind?.matches[activeFind.activeMatch] ?? null;
 
-  const island = store.island;
-  const paneIsland: PaneIsland | null = island
-    ? {
-        start: island.start,
-        lines: island.lines,
-        // The empty-base slot owns zero buffer rows; its textarea padding
-        // must not blank the real line below the slot.
-        span: island.count,
-        label: `Editing result lines ${island.start + 1} to ${
-          island.start + Math.max(1, island.lines.length)
-        } — Escape commits`,
-        onLinesChange: (lines) =>
-          useMergeStore.getState().islandLinesChanged(lines),
-        onCommit: (lines) => useMergeStore.getState().commitIsland(lines),
-      }
-    : null;
+  // The result pane's editor mapping: source result lines ↔ display rows
+  // under pair O's folds (the coordinate the result pane renders in).
+  const resultMapping: DisplayMapping = {
+    toDisplayRow: (line) => displayLine(store.folds.pairO, line, "right"),
+    toSourceLine: (row) => {
+      const source = displayToSource(store.folds.pairO, row, "right");
+      return source.kind === "line"
+        ? Math.min(source.line, Math.max(0, resultLines.length - 1))
+        : null;
+    },
+  };
 
   const findBar = (pane: MergePane, autoFocus = false) => (
     <FindBarView
@@ -404,27 +404,53 @@ export function MergeApp() {
                   visibleLines={visibleLines}
                 />
               </div>
-              <DiffPane
-                side="right"
+              <EditablePane
                 lines={resultLines}
-                counterpart={oursLines}
-                chunks={store.chunksOurs}
-                language={store.language}
-                granularity="word"
+                cursor={store.cursor}
+                composition={store.composition}
                 offset={offsets.result}
                 visibleLines={visibleLines}
-                folds={store.folds.pairO}
-                onToggleFold={(fold) =>
-                  useMergeStore.getState().toggleFold(fold.right.start)
+                mapping={resultMapping}
+                label={`Merge result editor for ${filePath}. A full text editor: type anywhere; edits inside a conflict resolve it.`}
+                onSetCursor={(selection, goal) =>
+                  useMergeStore.getState().setCursor(selection, goal)
                 }
-                matches={store.findPanes.result.matches}
-                activeMatch={activePane === "result" ? activeMatch : null}
-                overrideKinds={store.resultKinds}
-                onActivateLine={(line) =>
-                  useMergeStore.getState().openIsland(line)
+                onEdit={(selection, text, key) =>
+                  useMergeStore.getState().editAt(selection, text, key)
                 }
-                island={paneIsland}
-              />
+                onCompositionBegin={() =>
+                  useMergeStore.getState().beginComposition()
+                }
+                onCompositionUpdate={(text) =>
+                  useMergeStore.getState().updateComposition(text)
+                }
+                onCompositionEnd={(text) =>
+                  useMergeStore.getState().endComposition(text)
+                }
+                onUndo={() => useMergeStore.getState().undo()}
+                onRedo={() => useMergeStore.getState().redo()}
+                onRevealRow={(row) =>
+                  scrollToAxis(paneToAxis(store.axis, "result", row))
+                }
+              >
+                <DiffPane
+                  side="right"
+                  lines={resultLines}
+                  counterpart={oursLines}
+                  chunks={store.chunksOurs}
+                  language={store.language}
+                  granularity="word"
+                  offset={offsets.result}
+                  visibleLines={visibleLines}
+                  folds={store.folds.pairO}
+                  onToggleFold={(fold) =>
+                    useMergeStore.getState().toggleFold(fold.right.start)
+                  }
+                  matches={store.findPanes.result.matches}
+                  activeMatch={activePane === "result" ? activeMatch : null}
+                  overrideKinds={store.resultKinds}
+                />
+              </EditablePane>
               <div className="merge-gutter">
                 <DiffGutter
                   chunks={store.chunksTheirs}

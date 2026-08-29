@@ -329,63 +329,48 @@ export function applyRegionDecision(
 }
 
 /**
- * Commit an edit island: replace `count` result lines at `start` with what was
- * typed. The island either covers a region exactly (opened on a conflict — the
- * commit resolves it) or lies strictly between regions (a touch-up — regions
- * below just shift).
+ * Remap the regions after a free-form editor edit replaced the inclusive
+ * line span [replacedStart, replacedEnd] and changed the line count by
+ * `lineDelta`.
+ *
+ * A region the edit touches is resolved by it — typing is resolving — and
+ * absorbs the edit: its range becomes the union of itself and the edit's
+ * result. Regions entirely below shift by the delta. A zero-length slot
+ * sitting exactly at the edit's start line neither resolves nor moves: the
+ * edit happened to the content at that line, and the seam before it stays
+ * where it is — a conflict must never be silently resolved by an edit the
+ * user aimed at neighbouring text.
  */
-export function applyIslandEdit(
-  buffer: TextDoc,
+export function remapRegionsForEdit(
   regions: readonly ConflictRegion[],
-  start: number,
-  count: number,
-  newLines: readonly string[],
-): MergeEdit {
-  const lines = [...buffer.lines];
-  lines.splice(start, count, ...newLines);
-  const delta = newLines.length - count;
+  replacedStart: number,
+  replacedEnd: number,
+  lineDelta: number,
+): ConflictRegion[] {
+  return regions.map((region) => {
+    const start = region.start;
+    const end = region.start + region.count;
 
-  const next = regions.map((region) => {
-    if (region.start === start && region.count === count) {
-      return { ...region, count: newLines.length, edited: true };
+    const touched =
+      region.count > 0
+        ? start <= replacedEnd && replacedStart < end
+        : replacedStart < start && start <= replacedEnd;
+
+    if (touched) {
+      const unionStart = Math.min(start, replacedStart);
+      const unionEnd = Math.max(end, replacedEnd + 1);
+      return {
+        ...region,
+        start: unionStart,
+        count: Math.max(0, unionEnd - unionStart + lineDelta),
+        edited: true,
+      };
     }
-    if (region.start >= start + count) {
-      return { ...region, start: region.start + delta };
+    if (start > replacedEnd) {
+      return { ...region, start: region.start + lineDelta };
     }
     return region;
   });
-  return { buffer: { ...buffer, lines }, regions: next };
-}
-
-/** The largest island opened on unregioned lines, in result lines. */
-const ISLAND_WINDOW = 20;
-
-/**
- * What range an island opened at `line` covers: the whole conflict region when
- * the line is inside one, otherwise a bounded window clamped so it never
- * crosses a region boundary — a partial overlap would make the remap
- * ambiguous, so it is simply not representable.
- */
-export function islandRangeAt(
-  regions: readonly ConflictRegion[],
-  line: number,
-  resultLength: number,
-): { start: number; count: number } {
-  for (const region of regions) {
-    if (line >= region.start && line < region.start + region.count) {
-      return { start: region.start, count: region.count };
-    }
-  }
-  let low = 0;
-  let high = resultLength;
-  for (const region of regions) {
-    const end = region.start + region.count;
-    if (end <= line) low = Math.max(low, end);
-    if (region.start > line) high = Math.min(high, region.start);
-  }
-  const start = Math.max(low, line - ISLAND_WINDOW);
-  const end = Math.min(high, line + ISLAND_WINDOW + 1);
-  return { start, count: Math.max(0, end - start) };
 }
 
 /* ── tri-pane folds ─────────────────────────────────────────────────────── */
