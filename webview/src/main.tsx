@@ -4,8 +4,8 @@ import { ChangesApp } from "./changes/App";
 import { CommitApp } from "./commit/App";
 import { CompareApp } from "./compare/App";
 import { ConflictsApp } from "./conflicts/App";
-import { MergeStandaloneApp } from "./conflicts/MergeStandaloneApp";
 import { DiffApp } from "./diff/App";
+import { MergeApp } from "./merge/MergeApp";
 import { PanelApp } from "./panel/App";
 import { PushApp } from "./push/App";
 import { RollbackApp } from "./rollback/App";
@@ -47,7 +47,7 @@ createRoot(root).render(
     {mode === "diff" ? (
       <DiffApp />
     ) : mode === "merge" ? (
-      <MergeStandaloneApp />
+      <MergeApp />
     ) : mode === "conflicts" ? (
       <ConflictsApp />
     ) : mode === "commit" ? (

@@ -699,17 +699,6 @@ export class GitService {
       .filter((s) => s.length > 0);
   }
 
-  async getFileVersions(
-    filePath: string,
-  ): Promise<{ base: string; ours: string; theirs: string }> {
-    const [base, ours, theirs] = await Promise.all([
-      this.getFileContent(":1", filePath),
-      this.getFileContent(":2", filePath),
-      this.getFileContent(":3", filePath),
-    ]);
-    return { base, ours, theirs };
-  }
-
   async saveMergedContent(filePath: string, content: string): Promise<void> {
     await fs.writeFile(path.join(this.rootPath, filePath), content, "utf-8");
   }

@@ -25,6 +25,12 @@ interface DiffGutterProps {
    * has collapsed to one pane: there is no second side to connect to.
    */
   only?: "left" | "right";
+  /**
+   * Per-chunk fill override. The merge surface paints connectors that belong
+   * to a conflict region in the conflict colour, whatever the pair diff
+   * called the chunk; anything undefined falls back to the kind's fill.
+   */
+  connectorFill?: (chunkIndex: number) => string | undefined;
 }
 
 /*
@@ -62,6 +68,7 @@ export function DiffGutter({
   rightLineCount,
   folds = [],
   only,
+  connectorFill,
 }: DiffGutterProps) {
   const height = (visibleLines + 2) * LINE_HEIGHT;
 
@@ -94,6 +101,7 @@ export function DiffGutter({
       {
         index,
         kind: chunk.kind,
+        fill: connectorFill?.(index),
         path: connectorPath(
           { ay0, ay1, by0, by1 },
           {
@@ -167,7 +175,7 @@ export function DiffGutter({
           <path
             key={connector.index}
             d={connector.path}
-            fill={FILL[connector.kind]}
+            fill={connector.fill ?? FILL[connector.kind]}
           />
         ))}
       </svg>
