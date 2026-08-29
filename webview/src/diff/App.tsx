@@ -24,7 +24,7 @@ import {
   sideToAxis,
   splitLines,
 } from "./utils/diff-model";
-import { unifiedRowOf, unifiedRows, unifiedStripeMarks } from "./utils/unified";
+import { unifiedRows, unifiedStripeMarks } from "./utils/unified";
 import "./diff.css";
 
 export function DiffApp() {
@@ -183,6 +183,31 @@ export function DiffApp() {
   // jump targets — speaks in these units.
   const axisUnits = unified ? rows.length : store.axis;
 
+  // Every (side, line) resolved to its row — both sides of an equal row,
+  // folded lines to their fold row — in one pass, so the stripe below looks
+  // rows up in constant time instead of scanning the list per match.
+  const unifiedRowIndex = useMemo(() => {
+    const index = new Map<string, number>();
+    for (const [position, row] of rows.entries()) {
+      if (row.kind === "fold") {
+        for (let i = 0; i < row.fold.left.count; i++) {
+          index.set(`left:${row.fold.left.start + i}`, position);
+        }
+        for (let i = 0; i < row.fold.right.count; i++) {
+          index.set(`right:${row.fold.right.start + i}`, position);
+        }
+        continue;
+      }
+      if (row.leftNumber !== null) {
+        index.set(`left:${row.leftNumber - 1}`, position);
+      }
+      if (row.rightNumber !== null) {
+        index.set(`right:${row.rightNumber - 1}`, position);
+      }
+    }
+    return index;
+  }, [rows]);
+
   // Where the hits sit on the stripe. Deduplicated onto a coarse grid: the
   // stripe is a few hundred pixels tall, and a common query in a big file can
   // hit thousands of lines — distinct marks past one per half-percent are
@@ -191,7 +216,7 @@ export function DiffApp() {
   const matchPositions = useMemo(() => {
     if (matches.length === 0) return [];
     // Positions memoised per (side, line), the same way computeMatches does:
-    // both lookups walk a list, and a busy query can hit thousands of
+    // sideToAxis walks the chunk list, and a busy query can hit thousands of
     // matches on far fewer distinct lines.
     const positionOf = new Map<string, number>();
     const seen = new Set<number>();
@@ -201,7 +226,7 @@ export function DiffApp() {
       let position = positionOf.get(key);
       if (position === undefined) {
         position = unified
-          ? unifiedRowOf(rows, match.side, match.line)
+          ? (unifiedRowIndex.get(key) ?? -1)
           : sideToAxis(chunks, match.line, match.side, folds);
         positionOf.set(key, position);
       }
@@ -212,7 +237,7 @@ export function DiffApp() {
       positions.push(position);
     }
     return positions;
-  }, [matches, chunks, folds, axisUnits, unified, rows]);
+  }, [matches, chunks, folds, axisUnits, unified, unifiedRowIndex]);
 
   const stripeMarks = useMemo(
     () =>

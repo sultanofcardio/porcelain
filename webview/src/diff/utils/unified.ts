@@ -1,5 +1,3 @@
-// Draft of webview/src/diff/utils/unified.ts — applied after the pipeline
-// releases the branch.
 import type { DiffChunk, FoldRegion, Side } from "./diff-model";
 
 /**

@@ -103,10 +103,27 @@ export function UnifiedPane({
         ranges = changedRanges(line, against, granularity);
       }
 
+      // An equal row stands for the same text on both sides, so it shows
+      // hits addressed to either twin, and the active match counts wherever
+      // stepping landed. Offsets from the two sides agree because the texts
+      // are identical — except under whitespace-ignoring chunking, where a
+      // left-side range may sit a few columns off the rendered right text.
+      const found =
+        row.chunkKind === "equal"
+          ? unionRanges(
+              matchesByLine.get(`left:${(row.leftNumber ?? 0) - 1}`),
+              matchesByLine.get(`right:${(row.rightNumber ?? 0) - 1}`),
+            )
+          : (matchesByLine.get(`${row.side}:${row.line}`) ?? []);
+
       const active =
         activeMatch &&
-        activeMatch.side === row.side &&
-        activeMatch.line === row.line
+        (row.chunkKind === "equal"
+          ? activeMatch.line ===
+            (activeMatch.side === "left"
+              ? (row.leftNumber ?? 0) - 1
+              : (row.rightNumber ?? 0) - 1)
+          : activeMatch.side === row.side && activeMatch.line === row.line)
           ? { start: activeMatch.start, end: activeMatch.end }
           : null;
 
@@ -117,7 +134,7 @@ export function UnifiedPane({
           line,
           syntaxSpans(highlighter, line, language),
           ranges,
-          matchesByLine.get(`${row.side}:${row.line}`) ?? [],
+          found,
           active,
         ),
       });
@@ -218,6 +235,23 @@ export function UnifiedPane({
       </div>
     </div>
   );
+}
+
+/** Both twins' ranges, minus exact duplicates — identical text, identical hit. */
+function unionRanges(
+  left: Array<{ start: number; end: number }> | undefined,
+  right: Array<{ start: number; end: number }> | undefined,
+): Array<{ start: number; end: number }> {
+  if (!left) return right ?? [];
+  if (!right) return left;
+  const merged = [...left];
+  for (const range of right) {
+    if (
+      !merged.some((r) => r.start === range.start && r.end === range.end)
+    )
+      merged.push(range);
+  }
+  return merged;
 }
 
 /**
