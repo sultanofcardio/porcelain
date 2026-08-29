@@ -28,9 +28,22 @@ describe("DiffPane", () => {
 
   // Syntax highlighting loads asynchronously and splits a line into several
   // spans once it arrives, so assertions read whole-row text rather than
-  // looking for a single element holding the string.
+  // looking for a single element holding the string. The screen-reader
+  // prefix is invisible and excluded: these tests are about what the eye
+  // sees.
   const textOf = (container: HTMLElement) =>
-    [...container.querySelectorAll(".diff-line")].map((row) => row.textContent);
+    [...container.querySelectorAll(".diff-line")].map((row) =>
+      [...row.childNodes]
+        .filter(
+          (node) =>
+            !(
+              node instanceof HTMLElement &&
+              node.classList.contains("diff-sr-only")
+            ),
+        )
+        .map((node) => node.textContent)
+        .join(""),
+    );
 
   it("renders the visible window of lines", () => {
     const { container } = renderPane();

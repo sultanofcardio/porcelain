@@ -488,6 +488,17 @@ button.diff-menu-step:focus-visible {
 .diff-pane-lines {
   will-change: transform;
 }
+/* Audible but invisible: the clip-rect idiom, absolutely positioned so it
+   cannot disturb the pre-formatted line it prefixes. */
+.diff-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .diff-line {
   height: 20px;
   line-height: 20px;

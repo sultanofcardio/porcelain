@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Tooltip } from "../../shared/components/Tooltip";
 import { useDiffStore } from "../../shared/store/diff-store";
 import { DiffSettingsMenu } from "./DiffSettingsMenu";
@@ -27,6 +27,17 @@ export function DiffToolbar({
   const fallback = useDiffStore((s) => s.fallback);
   const findOpen = useDiffStore((s) => s.findOpen);
   const openFind = useDiffStore((s) => s.openFind);
+  const chunks = useDiffStore((s) => s.chunks);
+  const activeChunk = useDiffStore((s) => s.activeChunk);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+
+  // "difference 3 of 7" for the live region: which non-equal chunk the
+  // stepper is on. Without this, stepping announces nothing at all.
+  const changed = chunks
+    .map((chunk, index) => ({ chunk, index }))
+    .filter(({ chunk }) => chunk.kind !== "equal")
+    .map(({ index }) => index);
+  const position = changed.indexOf(activeChunk);
   const collapse = useDiffStore((s) => s.collapseUnchanged);
   const toggleCollapse = useDiffStore((s) => s.toggleCollapseUnchanged);
   const sync = useDiffStore((s) => s.syncScroll);
@@ -125,6 +136,10 @@ export function DiffToolbar({
       </Tooltip>
 
       <span className="diff-spring" />
+      {/* Polite, so each F7 step is announced without interrupting. */}
+      <span className="diff-sr-only" aria-live="polite">
+        {position >= 0 ? `Difference ${position + 1} of ${changed.length}` : ""}
+      </span>
       <span className="diff-count">
         {fallback
           ? FALLBACK_LABEL[fallback.kind]
@@ -136,6 +151,7 @@ export function DiffToolbar({
       <div className="diff-menu-anchor">
         <Tooltip text="Diff settings">
           <button
+            ref={menuButtonRef}
             type="button"
             className={`diff-btn ${menuOpen ? "diff-btn-on" : ""}`}
             aria-label="Diff settings"
@@ -146,7 +162,16 @@ export function DiffToolbar({
             ⚙
           </button>
         </Tooltip>
-        {menuOpen && <DiffSettingsMenu onClose={() => setMenuOpen(false)} />}
+        {menuOpen && (
+          <DiffSettingsMenu
+            onClose={() => {
+              setMenuOpen(false);
+              // Focus goes back where it came from, or closing the menu
+              // strands the keyboard at the top of the document.
+              menuButtonRef.current?.focus();
+            }}
+          />
+        )}
       </div>
     </div>
   );

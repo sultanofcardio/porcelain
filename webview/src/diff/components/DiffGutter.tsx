@@ -163,7 +163,6 @@ export function DiffGutter({
         height={height}
         aria-hidden="true"
       >
-        <title>Connections between changed regions</title>
         {connectors.map((connector) => (
           <path
             key={connector.index}

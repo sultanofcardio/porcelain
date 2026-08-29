@@ -108,6 +108,9 @@ export function DiffApp() {
     },
     [scrollToAxis],
   );
+  // Read by the window key handler, which binds once.
+  const stepRef = useRef(step);
+  stepRef.current = step;
 
   // Remounting the bar is how a second Cmd+F refocuses the input while the
   // bar is already up; its state all lives in the store, so nothing is lost.
@@ -118,9 +121,28 @@ export function DiffApp() {
         useDiffStore.getState().openFind();
         setFindNonce((nonce) => nonce + 1);
         event.preventDefault();
+        return;
       }
       if (event.key === "Escape" && useDiffStore.getState().findOpen) {
         useDiffStore.getState().closeFind();
+        return;
+      }
+      // IntelliJ's diff bindings. Not while typing: the find input owns its
+      // own keys, and stealing arrows from it would break editing.
+      const target = event.target as HTMLElement | null;
+      if (target && ("value" in target || target.isContentEditable)) return;
+      if (event.key === "F7") {
+        stepRef.current(event.shiftKey ? -1 : 1);
+        event.preventDefault();
+      }
+      if (
+        event.altKey &&
+        (event.key === "ArrowUp" || event.key === "ArrowDown")
+      ) {
+        void bridge.request("stepDiffFile", {
+          delta: event.key === "ArrowDown" ? 1 : -1,
+        });
+        event.preventDefault();
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -188,7 +210,17 @@ export function DiffApp() {
       {store.findOpen && <FindBar key={findNonce} onJump={scrollToAxis} />}
       <RevisionHeader />
       <div className="diff-body">
-        <div className="diff-viewport" ref={viewportRef} onScroll={onScroll}>
+        {/* Focusable so the keyboard can drive it: a focused scroll
+            container gets arrow, page and Home/End scrolling natively, which
+            is the whole pane-navigation story the audit found missing. */}
+        <div
+          className="diff-viewport"
+          ref={viewportRef}
+          onScroll={onScroll}
+          tabIndex={0}
+          role="region"
+          aria-label={`Diff of ${filePath}`}
+        >
           <div className="diff-layers">
             <div
               className={`diff-columns diff-columns-${layout.mode}`}

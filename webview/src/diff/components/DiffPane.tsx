@@ -108,7 +108,7 @@ export function DiffPane({
   const rows = useMemo(() => {
     type RenderedRow =
       | { row: number; fold: FoldRegion }
-      | { row: number; kind: ChunkKind; pieces: Piece[] };
+      | { row: number; line: number; kind: ChunkKind; pieces: Piece[] };
     const rendered: RenderedRow[] = [];
     for (let row = first; row < last; row++) {
       const source = displayToSource(folds, row, side);
@@ -144,6 +144,7 @@ export function DiffPane({
 
       rendered.push({
         row,
+        line: index,
         kind,
         pieces: buildPieces(
           line,
@@ -213,6 +214,12 @@ export function DiffPane({
             </button>
           ) : (
             <div key={row.row} className={`diff-line diff-line-${row.kind}`}>
+              {/* The row's state lives entirely in a background colour, which
+                  a screen reader cannot see; this prefix is the audible
+                  version, and takes no visual space. */}
+              <span className="diff-sr-only">
+                {`Line ${row.line + 1}${row.kind === "equal" ? "" : `, ${row.kind}`}: `}
+              </span>
               {row.pieces.length === 0
                 ? " "
                 : row.pieces.map((piece, i) => (

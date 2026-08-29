@@ -57,6 +57,11 @@ export function ChangeStripe({
   };
 
   return (
+    // Deliberately decorative to the accessibility tree: everything the
+    // stripe can do has a keyboard route — F7 steps differences, the find
+    // bar jumps to matches, and the focused viewport scrolls natively — so
+    // exposing a second, pixel-fiddly jump control would add noise, not
+    // access.
     <div
       className="diff-stripe"
       onMouseDown={jump}
