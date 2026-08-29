@@ -15,6 +15,11 @@ import {
   type FindMatch,
   type FindScope,
 } from "../../diff/utils/find";
+import {
+  unifiedChunkRow,
+  unifiedRowOf,
+  unifiedRows,
+} from "../../diff/utils/unified";
 import type { DiffSidesResult } from "../bridge/types";
 
 /**
@@ -38,6 +43,12 @@ export type DiffFallbackInfo =
 export type Granularity = "line" | "word" | "character" | "none";
 
 export type Whitespace = "none" | "trim";
+
+/**
+ * Side-by-side or one column. Unified is a second row-builder over the same
+ * chunks, folds and find state — nothing else in the store is mode-aware.
+ */
+export type ViewMode = "split" | "unified";
 
 /**
  * View state for one open diff.
@@ -76,6 +87,7 @@ export interface DiffStoreState {
   collapseUnchanged: boolean;
   contextLines: number;
   swapped: boolean;
+  viewMode: ViewMode;
   /** Index into `chunks` of the difference the toolbar last stepped to. */
   activeChunk: number;
 
@@ -103,6 +115,7 @@ export interface DiffStoreState {
   toggleSyncScroll: () => void;
   toggleCollapseUnchanged: () => void;
   setContextLines: (value: number) => void;
+  setViewMode: (mode: ViewMode) => void;
   /** Expand or re-collapse one fold, identified by its left start line. */
   toggleFold: (leftStart: number) => void;
   swapSides: () => void;
@@ -251,6 +264,7 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
   collapseUnchanged: true,
   contextLines: 3,
   swapped: false,
+  viewMode: "split",
   activeChunk: -1,
 
   findOpen: false,
@@ -330,6 +344,8 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
   setContextLines: (contextLines) =>
     set((state) => ({ contextLines, ...derive({ ...state, contextLines }) })),
 
+  setViewMode: (viewMode) => set({ viewMode }),
+
   toggleFold: (leftStart) =>
     set((state) => {
       const expandedFolds = new Set(state.expandedFolds);
@@ -392,10 +408,18 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
       return { activeChunk: indices[next] };
     }),
 
+  // The two "axis" getters answer in the current view's scroll units — a
+  // split-axis position, or a unified row index. Their callers (the toolbar
+  // stepper, the find bar) just scroll to what they are told and never learn
+  // which view is up.
   activeChunkAxis: () => {
-    const { chunks, folds, activeChunk } = get();
+    const { chunks, folds, activeChunk, viewMode } = get();
     const chunk = chunks[activeChunk];
     if (!chunk) return null;
+    if (viewMode === "unified") {
+      const row = unifiedChunkRow(unifiedRows(chunks, folds), activeChunk);
+      return row >= 0 ? row : null;
+    }
     const side = chunk.right.count > 0 ? "right" : "left";
     const span = side === "right" ? chunk.right : chunk.left;
     return sideToAxis(chunks, span.start, side, folds);
@@ -463,9 +487,17 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
   },
 
   activeMatchAxis: () => {
-    const { chunks, folds, matches, activeMatch } = get();
+    const { chunks, folds, matches, activeMatch, viewMode } = get();
     const match = matches[activeMatch];
     if (!match) return null;
+    if (viewMode === "unified") {
+      const row = unifiedRowOf(
+        unifiedRows(chunks, folds),
+        match.side,
+        match.line,
+      );
+      return row >= 0 ? row : null;
+    }
     return sideToAxis(chunks, match.line, match.side, folds);
   },
 }));

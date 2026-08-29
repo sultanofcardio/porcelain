@@ -46,6 +46,15 @@ export function imageMimeType(filePath: string): string | null {
   return IMAGE_MIME[ext.toLowerCase()] ?? null;
 }
 
+/**
+ * The most an image side may weigh before the diff degrades to the binary
+ * placeholder. A data: URI costs ~4/3 of the file serialized through
+ * postMessage and held in webview memory, so an unbounded image could stall
+ * the extension host; past the cap the placeholder still shows both sizes
+ * and offers Open in editor.
+ */
+export const IMAGE_BYTE_LIMIT = 10 * 1024 * 1024;
+
 /** A `data:` URI for an image side, or undefined for an absent side. */
 export function toImageDataUri(
   content: Buffer,
@@ -53,6 +62,52 @@ export function toImageDataUri(
 ): string | undefined {
   if (content.length === 0) return undefined;
   return `data:${mime};base64,${content.toString("base64")}`;
+}
+
+export type BinaryClassification =
+  | {
+      kind: "image";
+      leftUri?: string;
+      rightUri?: string;
+      leftBytes: number;
+      rightBytes: number;
+    }
+  | {
+      kind: "binary";
+      leftBytes: number;
+      rightBytes: number;
+      differs: boolean;
+    };
+
+/**
+ * What a binary pair renders as: images inline, everything else — including
+ * an image too heavy for the cap — the placeholder with sizes.
+ */
+export function classifyBinaryPair(
+  left: Buffer,
+  right: Buffer,
+  filePath: string,
+): BinaryClassification {
+  const mime = imageMimeType(filePath);
+  if (
+    mime &&
+    left.length <= IMAGE_BYTE_LIMIT &&
+    right.length <= IMAGE_BYTE_LIMIT
+  ) {
+    return {
+      kind: "image",
+      leftUri: toImageDataUri(left, mime),
+      rightUri: toImageDataUri(right, mime),
+      leftBytes: left.length,
+      rightBytes: right.length,
+    };
+  }
+  return {
+    kind: "binary",
+    leftBytes: left.length,
+    rightBytes: right.length,
+    differs: !left.equals(right),
+  };
 }
 
 /**

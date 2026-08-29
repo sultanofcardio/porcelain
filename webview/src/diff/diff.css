@@ -662,3 +662,40 @@ button.diff-fold-row:focus-visible {
   border-bottom: 1px solid rgba(255, 255, 255, 0.25);
   pointer-events: none;
 }
+
+/* ── unified view ────────────────────────────────────────── */
+.diff-columns-unified {
+  grid-template-columns: 1fr;
+}
+.diff-unified {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+}
+/* A unified row is numbers-then-text on one line; the text keeps the panes'
+   pre formatting, the numbers read like the gutter's. */
+.diff-unified-line {
+  display: flex;
+  align-items: stretch;
+  padding-left: 0;
+}
+.diff-unified-number {
+  flex: none;
+  padding: 0 5px;
+  font-size: 11px;
+  line-height: 20px;
+  text-align: right;
+  color: var(--vscode-editorLineNumber-foreground, #6e7175);
+  user-select: none;
+  background: var(--vscode-editorGutter-background, rgba(0, 0, 0, 0.12));
+}
+.diff-unified-number + .diff-unified-number {
+  border-right: 1px solid var(--border);
+}
+.diff-unified-text {
+  flex: 1;
+  min-width: 0;
+  padding-left: 10px;
+  white-space: pre;
+  overflow: hidden;
+}

@@ -2,8 +2,14 @@ import { useEffect, useRef } from "react";
 import {
   type Granularity,
   useDiffStore,
+  type ViewMode,
   type Whitespace,
 } from "../../shared/store/diff-store";
+
+const VIEW: Array<{ value: ViewMode; label: string }> = [
+  { value: "split", label: "Side by side" },
+  { value: "unified", label: "Unified" },
+];
 
 const WHITESPACE: Array<{ value: Whitespace; label: string }> = [
   { value: "none", label: "Do not ignore" },
@@ -79,6 +85,24 @@ export function DiffSettingsMenu({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="diff-menu" ref={ref} role="menu" onKeyDown={onMenuKeyDown}>
+      <div className="diff-menu-head">View</div>
+      {VIEW.map((option) => (
+        <button
+          type="button"
+          key={option.value}
+          className="diff-menu-row"
+          role="menuitemradio"
+          aria-checked={store.viewMode === option.value}
+          onClick={() => store.setViewMode(option.value)}
+        >
+          <span className="diff-menu-mark">
+            {store.viewMode === option.value ? "●" : ""}
+          </span>
+          {option.label}
+        </button>
+      ))}
+
+      <div className="diff-menu-sep" />
       <div className="diff-menu-head">Whitespace</div>
       {WHITESPACE.map((option) => (
         <button
@@ -153,16 +177,20 @@ export function DiffSettingsMenu({ onClose }: { onClose: () => void }) {
           </span>
         </div>
       )}
-      <button
-        type="button"
-        className="diff-menu-row"
-        role="menuitemcheckbox"
-        aria-checked={store.syncScroll}
-        onClick={store.toggleSyncScroll}
-      >
-        <span className="diff-menu-mark">{store.syncScroll ? "✓" : ""}</span>
-        Synchronise scrolling
-      </button>
+      {/* One column has nothing to synchronise; a toggle that does nothing
+          is a bug report waiting to be filed. */}
+      {store.viewMode === "split" && (
+        <button
+          type="button"
+          className="diff-menu-row"
+          role="menuitemcheckbox"
+          aria-checked={store.syncScroll}
+          onClick={store.toggleSyncScroll}
+        >
+          <span className="diff-menu-mark">{store.syncScroll ? "✓" : ""}</span>
+          Synchronise scrolling
+        </button>
+      )}
 
       <div className="diff-menu-sep" />
       <button

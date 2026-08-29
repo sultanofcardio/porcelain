@@ -42,6 +42,7 @@ export function DiffToolbar({
   const toggleCollapse = useDiffStore((s) => s.toggleCollapseUnchanged);
   const sync = useDiffStore((s) => s.syncScroll);
   const toggleSync = useDiffStore((s) => s.toggleSyncScroll);
+  const viewMode = useDiffStore((s) => s.viewMode);
 
   return (
     <div className="diff-toolbar">
@@ -111,17 +112,19 @@ export function DiffToolbar({
           ⤢
         </button>
       </Tooltip>
-      <Tooltip text="Synchronise scrolling">
-        <button
-          type="button"
-          className={`diff-btn ${sync ? "diff-btn-on" : ""}`}
-          aria-label="Synchronise scrolling"
-          aria-pressed={sync}
-          onClick={toggleSync}
-        >
-          ⇅
-        </button>
-      </Tooltip>
+      {viewMode === "split" && (
+        <Tooltip text="Synchronise scrolling">
+          <button
+            type="button"
+            className={`diff-btn ${sync ? "diff-btn-on" : ""}`}
+            aria-label="Synchronise scrolling"
+            aria-pressed={sync}
+            onClick={toggleSync}
+          >
+            ⇅
+          </button>
+        </Tooltip>
+      )}
       <span className="diff-sep" />
       <Tooltip text="Find in diff (Ctrl+F / Cmd+F)">
         <button

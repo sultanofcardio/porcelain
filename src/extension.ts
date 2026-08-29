@@ -36,11 +36,10 @@ import {
 } from "./views/comparePanelManager";
 import { ConflictsManager } from "./views/conflictsManager";
 import {
+  classifyBinaryPair,
   countLines,
-  imageMimeType,
   isBinaryContent,
   LARGE_DIFF_LINE_LIMIT,
-  toImageDataUri,
 } from "./views/diffContentClassifier";
 import { DiffEditorManager } from "./views/diffEditorManager";
 import { DiffViewerManager, refLabel } from "./views/diffViewerManager";
@@ -593,22 +592,8 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     if (isBinaryContent(left) || isBinaryContent(right)) {
-      const mime = imageMimeType(filePath);
-      if (mime) {
-        return {
-          kind: "image",
-          leftUri: toImageDataUri(left, mime),
-          rightUri: toImageDataUri(right, mime),
-          leftBytes: left.length,
-          rightBytes: right.length,
-          ...meta,
-        } satisfies DiffSidesResult;
-      }
       return {
-        kind: "binary",
-        leftBytes: left.length,
-        rightBytes: right.length,
-        differs: !left.equals(right),
+        ...classifyBinaryPair(left, right, filePath),
         ...meta,
       } satisfies DiffSidesResult;
     }

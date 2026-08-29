@@ -9,7 +9,7 @@ import {
 import { bridge } from "../shared/bridge";
 import type { DiffSidesResult } from "../shared/bridge/types";
 import { useDiffStore } from "../shared/store/diff-store";
-import { ChangeStripe } from "./components/ChangeStripe";
+import { ChangeStripe, splitStripeMarks } from "./components/ChangeStripe";
 import { DiffFallback } from "./components/DiffFallback";
 import { DiffGutter } from "./components/DiffGutter";
 import { DiffPane } from "./components/DiffPane";
@@ -17,12 +17,14 @@ import { DiffToolbar } from "./components/DiffToolbar";
 import { FindBar } from "./components/FindBar";
 import { LINE_HEIGHT } from "./components/metrics";
 import { RevisionHeader } from "./components/RevisionHeader";
+import { UnifiedPane } from "./components/UnifiedPane";
 import {
   axisToSide,
   chooseLayout,
   sideToAxis,
   splitLines,
 } from "./utils/diff-model";
+import { unifiedRowOf, unifiedRows, unifiedStripeMarks } from "./utils/unified";
 import "./diff.css";
 
 export function DiffApp() {
@@ -165,33 +167,60 @@ export function DiffApp() {
 
   const activeMatch = store.matches[store.activeMatch] ?? null;
 
+  // An added or deleted file collapses to one pane — see `chooseLayout` —
+  // and the unified toggle has nothing to unify there.
+  const layout = chooseLayout(store.left, store.right);
+  const unified = store.viewMode === "unified" && layout.mode === "split";
+
+  // The unified row list: the same chunks and folds, rendered one column.
+  const rows = useMemo(
+    () => (unified ? unifiedRows(store.chunks, store.folds) : []),
+    [unified, store.chunks, store.folds],
+  );
+
+  // What one unit of scrollTop means: a shared-axis line in split view, a
+  // display row in unified. Everything below — the spacer, the stripe, the
+  // jump targets — speaks in these units.
+  const axisUnits = unified ? rows.length : store.axis;
+
   // Where the hits sit on the stripe. Deduplicated onto a coarse grid: the
   // stripe is a few hundred pixels tall, and a common query in a big file can
   // hit thousands of lines — distinct marks past one per half-percent are
   // just DOM.
-  const { matches, chunks, folds, axis: axisTotal } = store;
+  const { matches, chunks, folds } = store;
   const matchPositions = useMemo(() => {
     if (matches.length === 0) return [];
-    // Axis positions memoised per (side, line), the same way computeMatches
-    // does: sideToAxis walks the chunk list, and a busy query can hit
-    // thousands of matches on far fewer distinct lines.
-    const axisOf = new Map<string, number>();
+    // Positions memoised per (side, line), the same way computeMatches does:
+    // both lookups walk a list, and a busy query can hit thousands of
+    // matches on far fewer distinct lines.
+    const positionOf = new Map<string, number>();
     const seen = new Set<number>();
     const positions: number[] = [];
     for (const match of matches) {
       const key = `${match.side}:${match.line}`;
-      let axis = axisOf.get(key);
-      if (axis === undefined) {
-        axis = sideToAxis(chunks, match.line, match.side, folds);
-        axisOf.set(key, axis);
+      let position = positionOf.get(key);
+      if (position === undefined) {
+        position = unified
+          ? unifiedRowOf(rows, match.side, match.line)
+          : sideToAxis(chunks, match.line, match.side, folds);
+        positionOf.set(key, position);
       }
-      const cell = Math.round((axis / Math.max(1, axisTotal)) * 400);
+      if (position < 0) continue;
+      const cell = Math.round((position / Math.max(1, axisUnits)) * 400);
       if (seen.has(cell)) continue;
       seen.add(cell);
-      positions.push(axis);
+      positions.push(position);
     }
     return positions;
-  }, [matches, chunks, folds, axisTotal]);
+  }, [matches, chunks, folds, axisUnits, unified, rows]);
+
+  const stripeMarks = useMemo(
+    () =>
+      unified
+        ? unifiedStripeMarks(rows)
+        : splitStripeMarks(store.chunks, store.folds),
+    [unified, rows, store.chunks, store.folds],
+  );
 
   // With synchronised scrolling off the panes decouple: the left holds still
   // and only the right follows the axis, which is the state the connectors
@@ -205,9 +234,6 @@ export function DiffApp() {
     "right",
     store.folds,
   );
-
-  // An added or deleted file collapses to one pane — see `chooseLayout`.
-  const layout = chooseLayout(store.left, store.right);
 
   // The shell stays mounted through loading and failure. Returning early left
   // the viewport unmounted, so the ResizeObserver had nothing to observe and
@@ -242,10 +268,26 @@ export function DiffApp() {
         >
           <div className="diff-layers">
             <div
-              className={`diff-columns diff-columns-${layout.mode}`}
+              className={`diff-columns diff-columns-${unified ? "unified" : layout.mode}`}
               style={{ height: viewportHeight }}
             >
-              {layout.mode === "single" ? (
+              {unified ? (
+                <UnifiedPane
+                  rows={rows}
+                  leftLines={leftLines}
+                  rightLines={rightLines}
+                  chunks={store.chunks}
+                  language={store.language}
+                  granularity={store.granularity}
+                  offset={axisPosition}
+                  visibleLines={visibleLines}
+                  onToggleFold={(fold) =>
+                    useDiffStore.getState().toggleFold(fold.left.start)
+                  }
+                  matches={store.matches}
+                  activeMatch={activeMatch}
+                />
+              ) : layout.mode === "single" ? (
                 <>
                   <DiffGutter
                     chunks={store.chunks}
@@ -325,7 +367,7 @@ export function DiffApp() {
           </div>
           <div
             className="diff-axis"
-            style={{ height: (store.axis + visibleLines) * LINE_HEIGHT }}
+            style={{ height: (axisUnits + visibleLines) * LINE_HEIGHT }}
           />
         </div>
         {status && <div className="diff-message">{status}</div>}
@@ -341,10 +383,10 @@ export function DiffApp() {
           />
         )}
         <ChangeStripe
-          chunks={store.chunks}
+          total={axisUnits || 1}
+          marks={stripeMarks}
           axisPosition={axisPosition}
           visibleLines={visibleLines}
-          folds={store.folds}
           matchPositions={matchPositions}
           onJump={scrollToAxis}
         />
