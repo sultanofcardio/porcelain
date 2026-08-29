@@ -7,13 +7,14 @@ src/                    Extension Host (TypeScript + Node.js)
   ├── extension.ts        Entry point, command registration & MessageRouter handlers
   ├── git/                Git CLI wrappers (gitService, graphLayout, types)
   ├── messages/           Communication protocol (protocol, messageRouter)
-  └── views/              Webview managers (mergeEditorManager, conflictsManager, diffEditorManager, html)
+  └── views/              Webview managers (mergeEditorManager, conflictsManager, diffEditorManager, diffViewerManager, html)
 webview/                Webview Frontend (React 19 + Vite)
   └── src/
       ├── panel/          Git Log panel (Graph, CommitList, BranchTree, DetailPanel)
       ├── conflicts/      Conflict list page + 3-Way Merge Editor
+      ├── diff/           Porcelain diff viewer (side-by-side panes, find, folds, change stripe)
       ├── shared/         Shared modules (bridge, store, hooks, components, theme)
-      └── main.tsx        Router entry (mode: panel | merge | conflicts)
+      └── main.tsx        Router entry (mode: panel | merge | conflicts | commit | push | rollback | compare | changes | diff)
 ```
 
 ## Code Conventions
