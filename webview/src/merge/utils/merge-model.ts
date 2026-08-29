@@ -710,7 +710,13 @@ export function resultRegionKinds(
   return kinds;
 }
 
-/** Region colour for a flank pane, keyed by that flank's own lines. */
+/**
+ * Region colour for a flank pane, keyed by that flank's own lines and driven
+ * by that flank's *own* state, never the region's. An ignored flank is still
+ * takeable — its accept verb stands, IntelliJ keeps it in conflict colour —
+ * so only a flank that actually landed (accepted), or a region the user
+ * resolved by typing, goes quiet.
+ */
 export function flankRegionKinds(
   regions: readonly ConflictRegion[],
   flank: "ours" | "theirs",
@@ -719,42 +725,108 @@ export function flankRegionKinds(
   for (const region of regions) {
     const slice = flank === "ours" ? region.ours : region.theirs;
     const start = flank === "ours" ? region.oursStart : region.theirsStart;
-    const kind: MergeLineKind = regionResolved(region)
-      ? "resolved"
-      : "conflict";
+    const state = flank === "ours" ? region.oursState : region.theirsState;
+    const kind: MergeLineKind =
+      state === "accepted" || region.edited ? "resolved" : "conflict";
     for (let i = 0; i < slice.length; i++) kinds.set(start + i, kind);
   }
   return kinds;
 }
 
 /**
- * Chunk indices whose connector should paint as conflict: every pair chunk
- * that overlaps a region's slice on the pane the pair addresses.
+ * The pair chunks the merge surface should actually render — every non-equal
+ * chunk touching a conflict region, on either side of the pair, is dropped.
+ *
+ * Inside a region the live pair diff is noise: the moment one side lands, the
+ * diff pairs the landed content against the other flank as an ordinary edit —
+ * intraline marks, add/remove polygons, insertion anchors, none of which mean
+ * anything there. Region rows get their paint from the region kind maps and
+ * their connectors from `regionConnectors`; the raw chunks still drive the
+ * axis, the folds and find, which all use the unfiltered lists.
+ *
+ * A zero-count span is treated as a point touching the region inclusively at
+ * both edges — that is what claims a flank-only add anchored on a zero-length
+ * slot, at the cost of also claiming a hand edit's chunk anchored exactly on
+ * a region boundary. On the flank side the test is strict body overlap only,
+ * so an edit's chunk (flank span empty, anchored at a slice edge) keeps its
+ * paint.
  */
-export function regionChunkIndices(
+export function renderableChunks(
   chunks: readonly DiffChunk[],
   regions: readonly ConflictRegion[],
-  side: "left" | "right",
+  resultSide: "left" | "right",
   flank: "ours" | "theirs",
-): Set<number> {
-  const indices = new Set<number>();
-  for (const [index, chunk] of chunks.entries()) {
-    if (chunk.kind === "equal") continue;
-    const span = side === "left" ? chunk.left : chunk.right;
+): DiffChunk[] {
+  if (regions.length === 0) return [...chunks];
+  return chunks.filter((chunk) => {
+    if (chunk.kind === "equal") return true;
+    const resultSpan = resultSide === "left" ? chunk.left : chunk.right;
+    const flankSpan = resultSide === "left" ? chunk.right : chunk.left;
     for (const region of regions) {
-      const start = flank === "ours" ? region.oursStart : region.theirsStart;
-      const length =
-        flank === "ours" ? region.ours.length : region.theirs.length;
-      const overlaps =
-        span.start < start + Math.max(1, length) &&
-        start < span.start + Math.max(1, span.count);
-      if (overlaps) {
-        indices.add(index);
-        break;
-      }
+      const slice = flank === "ours" ? region.ours : region.theirs;
+      const sliceStart =
+        flank === "ours" ? region.oursStart : region.theirsStart;
+      const onResult =
+        resultSpan.count === 0 || region.count === 0
+          ? region.start <= resultSpan.start &&
+            resultSpan.start <= region.start + region.count
+          : resultSpan.start < region.start + region.count &&
+            region.start < resultSpan.start + resultSpan.count;
+      const onFlank =
+        flankSpan.count > 0 &&
+        slice.length > 0 &&
+        flankSpan.start < sliceStart + slice.length &&
+        sliceStart < flankSpan.start + flankSpan.count;
+      if (onResult || onFlank) return false;
     }
-  }
-  return indices;
+    return true;
+  });
+}
+
+/**
+ * One connector polygon per region per flank, from region geometry alone —
+ * never from the live diff, which shifts under decisions.
+ *
+ * The flank span is the slice's fixed home. The result span says where this
+ * flank's content sits, or would land: a pending flank claims the whole
+ * current range (accepting replaces it), an accepted one claims what landed,
+ * and an ignored flank tapers to its exact insertion point — ours splices
+ * above the landed theirs, theirs below the landed ours, the fixed
+ * ours-then-theirs order — which is how "the other side is still takeable,
+ * and it goes *here*" stays visible after a first accept.
+ */
+export interface RegionConnector {
+  region: number;
+  kind: MergeLineKind;
+  flank: { start: number; count: number };
+  result: { start: number; count: number };
+}
+
+export function regionConnectors(
+  regions: readonly ConflictRegion[],
+  flank: "ours" | "theirs",
+): RegionConnector[] {
+  return regions.map((region, index) => {
+    const slice = flank === "ours" ? region.ours : region.theirs;
+    const sliceStart = flank === "ours" ? region.oursStart : region.theirsStart;
+    const state = flank === "ours" ? region.oursState : region.theirsState;
+    const kind: MergeLineKind =
+      state === "accepted" || region.edited ? "resolved" : "conflict";
+    const result =
+      state === "ignored" && !region.edited
+        ? {
+            start:
+              flank === "ours" ? region.start : region.start + region.count,
+            count: 0,
+          }
+        : { start: region.start, count: region.count };
+    return {
+      region: index,
+      kind,
+      flank: { start: sliceStart, count: slice.length },
+      result,
+    };
+  });
 }
 
 /** Stripe marks in axis units: regions first, then plain changes. */

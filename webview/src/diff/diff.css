@@ -42,6 +42,7 @@
   --diff-conflict-edge: rgba(210, 120, 115, 0.65);
   --diff-conflict-connector: rgba(190, 95, 90, 0.3);
   --diff-resolved-edge: rgba(120, 200, 140, 0.55);
+  --diff-resolved-connector: rgba(120, 200, 140, 0.16);
 
   display: flex;
   flex-direction: column;

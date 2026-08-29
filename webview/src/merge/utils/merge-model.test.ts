@@ -9,8 +9,10 @@ import {
   flankRegionKinds,
   joinDoc,
   paneToAxis,
+  regionConnectors,
   regionResolved,
   remapRegionsForEdit,
+  renderableChunks,
   resultRegionKinds,
   splitDoc,
 } from "./merge-model";
@@ -407,6 +409,163 @@ describe("presentation helpers", () => {
     expect(resultRegionKinds(accepted.regions).get(1)).toBe("resolved");
     expect(flankRegionKinds(regions, "ours").get(1)).toBe("conflict");
     expect(flankRegionKinds(regions, "theirs").get(1)).toBe("conflict");
+  });
+
+  it("keeps an ignored flank in conflict colour — it is still takeable", () => {
+    const { result, regions } = buildInitialResult(
+      "a\nb\nc\n",
+      "a\nOURS\nc\n",
+      "a\nTHEIRS\nc\n",
+    );
+    const accepted = applyRegionDecision(result, regions, 0, {
+      action: "accept",
+      side: "ours",
+    });
+    expect(flankRegionKinds(accepted.regions, "ours").get(1)).toBe("resolved");
+    expect(flankRegionKinds(accepted.regions, "theirs").get(1)).toBe(
+      "conflict",
+    );
+  });
+});
+
+describe("regionConnectors", () => {
+  const load = () =>
+    buildInitialResult(
+      "a\nz\n",
+      "a\nclose() {\n}\nz\n",
+      "a\ndrain() {\n}\nz\n",
+    );
+
+  it("spans a pending flank onto the region's whole result range", () => {
+    const { regions } = load();
+    const [ours] = regionConnectors(regions, "ours");
+    expect(ours).toEqual({
+      region: 0,
+      kind: "conflict",
+      flank: { start: 1, count: 2 },
+      result: { start: 1, count: 0 },
+    });
+  });
+
+  it("tapers an ignored flank to its insertion point, still in conflict", () => {
+    const { result, regions } = load();
+    const step = applyRegionDecision(result, regions, 0, {
+      action: "accept",
+      side: "ours",
+    });
+    const [ours] = regionConnectors(step.regions, "ours");
+    const [theirs] = regionConnectors(step.regions, "theirs");
+    // Ours landed: resolved, claiming the landed rows.
+    expect(ours.kind).toBe("resolved");
+    expect(ours.result).toEqual({ start: 1, count: 2 });
+    // Theirs is still takeable, and an accept splices *below* the landed
+    // ours (the fixed ours-then-theirs order) — the polygon says exactly
+    // where, in conflict colour.
+    expect(theirs.kind).toBe("conflict");
+    expect(theirs.result).toEqual({ start: 3, count: 0 });
+  });
+
+  it("anchors an ignored ours above the landed theirs", () => {
+    const { result, regions } = load();
+    const step = applyRegionDecision(result, regions, 0, {
+      action: "accept",
+      side: "theirs",
+    });
+    const [ours] = regionConnectors(step.regions, "ours");
+    expect(ours.kind).toBe("conflict");
+    expect(ours.result).toEqual({ start: 1, count: 0 });
+  });
+
+  it("goes fully resolved once both sides land", () => {
+    const { result, regions } = load();
+    const first = applyRegionDecision(result, regions, 0, {
+      action: "accept",
+      side: "ours",
+    });
+    const both = applyRegionDecision(first.buffer, first.regions, 0, {
+      action: "accept",
+      side: "theirs",
+    });
+    for (const flank of ["ours", "theirs"] as const) {
+      const [connector] = regionConnectors(both.regions, flank);
+      expect(connector.kind).toBe("resolved");
+      expect(connector.result).toEqual({ start: 1, count: 4 });
+    }
+  });
+
+  it("treats a hand-edited region as resolved for both flanks", () => {
+    const { regions } = load();
+    const edited = [{ ...regions[0], count: 1, edited: true }];
+    for (const flank of ["ours", "theirs"] as const) {
+      const [connector] = regionConnectors(edited, flank);
+      expect(connector.kind).toBe("resolved");
+      expect(connector.result).toEqual({ start: 1, count: 1 });
+    }
+  });
+});
+
+describe("renderableChunks", () => {
+  it("drops the pair chunks a region owns, in every decision state", () => {
+    const initial = buildInitialResult(
+      "a\nz\n",
+      "a\nclose() {\n}\nz\n",
+      "a\ndrain() {\n}\nz\n",
+    );
+    const states = [
+      initial,
+      (() => {
+        const step = applyRegionDecision(initial.result, initial.regions, 0, {
+          action: "accept",
+          side: "ours",
+        });
+        return { result: step.buffer, regions: step.regions };
+      })(),
+      (() => {
+        const first = applyRegionDecision(initial.result, initial.regions, 0, {
+          action: "accept",
+          side: "ours",
+        });
+        const both = applyRegionDecision(first.buffer, first.regions, 0, {
+          action: "accept",
+          side: "theirs",
+        });
+        return { result: both.buffer, regions: both.regions };
+      })(),
+    ];
+    for (const { result, regions } of states) {
+      const ours = ["a", "close() {", "}", "z"];
+      const theirs = ["a", "drain() {", "}", "z"];
+      const { chunksOurs, chunksTheirs } = pairChunks(
+        ours,
+        result.lines,
+        theirs,
+      );
+      const keptO = renderableChunks(chunksOurs, regions, "right", "ours");
+      const keptT = renderableChunks(chunksTheirs, regions, "left", "theirs");
+      // Whatever the live diffs call the region's content — flank-only adds
+      // while pending, landed-vs-other-flank edits after — none of it may
+      // render: the region paints itself.
+      expect(keptO.every((chunk) => chunk.kind === "equal")).toBe(true);
+      expect(keptT.every((chunk) => chunk.kind === "equal")).toBe(true);
+    }
+  });
+
+  it("keeps chunks that have nothing to do with any region", () => {
+    const { result, regions } = buildInitialResult(
+      "a\nb\nc\nd\ne\nf\ng\nh\n",
+      "a\nOURS\nc\nd\ne\nf\ng\nh\n",
+      "a\nTHEIRS\nc\nd\ne\nf\ng\nh\n",
+    );
+    // A hand edit far below the conflict: its chunk must keep its paint.
+    const lines = [...result.lines];
+    lines[6] = "g edited";
+    const { chunksOurs } = pairChunks(
+      ["a", "OURS", "c", "d", "e", "f", "g", "h"],
+      lines,
+      ["a", "THEIRS", "c", "d", "e", "f", "g", "h"],
+    );
+    const kept = renderableChunks(chunksOurs, regions, "right", "ours");
+    expect(kept.some((chunk) => chunk.kind === "modified")).toBe(true);
   });
 });
 

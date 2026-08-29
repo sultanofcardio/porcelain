@@ -11,7 +11,11 @@ import { DiffPane } from "../diff/components/DiffPane";
 import { FindBarView } from "../diff/components/FindBar";
 import { gutterMetrics, LINE_HEIGHT } from "../diff/components/metrics";
 import { type DisplayMapping, EditablePane } from "../diff/editor/EditablePane";
-import { displayLine, displayToSource } from "../diff/utils/diff-model";
+import {
+  displayLine,
+  displayToSource,
+  type FoldRegion,
+} from "../diff/utils/diff-model";
 import { bridge } from "../shared/bridge";
 import type { FileVersionsResult } from "../shared/bridge/types";
 import {
@@ -26,7 +30,9 @@ import {
   type MergePane,
   mergeStripeMarks,
   paneToAxis,
-  regionChunkIndices,
+  type RegionConnector,
+  regionConnectors,
+  renderableChunks,
 } from "./utils/merge-model";
 import "../diff/diff.css";
 
@@ -217,19 +223,74 @@ export function MergeApp() {
     Math.max(resultLines.length, theirsLines.length),
   );
 
-  const conflictChunksO = regionChunkIndices(
+  // What the panes and gutters render: the pair chunks minus everything a
+  // conflict region owns. The regions paint their own rows (the kind maps)
+  // and draw their own connectors (below) from their state — the raw diff
+  // inside them pairs landed content against the other flank as an ordinary
+  // edit, which is noise. Axis, folds and find keep the unfiltered lists.
+  const renderChunksO = renderableChunks(
     store.chunksOurs,
     store.regions,
-    "left",
+    "right",
     "ours",
   );
-  const conflictChunksT = regionChunkIndices(
+  const renderChunksT = renderableChunks(
     store.chunksTheirs,
     store.regions,
-    "right",
+    "left",
     "theirs",
   );
-  const conflictFill = "var(--diff-conflict-connector)";
+
+  // Region connectors in the gutter's own coordinate: viewport-relative
+  // pixel ys, through each pair's folds. Colour follows the flank's state —
+  // takeable stays conflict, landed goes quiet — and an ignored flank tapers
+  // to the exact result row an accept would splice at.
+  const connectorFill = (kind: RegionConnector["kind"]) =>
+    kind === "conflict"
+      ? "var(--diff-conflict-connector)"
+      : "var(--diff-resolved-connector)";
+  const edgeY = (
+    folds: FoldRegion[],
+    line: number,
+    side: "left" | "right",
+    offset: number,
+  ) => (displayLine(folds, line, side) - offset) * LINE_HEIGHT;
+  const regionExtrasO = regionConnectors(store.regions, "ours").map((c) => ({
+    key: `region-${c.region}`,
+    ay0: edgeY(store.folds.pairO, c.flank.start, "left", offsets.ours),
+    ay1: edgeY(
+      store.folds.pairO,
+      c.flank.start + c.flank.count,
+      "left",
+      offsets.ours,
+    ),
+    by0: edgeY(store.folds.pairO, c.result.start, "right", offsets.result),
+    by1: edgeY(
+      store.folds.pairO,
+      c.result.start + c.result.count,
+      "right",
+      offsets.result,
+    ),
+    fill: connectorFill(c.kind),
+  }));
+  const regionExtrasT = regionConnectors(store.regions, "theirs").map((c) => ({
+    key: `region-${c.region}`,
+    ay0: edgeY(store.folds.pairT, c.result.start, "left", offsets.result),
+    ay1: edgeY(
+      store.folds.pairT,
+      c.result.start + c.result.count,
+      "left",
+      offsets.result,
+    ),
+    by0: edgeY(store.folds.pairT, c.flank.start, "right", offsets.theirs),
+    by1: edgeY(
+      store.folds.pairT,
+      c.flank.start + c.flank.count,
+      "right",
+      offsets.theirs,
+    ),
+    fill: connectorFill(c.kind),
+  }));
 
   const stripeMarks = mergeStripeMarks(store.axis, store.regions, store.folds);
 
@@ -369,7 +430,7 @@ export function MergeApp() {
                 side="left"
                 lines={oursLines}
                 counterpart={resultLines}
-                chunks={store.chunksOurs}
+                chunks={renderChunksO}
                 language={store.language}
                 granularity="word"
                 offset={offsets.ours}
@@ -384,7 +445,7 @@ export function MergeApp() {
               />
               <div className="merge-gutter">
                 <DiffGutter
-                  chunks={store.chunksOurs}
+                  chunks={renderChunksO}
                   axisPosition={axisPosition}
                   visibleLines={visibleLines}
                   leftOffset={offsets.ours}
@@ -392,9 +453,7 @@ export function MergeApp() {
                   leftLineCount={oursLines.length}
                   rightLineCount={resultLines.length}
                   folds={store.folds.pairO}
-                  connectorFill={(index) =>
-                    conflictChunksO.has(index) ? conflictFill : undefined
-                  }
+                  extraConnectors={regionExtrasO}
                 />
                 <MergeGutterVerbs
                   flank="ours"
@@ -437,7 +496,7 @@ export function MergeApp() {
                   side="right"
                   lines={resultLines}
                   counterpart={oursLines}
-                  chunks={store.chunksOurs}
+                  chunks={renderChunksO}
                   language={store.language}
                   granularity="word"
                   offset={offsets.result}
@@ -453,7 +512,7 @@ export function MergeApp() {
               </EditablePane>
               <div className="merge-gutter">
                 <DiffGutter
-                  chunks={store.chunksTheirs}
+                  chunks={renderChunksT}
                   axisPosition={axisPosition}
                   visibleLines={visibleLines}
                   leftOffset={offsets.result}
@@ -461,9 +520,7 @@ export function MergeApp() {
                   leftLineCount={resultLines.length}
                   rightLineCount={theirsLines.length}
                   folds={store.folds.pairT}
-                  connectorFill={(index) =>
-                    conflictChunksT.has(index) ? conflictFill : undefined
-                  }
+                  extraConnectors={regionExtrasT}
                 />
                 <MergeGutterVerbs
                   flank="theirs"
@@ -477,7 +534,7 @@ export function MergeApp() {
                 side="right"
                 lines={theirsLines}
                 counterpart={resultLines}
-                chunks={store.chunksTheirs}
+                chunks={renderChunksT}
                 language={store.language}
                 granularity="word"
                 offset={offsets.theirs}

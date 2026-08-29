@@ -26,11 +26,20 @@ interface DiffGutterProps {
    */
   only?: "left" | "right";
   /**
-   * Per-chunk fill override. The merge surface paints connectors that belong
-   * to a conflict region in the conflict colour, whatever the pair diff
-   * called the chunk; anything undefined falls back to the kind's fill.
+   * Connectors drawn from geometry the caller owns, on top of the chunk
+   * connectors. The merge surface draws its conflict regions this way — from
+   * region state, not from the live pair diff. Edges are viewport-relative
+   * pixel ys, the same coordinate the chunk connectors are computed in:
+   * `(displayRow - offset) * LINE_HEIGHT`.
    */
-  connectorFill?: (chunkIndex: number) => string | undefined;
+  extraConnectors?: Array<{
+    key: string;
+    ay0: number;
+    ay1: number;
+    by0: number;
+    by1: number;
+    fill: string;
+  }>;
 }
 
 /*
@@ -68,7 +77,7 @@ export function DiffGutter({
   rightLineCount,
   folds = [],
   only,
-  connectorFill,
+  extraConnectors = [],
 }: DiffGutterProps) {
   const height = (visibleLines + 2) * LINE_HEIGHT;
 
@@ -99,9 +108,8 @@ export function DiffGutter({
 
     return [
       {
-        index,
-        kind: chunk.kind,
-        fill: connectorFill?.(index),
+        key: `chunk-${index}`,
+        fill: FILL[chunk.kind],
         path: connectorPath(
           { ay0, ay1, by0, by1 },
           {
@@ -116,6 +124,25 @@ export function DiffGutter({
       },
     ];
   });
+
+  for (const extra of extraConnectors) {
+    const top = Math.min(extra.ay0, extra.by0);
+    const bottom = Math.max(extra.ay1, extra.by1);
+    if (bottom < -height || top > height * 2) continue;
+    connectors.push({
+      key: `extra-${extra.key}`,
+      fill: extra.fill,
+      path: connectorPath(
+        { ay0: extra.ay0, ay1: extra.ay1, by0: extra.by0, by1: extra.by1 },
+        {
+          width: metrics.width,
+          gapStart: metrics.gapStart,
+          gapEnd: metrics.gapEnd,
+          minThickness: ANCHOR_THICKNESS,
+        },
+      ),
+    });
+  }
 
   const numbers = (
     offset: number,
@@ -172,11 +199,7 @@ export function DiffGutter({
         aria-hidden="true"
       >
         {connectors.map((connector) => (
-          <path
-            key={connector.index}
-            d={connector.path}
-            fill={connector.fill ?? FILL[connector.kind]}
-          />
+          <path key={connector.key} d={connector.path} fill={connector.fill} />
         ))}
       </svg>
       {/* Each column is pinned to its own edge, leaving the gap between them

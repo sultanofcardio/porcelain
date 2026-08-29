@@ -97,6 +97,48 @@ describe("MergeApp accept-both", () => {
       "z",
     ]);
   });
+
+  /**
+   * The paint half of the same hand-test: after accepting ours, the theirs
+   * block must stay in conflict colour with its polygon tapering to the row
+   * an accept would splice at — not fall back to the raw result-vs-theirs
+   * diff (intraline noise, add/remove polygons), which is what shipped. And
+   * once both sides land, everything region-owned paints resolved, with no
+   * leftover raw-diff polygons.
+   */
+  it("keeps region paint state-driven through accept-both", async () => {
+    const CONFLICT = "var(--diff-conflict-connector)";
+    const RESOLVED = "var(--diff-resolved-connector)";
+    const { container } = render(<MergeApp />);
+    const gutterFills = () =>
+      [
+        ...container.querySelectorAll<SVGPathElement>(
+          ".diff-gutter-connectors path",
+        ),
+      ].map((path) => path.getAttribute("fill"));
+
+    const acceptOurs = await waitFor(() =>
+      screen.getByRole("button", { name: "Accept ours for conflict 1" }),
+    );
+    // Pending: both gutters carry the region's conflict polygon and nothing
+    // from the raw pair diffs (which see the flank adds as plain chunks).
+    expect(gutterFills()).toEqual([CONFLICT, CONFLICT]);
+
+    fireEvent.click(acceptOurs);
+    // Ours landed (resolved), theirs still takeable (conflict) — and the raw
+    // close()-vs-drain() modified chunk must not surface anywhere.
+    expect(gutterFills().sort()).toEqual([CONFLICT, RESOLVED]);
+    const theirsPane = [...container.querySelectorAll(".diff-pane")].at(-1);
+    expect(theirsPane?.querySelector(".diff-line-conflict")).toBeTruthy();
+    expect(theirsPane?.querySelector(".diff-changed")).toBeFalsy();
+
+    const acceptTheirs = await waitFor(() =>
+      screen.getByRole("button", { name: "Accept theirs for conflict 1" }),
+    );
+    fireEvent.click(acceptTheirs);
+    // Fully resolved: quiet green polygons only, in both gutters.
+    expect(gutterFills()).toEqual([RESOLVED, RESOLVED]);
+  });
 });
 
 /**
