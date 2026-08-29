@@ -141,6 +141,30 @@ describe("MergeApp accept-both", () => {
     // Fully resolved: quiet green polygons only, in both gutters.
     expect(gutterFills()).toEqual([RESOLVED, RESOLVED]);
   });
+
+  it("keeps raw-diff insertion anchors out of region territory", async () => {
+    // The panes render rows from the unfiltered pair diffs, but anchors must
+    // still come from the region-filtered lists: while pending, the pair-O
+    // added chunk has a zero-count result span at the conflict slot, and
+    // after accept-both each pair sees the other side's landed block as a
+    // raw insertion or removal — none of which may draw an anchor rule
+    // inside territory the region owns.
+    const { container } = render(<MergeApp />);
+    await waitFor(() =>
+      screen.getByRole("button", { name: "Accept ours for conflict 1" }),
+    );
+    const resultPane = [...container.querySelectorAll(".diff-pane")][1];
+    expect(resultPane.querySelector(".diff-anchor")).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Accept ours for conflict 1" }),
+    );
+    const acceptTheirs = await waitFor(() =>
+      screen.getByRole("button", { name: "Accept theirs for conflict 1" }),
+    );
+    fireEvent.click(acceptTheirs);
+    expect(container.querySelector(".diff-anchor")).toBeNull();
+  });
 });
 
 /**

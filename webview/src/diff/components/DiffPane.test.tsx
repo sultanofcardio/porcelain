@@ -131,6 +131,27 @@ describe("DiffPane", () => {
     expect(container.querySelector(".diff-anchor")).toBeNull();
   });
 
+  it("draws anchors from anchorChunks when given, while rows keep chunks", () => {
+    // The merge surface's split: rows and intraline paint follow the
+    // unfiltered pair diff, anchors only the region-filtered list — an
+    // anchor slot is zero-count, so no row-keyed override can suppress it.
+    const base = ["a", "b"];
+    const withAdd = ["a", "x", "y", "b"];
+    const insertion = computeChunks(
+      `${base.join("\n")}\n`,
+      `${withAdd.join("\n")}\n`,
+    );
+    const { container } = renderPane({
+      side: "left",
+      lines: base,
+      counterpart: withAdd,
+      chunks: insertion,
+      anchorChunks: [],
+    });
+    expect(container.querySelector(".diff-anchor")).toBeNull();
+    expect(textOf(container)).toEqual(base);
+  });
+
   it("survives an empty side, which is how an added file diffs", () => {
     const { container } = renderPane({ lines: [], counterpart: right });
     expect(container.querySelectorAll(".diff-line").length).toBe(0);

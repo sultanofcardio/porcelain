@@ -44,6 +44,14 @@ interface DiffPaneProps {
    * pair diff inside a region is noise.
    */
   overrideKinds?: ReadonlyMap<number, string>;
+  /**
+   * The chunks insertion anchors are drawn from, when they should differ
+   * from the row source. The merge surface renders rows from the unfiltered
+   * pair diff but anchors only from the region-filtered list — an anchor
+   * slot is zero-count, so the row-keyed override map cannot suppress it.
+   * Omitted, anchors follow `chunks`.
+   */
+  anchorChunks?: DiffChunk[];
 }
 
 /**
@@ -85,6 +93,7 @@ export function DiffPane({
   matches = [],
   activeMatch = null,
   overrideKinds,
+  anchorChunks,
 }: DiffPaneProps) {
   const highlighter = useShiki();
 
@@ -184,7 +193,7 @@ export function DiffPane({
   // Only the anchors near the viewport: a large file has one per insertion,
   // and the rest would be DOM for nothing. Positions are display rows, so an
   // anchor below a fold sits where its line now renders.
-  const anchors = anchorsFor(chunks, side)
+  const anchors = anchorsFor(anchorChunks ?? chunks, side)
     .map((anchor) => ({
       ...anchor,
       row: displayLine(folds, anchor.line, side),

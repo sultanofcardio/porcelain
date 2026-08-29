@@ -734,18 +734,20 @@ export function flankRegionKinds(
 }
 
 /**
- * The pair chunks the two gutters draw connectors for — every non-equal
- * chunk touching a conflict region, on either side of the pair, is dropped,
- * because `regionConnectors` draws a region's polygon from its state and the
- * raw diff's polygons inside a region are noise. Connectors are this list's
- * only consumer: the panes render the unfiltered chunks (the region kind
- * maps repaint region rows and suppress their intraline marks), and the
- * axis, the folds and find use the unfiltered lists too.
+ * The pair chunks the gutters draw connectors for and the panes draw
+ * insertion anchors from — every non-equal chunk touching a conflict region,
+ * on either side of the pair, is dropped, because `regionConnectors` draws a
+ * region's polygon from its state and the raw diff's polygons and anchor
+ * rules inside a region are noise. Rows are the exception: the panes render
+ * them from the unfiltered chunks (the region kind maps repaint region rows
+ * and suppress their intraline marks), and the axis, the folds and find use
+ * the unfiltered lists too.
  *
  * A zero-count span is treated as a point touching the region inclusively at
  * both edges — that is what claims a flank-only add anchored on a zero-length
  * slot. On the flank side the test is strict body overlap only, so an edit's
- * chunk (flank span empty, anchored at a slice edge) keeps its connector.
+ * chunk (flank span empty, anchored at a slice edge) keeps its connector and
+ * anchor.
  */
 export function renderableChunks(
   chunks: readonly DiffChunk[],
