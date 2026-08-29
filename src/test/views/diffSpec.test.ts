@@ -1,6 +1,10 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { refLabel, toDiffSpec } from "../../views/diffViewerManager";
+import {
+  refLabel,
+  relativeToUriRoot,
+  toDiffSpec,
+} from "../../views/diffViewerManager";
 import { buildGitContentUri } from "../../views/gitUri";
 import {
   EMPTY_CONTENT_REF,
@@ -113,6 +117,47 @@ describe("toDiffSpec", () => {
   it("declines when a revision side carries no ref", () => {
     const noRef = vscode.Uri.parse(`porcelain:/${PATH}?repo=${REPO}`);
     assert.strictEqual(toDiffSpec(noRef, revision("HEAD"), "t"), null);
+  });
+});
+
+describe("relativeToUriRoot", () => {
+  // toDiffSpec derives a file: side's repo-relative path with this helper.
+  // The Windows shape cannot be built through vscode.Uri.file on a POSIX
+  // test host, so the URI-form comparison is exercised directly.
+  it("matches a Windows root whose drive letter differs in case", () => {
+    // repoId "C:\repos\demo" normalizes to "/C:/repos/demo", while the
+    // editor hands file: URIs with a lowercase drive letter.
+    assert.strictEqual(
+      relativeToUriRoot(
+        "/c:/repos/demo/src/new-name.ts",
+        "/C:/repos/demo",
+        true,
+      ),
+      "src/new-name.ts",
+    );
+  });
+
+  it("stays case-sensitive on POSIX", () => {
+    assert.strictEqual(
+      relativeToUriRoot("/Repos/demo/src/app.ts", "/repos/demo", false),
+      null,
+    );
+    assert.strictEqual(
+      relativeToUriRoot("/repos/demo/src/app.ts", "/repos/demo", false),
+      "src/app.ts",
+    );
+  });
+
+  it("returns null outside the root rather than a bogus relative path", () => {
+    assert.strictEqual(
+      relativeToUriRoot("/c:/elsewhere/app.ts", "/c:/repos/demo", true),
+      null,
+    );
+    // A sibling directory sharing the root as a prefix is still outside.
+    assert.strictEqual(
+      relativeToUriRoot("/repos/demo-two/app.ts", "/repos/demo", false),
+      null,
+    );
   });
 });
 

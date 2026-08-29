@@ -172,7 +172,7 @@ function resolveWithinRepo(
   const root = path.resolve(workTreeRoot);
   const target = path.resolve(root, filePath);
   const outside = () =>
-    new Error(`Refusing to write outside the repository: ${filePath}`);
+    new Error(`Refusing to access a path outside the repository: ${filePath}`);
   if (!target.startsWith(root + path.sep)) throw outside();
 
   if (!fs) return { target };

@@ -65,6 +65,24 @@ export interface DiffSpec {
 }
 
 /**
+ * The path of `uriPath` relative to `rootUriPath`, or null when it lies
+ * outside the root. Both arguments are URI-form paths (forward slashes, a
+ * leading slash before a Windows drive letter); `caseInsensitive` matches
+ * Windows filesystem semantics, where `/c:/…` and `/C:/…` name one root.
+ */
+export function relativeToUriRoot(
+  uriPath: string,
+  rootUriPath: string,
+  caseInsensitive: boolean,
+): string | null {
+  const root = rootUriPath.endsWith("/") ? rootUriPath : `${rootUriPath}/`;
+  const matches = caseInsensitive
+    ? uriPath.toLowerCase().startsWith(root.toLowerCase())
+    : uriPath.startsWith(root);
+  return matches ? uriPath.slice(root.length) : null;
+}
+
+/**
  * Whether the Porcelain surface can render this pair, and with which revisions.
  *
  * A working-tree diff addresses the file on disk with a real `file:` URI, which
@@ -111,13 +129,19 @@ export function toDiffSpec(
   // disk, so borrowing the porcelain side's path would read — and save —
   // the wrong file. Only when the file sits outside the root does it fall
   // back to borrowing. The display path is the right side's, matching the
-  // native title.
+  // native title. The repoId is a native fsPath while uri.path is URI-form
+  // (on Windows: `C:\repo` vs `/c:/repo` with a drive letter of either
+  // case), so the root is normalized through vscode.Uri.file and matched
+  // case-insensitively there.
   const relOf = (uri: vscode.Uri): string | null => {
     if (uri.scheme === PORCELAIN_SCHEME) {
       return uri.path.startsWith("/") ? uri.path.slice(1) : uri.path;
     }
-    const root = repoId.endsWith("/") ? repoId : `${repoId}/`;
-    return uri.path.startsWith(root) ? uri.path.slice(root.length) : null;
+    return relativeToUriRoot(
+      uri.path,
+      vscode.Uri.file(repoId).path,
+      process.platform === "win32",
+    );
   };
   const leftRel = relOf(left);
   const rightRel = relOf(right);
