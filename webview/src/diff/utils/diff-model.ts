@@ -129,18 +129,71 @@ function span(chunk: DiffChunk, side: Side): Span {
  * The wider side wins, so an insertion still takes up room even though the
  * left side contributes nothing to it. That is what lets the right pane scroll
  * through an insertion while the left stands still.
+ *
+ * A folded chunk occupies its visible rows only: leading context, one fold
+ * row, trailing context. That single definition is what makes the scrollbar,
+ * the change stripe and both panes shrink together when a run collapses.
  */
-function axisSpan(chunk: DiffChunk): number {
+function axisSpan(chunk: DiffChunk, fold?: FoldRegion): number {
+  if (fold) return chunk.left.count - fold.hiddenLines + 1;
   return Math.max(chunk.left.count, chunk.right.count);
 }
 
-/** Total length of the shared scroll axis, in line-heights. */
-export function axisLength(chunks: readonly DiffChunk[]): number {
-  return chunks.reduce((total, chunk) => total + axisSpan(chunk), 0);
+/**
+ * How many display rows one side of a chunk contributes.
+ *
+ * Folds only land on equal chunks, where both sides have identical counts, so
+ * a folded chunk's display count is the same on both sides — which is why the
+ * drift machinery never has to know about folding.
+ */
+function displaySpanCount(
+  chunk: DiffChunk,
+  side: Side,
+  fold?: FoldRegion,
+): number {
+  if (fold) return chunk.left.count - fold.hiddenLines + 1;
+  return span(chunk, side).count;
+}
+
+/** The active folds, addressable by the chunk they collapse. */
+function foldByChunk(
+  folds: readonly FoldRegion[],
+): Map<number, FoldRegion> | null {
+  if (folds.length === 0) return null;
+  const map = new Map<number, FoldRegion>();
+  for (const fold of folds) map.set(fold.chunkIndex, fold);
+  return map;
 }
 
 /**
- * Where one side sits when the shared axis is at `position`.
+ * `axisSpan` for one chunk of a chunk list, fold-aware. The change stripe
+ * walks chunks itself to place its marks, and it has to shrink a folded
+ * chunk exactly the way the axis does or the marks drift off their changes.
+ */
+export function chunkAxisSpan(
+  chunks: readonly DiffChunk[],
+  index: number,
+  folds: readonly FoldRegion[] = [],
+): number {
+  const fold = folds.find((candidate) => candidate.chunkIndex === index);
+  return axisSpan(chunks[index], fold);
+}
+
+/** Total length of the shared scroll axis, in line-heights. */
+export function axisLength(
+  chunks: readonly DiffChunk[],
+  folds: readonly FoldRegion[] = [],
+): number {
+  const folded = foldByChunk(folds);
+  return chunks.reduce(
+    (total, chunk, index) => total + axisSpan(chunk, folded?.get(index)),
+    0,
+  );
+}
+
+/**
+ * Where one side sits when the shared axis is at `position`, as a fractional
+ * display row — which is a source line exactly when nothing is folded.
  *
  * Both panes are positioned from this single axis rather than from each other.
  * A direct left-to-right mapping cannot express the case the whole design turns
@@ -152,23 +205,27 @@ export function axisToSide(
   chunks: readonly DiffChunk[],
   position: number,
   side: Side,
+  folds: readonly FoldRegion[] = [],
 ): number {
   if (chunks.length === 0) return Math.max(0, position);
   if (position <= 0) return 0;
 
+  const folded = foldByChunk(folds);
   let axis = 0;
-  for (const chunk of chunks) {
-    const width = axisSpan(chunk);
+  let displayStart = 0;
+  for (const [index, chunk] of chunks.entries()) {
+    const fold = folded?.get(index);
+    const width = axisSpan(chunk, fold);
+    const count = displaySpanCount(chunk, side, fold);
     if (position < axis + width) {
-      const target = span(chunk, side);
       const progress = width === 0 ? 0 : (position - axis) / width;
-      return target.start + progress * target.count;
+      return displayStart + progress * count;
     }
     axis += width;
+    displayStart += count;
   }
 
-  const last = span(chunks[chunks.length - 1], side);
-  return last.start + last.count + (position - axis);
+  return displayStart + (position - axis);
 }
 
 /**
@@ -178,27 +235,95 @@ export function axisToSide(
  * stripe — not for continuous scrolling, which drives the axis directly.
  * A line at the boundary of an insertion resolves to the far edge, so jumping
  * to it reveals the inserted lines rather than stopping short of them.
+ * A line hidden inside a fold resolves to the fold's own row; expanding it
+ * first is the caller's decision, not this function's.
  */
 export function sideToAxis(
   chunks: readonly DiffChunk[],
   line: number,
   side: Side,
+  folds: readonly FoldRegion[] = [],
 ): number {
   if (chunks.length === 0) return Math.max(0, line);
   if (line <= 0) return 0;
 
+  const folded = foldByChunk(folds);
+  const display = displayLine(folds, line, side);
   let axis = 0;
-  for (const chunk of chunks) {
-    const width = axisSpan(chunk);
-    const source = span(chunk, side);
-    if (line < source.start + source.count) {
-      const progress =
-        source.count === 0 ? 0 : (line - source.start) / source.count;
+  let displayStart = 0;
+  for (const [index, chunk] of chunks.entries()) {
+    const fold = folded?.get(index);
+    const width = axisSpan(chunk, fold);
+    const count = displaySpanCount(chunk, side, fold);
+    if (display < displayStart + count) {
+      const progress = count === 0 ? 0 : (display - displayStart) / count;
       return axis + progress * width;
     }
     axis += width;
+    displayStart += count;
   }
   return axis;
+}
+
+/**
+ * Where a source line sits once the folds above it have collapsed.
+ *
+ * A fold hides its run and contributes one row in its place, so lines below
+ * shift up by `hiddenLines - 1` per fold passed, and a line inside a hidden
+ * run maps to the fold's own row. With no folds this is the identity, which
+ * is why the panes' existing arithmetic survives unchanged.
+ */
+export function displayLine(
+  folds: readonly FoldRegion[],
+  line: number,
+  side: Side,
+): number {
+  let shift = 0;
+  for (const fold of folds) {
+    const hidden = side === "left" ? fold.left : fold.right;
+    if (line >= hidden.start + hidden.count) {
+      shift += hidden.count - 1;
+      continue;
+    }
+    if (line >= hidden.start) return hidden.start - shift;
+    break;
+  }
+  return line - shift;
+}
+
+export type DisplayRow =
+  | { kind: "line"; line: number }
+  | { kind: "fold"; fold: FoldRegion };
+
+/**
+ * What one display row of one side shows: a source line, or a fold standing
+ * in for its hidden run. The inverse of `displayLine`.
+ */
+export function displayToSource(
+  folds: readonly FoldRegion[],
+  row: number,
+  side: Side,
+): DisplayRow {
+  let shift = 0;
+  for (const fold of folds) {
+    const hidden = side === "left" ? fold.left : fold.right;
+    const foldRow = hidden.start - shift;
+    if (row < foldRow) return { kind: "line", line: row + shift };
+    if (row === foldRow) return { kind: "fold", fold };
+    shift += hidden.count - 1;
+  }
+  return { kind: "line", line: row + shift };
+}
+
+/** How many display rows one side has in total. */
+export function displayLineCount(
+  lineCount: number,
+  folds: readonly FoldRegion[],
+): number {
+  return folds.reduce(
+    (total, fold) => total - (fold.hiddenLines - 1),
+    lineCount,
+  );
 }
 
 export interface FoldRegion {

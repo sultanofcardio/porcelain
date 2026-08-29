@@ -62,7 +62,10 @@ export interface DiffStoreState {
   fallback: DiffFallbackInfo | null;
 
   chunks: DiffChunk[];
+  /** The folds currently collapsed — computed regions minus expanded ones. */
   folds: FoldRegion[];
+  /** Left start lines of folds the user has expanded. */
+  expandedFolds: ReadonlySet<number>;
   differences: number;
   /** Length of the shared scroll axis, in line-heights. */
   axis: number;
@@ -100,6 +103,8 @@ export interface DiffStoreState {
   toggleSyncScroll: () => void;
   toggleCollapseUnchanged: () => void;
   setContextLines: (value: number) => void;
+  /** Expand or re-collapse one fold, identified by its left start line. */
+  toggleFold: (leftStart: number) => void;
   swapSides: () => void;
   stepDifference: (delta: number) => void;
   /** Axis position that reveals the active difference, or null when there is none. */
@@ -114,6 +119,11 @@ export interface DiffStoreState {
   cycleFindScope: () => void;
   /** Move to the next (+1) or previous (-1) match, wrapping. */
   stepMatch: (delta: number) => void;
+  /**
+   * Expand the fold hiding the active match, if one does. Jumping to a match
+   * the viewer then cannot show would make the count read as a lie.
+   */
+  revealActiveMatch: () => void;
   /** Axis position that reveals the active match, or null when there is none. */
   activeMatchAxis: () => number | null;
 }
@@ -154,19 +164,28 @@ function derive(state: {
   whitespace: Whitespace;
   collapseUnchanged: boolean;
   contextLines: number;
+  expandedFolds: ReadonlySet<number>;
 }) {
   const chunks = computeChunks(
     state.left,
     state.right,
     chunkOptionsFor(state.whitespace),
   );
+  // `folds` holds only the folds currently collapsed. Expansion is keyed on
+  // the hidden run's starting left line, not on chunkIndex: toggling
+  // whitespace re-chunks the file and shifts every index, and an expanded
+  // fold that silently became a different expanded fold would be a bug the
+  // user could not even describe.
+  const folds = state.collapseUnchanged
+    ? computeFolds(chunks, { contextLines: state.contextLines }).filter(
+        (fold) => !state.expandedFolds.has(fold.left.start),
+      )
+    : [];
   return {
     chunks,
     differences: countDifferences(chunks),
-    axis: axisLength(chunks),
-    folds: state.collapseUnchanged
-      ? computeFolds(chunks, { contextLines: state.contextLines })
-      : [],
+    axis: axisLength(chunks, folds),
+    folds,
   };
 }
 
@@ -222,6 +241,7 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
 
   chunks: [],
   folds: [],
+  expandedFolds: new Set<number>(),
   differences: 0,
   axis: 0,
 
@@ -256,37 +276,24 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         loading: false,
         error: null,
         activeChunk: -1,
+        // New content, new folds: what was expanded in the old diff has no
+        // meaning in this one.
+        expandedFolds: new Set<number>(),
       };
-      if (kind !== "text") {
-        // Nothing to chunk: the placeholder carries the host's verdict, and
-        // the derived state empties so the toolbar and stripe go quiet.
-        const derived = derive({ ...state, left: "", right: "" });
-        return {
-          ...meta,
-          left: "",
-          right: "",
-          fallback: sides,
-          ...derived,
-          ...deriveFind({ ...state, left: "", right: "", ...derived }),
-        };
-      }
-      const derived = derive({
-        ...state,
-        left: sides.left,
-        right: sides.right,
-      });
+      const text =
+        kind === "text"
+          ? { left: sides.left, right: sides.right, fallback: null }
+          : // Nothing to chunk: the placeholder carries the host's verdict,
+            // and the derived state empties so the toolbar and stripe go
+            // quiet.
+            { left: "", right: "", fallback: sides };
+      const next = { ...state, ...meta, ...text };
+      const derived = derive(next);
       return {
         ...meta,
-        left: sides.left,
-        right: sides.right,
-        fallback: null,
+        ...text,
         ...derived,
-        ...deriveFind({
-          ...state,
-          left: sides.left,
-          right: sides.right,
-          ...derived,
-        }),
+        ...deriveFind({ ...next, ...derived }),
       };
     }),
 
@@ -310,11 +317,28 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
   toggleCollapseUnchanged: () =>
     set((state) => {
       const collapseUnchanged = !state.collapseUnchanged;
-      return { collapseUnchanged, ...derive({ ...state, collapseUnchanged }) };
+      // Turning collapsing back on re-collapses everything: the toggle reads
+      // as "collapse unchanged", not "restore my expansion history".
+      const expandedFolds = new Set<number>();
+      return {
+        collapseUnchanged,
+        expandedFolds,
+        ...derive({ ...state, collapseUnchanged, expandedFolds }),
+      };
     }),
 
   setContextLines: (contextLines) =>
     set((state) => ({ contextLines, ...derive({ ...state, contextLines }) })),
+
+  toggleFold: (leftStart) =>
+    set((state) => {
+      const expandedFolds = new Set(state.expandedFolds);
+      if (expandedFolds.has(leftStart)) expandedFolds.delete(leftStart);
+      else expandedFolds.add(leftStart);
+      // No scroll compensation: a fold can only be toggled while its row is
+      // visible, and the axis only lengthens below the viewport top.
+      return { expandedFolds, ...derive({ ...state, expandedFolds }) };
+    }),
 
   // Swapping re-runs the diff rather than mirroring the existing chunks:
   // a diff is not symmetric, so reversing the inputs is the only way to get
@@ -330,7 +354,10 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         leftLabel: state.rightLabel,
         rightLabel: state.leftLabel,
       };
-      const derived = derive({ ...state, ...swapped });
+      // Expansion is keyed on left start lines, and the swap moves every
+      // fold to the other side's numbering — so everything re-collapses.
+      const expandedFolds = new Set<number>();
+      const derived = derive({ ...state, ...swapped, expandedFolds });
       return {
         ...swapped,
         // The placeholder's per-side facts swap with the labels above them;
@@ -338,6 +365,7 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         fallback: swapFallback(state.fallback),
         swapped: !state.swapped,
         activeChunk: -1,
+        expandedFolds,
         ...derived,
         ...deriveFind({ ...state, ...swapped, ...derived }),
       };
@@ -365,12 +393,12 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
     }),
 
   activeChunkAxis: () => {
-    const { chunks, activeChunk } = get();
+    const { chunks, folds, activeChunk } = get();
     const chunk = chunks[activeChunk];
     if (!chunk) return null;
     const side = chunk.right.count > 0 ? "right" : "left";
     const span = side === "right" ? chunk.right : chunk.left;
-    return sideToAxis(chunks, span.start, side);
+    return sideToAxis(chunks, span.start, side, folds);
   },
 
   openFind: () =>
@@ -423,10 +451,21 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
       return { activeMatch: next };
     }),
 
+  revealActiveMatch: () => {
+    const { folds, matches, activeMatch, toggleFold } = get();
+    const match = matches[activeMatch];
+    if (!match) return;
+    const hiddenIn = folds.find((fold) => {
+      const span = match.side === "left" ? fold.left : fold.right;
+      return match.line >= span.start && match.line < span.start + span.count;
+    });
+    if (hiddenIn) toggleFold(hiddenIn.left.start);
+  },
+
   activeMatchAxis: () => {
-    const { chunks, matches, activeMatch } = get();
+    const { chunks, folds, matches, activeMatch } = get();
     const match = matches[activeMatch];
     if (!match) return null;
-    return sideToAxis(chunks, match.line, match.side);
+    return sideToAxis(chunks, match.line, match.side, folds);
   },
 }));

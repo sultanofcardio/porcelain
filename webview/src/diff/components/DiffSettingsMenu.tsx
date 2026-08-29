@@ -91,8 +91,33 @@ export function DiffSettingsMenu({ onClose }: { onClose: () => void }) {
           {store.collapseUnchanged ? "✓" : ""}
         </span>
         Collapse unchanged
-        <span className="diff-menu-value">{store.contextLines} lines</span>
       </button>
+      {store.collapseUnchanged && (
+        <div className="diff-menu-row diff-menu-stepper">
+          <span className="diff-menu-mark" />
+          Context lines
+          <span className="diff-menu-value">
+            <button
+              type="button"
+              className="diff-menu-step"
+              aria-label="Fewer context lines"
+              disabled={store.contextLines <= 0}
+              onClick={() => store.setContextLines(store.contextLines - 1)}
+            >
+              −
+            </button>
+            <span className="diff-menu-step-count">{store.contextLines}</span>
+            <button
+              type="button"
+              className="diff-menu-step"
+              aria-label="More context lines"
+              onClick={() => store.setContextLines(store.contextLines + 1)}
+            >
+              +
+            </button>
+          </span>
+        </div>
+      )}
       <button
         type="button"
         className="diff-menu-row"

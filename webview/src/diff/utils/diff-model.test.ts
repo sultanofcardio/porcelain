@@ -3,11 +3,15 @@ import {
   axisLength,
   axisToSide,
   chooseLayout,
+  chunkAxisSpan,
   computeChunks,
   computeFolds,
   connectorPath,
   countDifferences,
   type DiffChunk,
+  displayLine,
+  displayLineCount,
+  displayToSource,
   sideToAxis,
 } from "./diff-model";
 
@@ -285,5 +289,134 @@ describe("connectorPath", () => {
     const path = connectorPath({ ay0: 5, ay1: 25, by0: 45, by1: 95 }, band);
     expect(path.startsWith("M0 ")).toBe(true);
     expect(path).toContain(`L${band.width} `);
+  });
+});
+
+describe("the display-line coordinate", () => {
+  // A modified pair, a long equal run, an insertion, and a trailing equal
+  // run — enough to exercise folding on both sides of a drift.
+  const chunks: DiffChunk[] = [
+    {
+      kind: "modified",
+      left: { start: 0, count: 2 },
+      right: { start: 0, count: 2 },
+    },
+    {
+      kind: "equal",
+      left: { start: 2, count: 40 },
+      right: { start: 2, count: 40 },
+    },
+    {
+      kind: "added",
+      left: { start: 42, count: 0 },
+      right: { start: 42, count: 5 },
+    },
+    {
+      kind: "equal",
+      left: { start: 42, count: 8 },
+      right: { start: 47, count: 8 },
+    },
+  ];
+  const folds = computeFolds(chunks, { contextLines: 3 });
+
+  it("folds the interior run and the trailing run of this fixture", () => {
+    // The interior run keeps context on both edges; the trailing run only on
+    // its inner edge. Pinned here because every number below depends on it.
+    expect(folds).toEqual([
+      {
+        chunkIndex: 1,
+        left: { start: 5, count: 34 },
+        right: { start: 5, count: 34 },
+        hiddenLines: 34,
+      },
+      {
+        chunkIndex: 3,
+        left: { start: 45, count: 5 },
+        right: { start: 50, count: 5 },
+        hiddenLines: 5,
+      },
+    ]);
+  });
+
+  it("shrinks the axis to the visible rows plus one per fold", () => {
+    expect(axisLength(chunks)).toBe(55);
+    // 2 + (3 + 1 + 3) + 5 + (3 + 1) = 18
+    expect(axisLength(chunks, folds)).toBe(18);
+  });
+
+  it("shrinks a folded chunk's span the same way for the stripe", () => {
+    expect(chunkAxisSpan(chunks, 1, folds)).toBe(7);
+    expect(chunkAxisSpan(chunks, 2, folds)).toBe(5);
+  });
+
+  it("maps lines below a fold up by the hidden count minus the fold row", () => {
+    expect(displayLine(folds, 4, "left")).toBe(4);
+    expect(displayLine(folds, 39, "left")).toBe(6);
+    expect(displayLine(folds, 47, "right")).toBe(14);
+  });
+
+  it("maps a hidden line to the fold's own row", () => {
+    expect(displayLine(folds, 20, "left")).toBe(5);
+    expect(displayLine(folds, 52, "right")).toBe(17);
+  });
+
+  it("resolves display rows back to lines, and fold rows to their fold", () => {
+    expect(displayToSource(folds, 4, "left")).toEqual({
+      kind: "line",
+      line: 4,
+    });
+    expect(displayToSource(folds, 5, "left")).toEqual({
+      kind: "fold",
+      fold: folds[0],
+    });
+    expect(displayToSource(folds, 6, "left")).toEqual({
+      kind: "line",
+      line: 39,
+    });
+    expect(displayToSource(folds, 12, "left")).toEqual({
+      kind: "fold",
+      fold: folds[1],
+    });
+  });
+
+  it("counts display rows as lines minus hidden plus one per fold", () => {
+    expect(displayLineCount(50, folds)).toBe(13);
+    expect(displayLineCount(50, [])).toBe(50);
+  });
+
+  it("still lets the right advance through an insertion while the left stands", () => {
+    expect(axisToSide(chunks, 11, "left", folds)).toBe(9);
+    expect(axisToSide(chunks, 11, "right", folds)).toBe(11);
+  });
+
+  it("moves continuously across fold boundaries too", () => {
+    // The fold-crossing extension of the quarter-line walk that caught the
+    // original left-to-right mapping bug.
+    for (const side of ["left", "right"] as const) {
+      const at = (position: number) =>
+        axisToSide(chunks, position, side, folds);
+      for (let position = 0; position < 18; position += 0.25) {
+        expect(
+          Math.abs(at(position + 0.25) - at(position)),
+        ).toBeLessThanOrEqual(0.25 + 1e-9);
+      }
+    }
+  });
+
+  it("round-trips a visible line through the folded axis", () => {
+    expect(sideToAxis(chunks, 39, "left", folds)).toBe(6);
+    expect(sideToAxis(chunks, 47, "right", folds)).toBe(14);
+  });
+
+  it("sends a hidden line to its fold row rather than a phantom position", () => {
+    expect(sideToAxis(chunks, 20, "left", folds)).toBe(5);
+  });
+
+  it("reduces to the unfolded mapping when no folds are passed", () => {
+    for (let position = 0; position <= 55; position += 1) {
+      expect(axisToSide(chunks, position, "right", [])).toBe(
+        axisToSide(chunks, position, "right"),
+      );
+    }
   });
 });

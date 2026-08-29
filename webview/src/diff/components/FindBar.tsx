@@ -35,6 +35,9 @@ export function FindBar({ onJump }: FindBarProps) {
   const { activeMatch } = store;
   useEffect(() => {
     if (activeMatch < 0) return;
+    // A hit inside a collapsed run expands its fold first — jumping to a
+    // match the viewer then cannot show would make the count read as a lie.
+    useDiffStore.getState().revealActiveMatch();
     const axis = useDiffStore.getState().activeMatchAxis();
     if (axis !== null) onJump(Math.max(0, axis - 2));
   }, [activeMatch, onJump]);

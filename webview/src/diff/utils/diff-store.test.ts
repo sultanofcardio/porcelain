@@ -151,3 +151,73 @@ describe("diff store", () => {
     }
   });
 });
+
+describe("fold state", () => {
+  const longRun = () => {
+    const body = Array.from({ length: 40 }, (_, i) => `line${i}`);
+    // A modified first line, then a long equal run worth folding.
+    useDiffStore.getState().setSides({
+      kind: "text",
+      left: lines("old", ...body),
+      right: lines("new", ...body),
+      ...meta,
+    });
+  };
+
+  beforeEach(() => {
+    useDiffStore.setState({
+      whitespace: "none",
+      collapseUnchanged: true,
+      contextLines: 3,
+      swapped: false,
+      activeChunk: -1,
+      syncScroll: true,
+      expandedFolds: new Set<number>(),
+      findOpen: false,
+      findQuery: "",
+    });
+    longRun();
+  });
+
+  it("shortens the axis when a run folds, and restores it on expand", () => {
+    const state = useDiffStore.getState();
+    expect(state.folds).toHaveLength(1);
+    const folded = state.axis;
+    expect(folded).toBeLessThan(41);
+    useDiffStore.getState().toggleFold(state.folds[0].left.start);
+    expect(useDiffStore.getState().folds).toHaveLength(0);
+    expect(useDiffStore.getState().axis).toBe(41);
+  });
+
+  it("re-collapses everything when collapsing is toggled back on", () => {
+    const start = useDiffStore.getState().folds[0].left.start;
+    useDiffStore.getState().toggleFold(start);
+    useDiffStore.getState().toggleCollapseUnchanged();
+    useDiffStore.getState().toggleCollapseUnchanged();
+    expect(useDiffStore.getState().folds).toHaveLength(1);
+  });
+
+  it("forgets expansions when new content arrives", () => {
+    const start = useDiffStore.getState().folds[0].left.start;
+    useDiffStore.getState().toggleFold(start);
+    longRun();
+    expect(useDiffStore.getState().folds).toHaveLength(1);
+  });
+
+  it("expands the fold hiding the active find match", () => {
+    useDiffStore.getState().openFind();
+    // line20 is buried in the middle of the folded run.
+    useDiffStore.getState().setFindQuery("line20");
+    expect(useDiffStore.getState().matches.length).toBeGreaterThan(0);
+    expect(useDiffStore.getState().folds).toHaveLength(1);
+    useDiffStore.getState().revealActiveMatch();
+    expect(useDiffStore.getState().folds).toHaveLength(0);
+  });
+
+  it("leaves the folds alone when the active match is already visible", () => {
+    useDiffStore.getState().openFind();
+    useDiffStore.getState().setFindQuery("new");
+    useDiffStore.getState().revealActiveMatch();
+    expect(useDiffStore.getState().folds).toHaveLength(1);
+  });
+});

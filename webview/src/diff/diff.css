@@ -340,6 +340,41 @@ button.diff-menu-row:hover {
   color: var(--description-fg);
   font-size: 11.5px;
 }
+/* The context-lines stepper is a row that holds buttons rather than being
+   one, so it must not be a <button> itself. */
+div.diff-menu-stepper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 12px;
+  font-size: 13px;
+  color: var(--vscode-menu-foreground, var(--app-fg));
+}
+button.diff-menu-step {
+  min-width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--app-fg);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+button.diff-menu-step:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+button.diff-menu-step:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, #4d9de0);
+  outline-offset: -1px;
+}
+.diff-menu-step-count {
+  display: inline-block;
+  min-width: 16px;
+  text-align: center;
+}
 .diff-menu-sep {
   height: 1px;
   margin: 4px 0;
@@ -474,6 +509,36 @@ button.diff-menu-row:hover {
 .diff-changed {
   background: var(--diff-word-bg);
   border-radius: 2px;
+}
+
+/*
+ * One collapsed run of unchanged lines. A pane-level row rather than one bar
+ * across the whole surface: the drift above a fold can differ per side, so a
+ * single full-width row would sit at the right height in at most one pane.
+ */
+button.diff-fold-row {
+  display: block;
+  width: 100%;
+  height: 20px;
+  line-height: 18px;
+  padding: 0 0 0 10px;
+  border: none;
+  border-top: 1px solid rgba(128, 128, 128, 0.18);
+  border-bottom: 1px solid rgba(128, 128, 128, 0.18);
+  background: rgba(128, 128, 128, 0.08);
+  color: var(--description-fg);
+  font-family: var(--font-family);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+button.diff-fold-row:hover {
+  background: rgba(128, 128, 128, 0.16);
+  color: var(--app-fg);
+}
+button.diff-fold-row:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, #4d9de0);
+  outline-offset: -1px;
 }
 
 /*

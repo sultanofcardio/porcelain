@@ -1,4 +1,12 @@
-import { axisToSide, connectorPath, type DiffChunk } from "../utils/diff-model";
+import {
+  axisToSide,
+  connectorPath,
+  type DiffChunk,
+  displayLine,
+  displayLineCount,
+  displayToSource,
+  type FoldRegion,
+} from "../utils/diff-model";
 import {
   GUTTER_GAP_END,
   GUTTER_GAP_START,
@@ -16,6 +24,8 @@ interface DiffGutterProps {
   rightOffset: number;
   leftLineCount: number;
   rightLineCount: number;
+  /** The folds currently collapsed. */
+  folds?: FoldRegion[];
   /**
    * Render only this side's numbers, with no connectors. Used when the diff
    * has collapsed to one pane: there is no second side to connect to.
@@ -56,18 +66,24 @@ export function DiffGutter({
   rightOffset,
   leftLineCount,
   rightLineCount,
+  folds = [],
   only,
 }: DiffGutterProps) {
   const height = (visibleLines + 2) * LINE_HEIGHT;
 
-  const y = (line: number, offset: number) => (line - offset) * LINE_HEIGHT;
+  // Offsets and edges are display rows; with no folds that is source lines,
+  // and the arithmetic is unchanged. Connector edges sit on non-equal chunk
+  // boundaries, which folds never hide — but the folds *above* an edge shift
+  // where it renders, and `displayLine` carries that shift.
+  const y = (line: number, offset: number, side: "left" | "right") =>
+    (displayLine(folds, line, side) - offset) * LINE_HEIGHT;
 
   const connectors = chunks.flatMap((chunk, index) => {
     if (chunk.kind === "equal") return [];
-    const ay0 = y(chunk.left.start, leftOffset);
-    const ay1 = y(chunk.left.start + chunk.left.count, leftOffset);
-    const by0 = y(chunk.right.start, rightOffset);
-    const by1 = y(chunk.right.start + chunk.right.count, rightOffset);
+    const ay0 = y(chunk.left.start, leftOffset, "left");
+    const ay1 = y(chunk.left.start + chunk.left.count, leftOffset, "left");
+    const by0 = y(chunk.right.start, rightOffset, "right");
+    const by1 = y(chunk.right.start + chunk.right.count, rightOffset, "right");
 
     // Skip anything comfortably off-screen; a connector can be tall, so the
     // margin is generous rather than exact.
@@ -94,24 +110,34 @@ export function DiffGutter({
     ];
   });
 
-  const numbers = (offset: number, total: number, align: "right" | "left") => {
+  const numbers = (
+    offset: number,
+    total: number,
+    align: "right" | "left",
+    side: "left" | "right",
+  ) => {
     const first = Math.max(0, Math.floor(offset));
+    const displayTotal = displayLineCount(total, folds);
     const rows = [];
     for (
-      let line = first;
-      line < Math.min(total, first + visibleLines + 2);
-      line++
+      let row = first;
+      row < Math.min(displayTotal, first + visibleLines + 2);
+      row++
     ) {
+      const source = displayToSource(folds, row, side);
+      // A fold row gets no number: it stands for a run of them, and any one
+      // number would be a lie about the rest.
+      if (source.kind === "fold") continue;
       rows.push(
         <div
-          key={line}
+          key={row}
           className="diff-gutter-number"
           style={{
-            top: (line - offset) * LINE_HEIGHT,
+            top: (row - offset) * LINE_HEIGHT,
             textAlign: align,
           }}
         >
-          {line + 1}
+          {source.line + 1}
         </div>,
       );
     }
@@ -123,8 +149,8 @@ export function DiffGutter({
       <div className="diff-gutter" style={{ width: GUTTER_NUMBER_WIDTH + 8 }}>
         <div className="diff-gutter-column" style={{ left: 0, right: 0 }}>
           {only === "left"
-            ? numbers(leftOffset, leftLineCount, "right")
-            : numbers(rightOffset, rightLineCount, "right")}
+            ? numbers(leftOffset, leftLineCount, "right", "left")
+            : numbers(rightOffset, rightLineCount, "right", "right")}
         </div>
       </div>
     );
@@ -153,13 +179,13 @@ export function DiffGutter({
         className="diff-gutter-column"
         style={{ left: 0, width: GUTTER_NUMBER_WIDTH }}
       >
-        {numbers(leftOffset, leftLineCount, "right")}
+        {numbers(leftOffset, leftLineCount, "right", "left")}
       </div>
       <div
         className="diff-gutter-column"
         style={{ right: 0, width: GUTTER_NUMBER_WIDTH }}
       >
-        {numbers(rightOffset, rightLineCount, "left")}
+        {numbers(rightOffset, rightLineCount, "left", "right")}
       </div>
     </div>
   );

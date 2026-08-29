@@ -137,28 +137,33 @@ export function DiffApp() {
   // stripe is a few hundred pixels tall, and a common query in a big file can
   // hit thousands of lines — distinct marks past one per half-percent are
   // just DOM.
-  const { matches, chunks, axis: axisTotal } = store;
+  const { matches, chunks, folds, axis: axisTotal } = store;
   const matchPositions = useMemo(() => {
     if (matches.length === 0) return [];
     const seen = new Set<number>();
     const positions: number[] = [];
     for (const match of matches) {
-      const axis = sideToAxis(chunks, match.line, match.side);
+      const axis = sideToAxis(chunks, match.line, match.side, folds);
       const cell = Math.round((axis / Math.max(1, axisTotal)) * 400);
       if (seen.has(cell)) continue;
       seen.add(cell);
       positions.push(axis);
     }
     return positions;
-  }, [matches, chunks, axisTotal]);
+  }, [matches, chunks, folds, axisTotal]);
 
   // With synchronised scrolling off the panes decouple: the left holds still
   // and only the right follows the axis, which is the state the connectors
   // have to survive with a chunk visible on one side and not the other.
   const leftOffset = store.syncScroll
-    ? axisToSide(store.chunks, axisPosition, "left")
-    : axisToSide(store.chunks, 0, "left");
-  const rightOffset = axisToSide(store.chunks, axisPosition, "right");
+    ? axisToSide(store.chunks, axisPosition, "left", store.folds)
+    : axisToSide(store.chunks, 0, "left", store.folds);
+  const rightOffset = axisToSide(
+    store.chunks,
+    axisPosition,
+    "right",
+    store.folds,
+  );
 
   // An added or deleted file collapses to one pane — see `chooseLayout`.
   const layout = chooseLayout(store.left, store.right);
@@ -199,6 +204,7 @@ export function DiffApp() {
                     rightOffset={rightOffset}
                     leftLineCount={leftLines.length}
                     rightLineCount={rightLines.length}
+                    folds={store.folds}
                     only={layout.side}
                   />
                   <DiffPane
@@ -210,6 +216,10 @@ export function DiffApp() {
                     granularity={store.granularity}
                     offset={layout.side === "left" ? leftOffset : rightOffset}
                     visibleLines={visibleLines}
+                    folds={store.folds}
+                    onToggleFold={(fold) =>
+                      useDiffStore.getState().toggleFold(fold.left.start)
+                    }
                     matches={store.matches}
                     activeMatch={activeMatch}
                   />
@@ -225,6 +235,10 @@ export function DiffApp() {
                     granularity={store.granularity}
                     offset={leftOffset}
                     visibleLines={visibleLines}
+                    folds={store.folds}
+                    onToggleFold={(fold) =>
+                      useDiffStore.getState().toggleFold(fold.left.start)
+                    }
                     matches={store.matches}
                     activeMatch={activeMatch}
                   />
@@ -236,6 +250,7 @@ export function DiffApp() {
                     rightOffset={rightOffset}
                     leftLineCount={leftLines.length}
                     rightLineCount={rightLines.length}
+                    folds={store.folds}
                   />
                   <DiffPane
                     side="right"
@@ -246,6 +261,10 @@ export function DiffApp() {
                     granularity={store.granularity}
                     offset={rightOffset}
                     visibleLines={visibleLines}
+                    folds={store.folds}
+                    onToggleFold={(fold) =>
+                      useDiffStore.getState().toggleFold(fold.left.start)
+                    }
                     matches={store.matches}
                     activeMatch={activeMatch}
                   />
@@ -274,6 +293,7 @@ export function DiffApp() {
           chunks={store.chunks}
           axisPosition={axisPosition}
           visibleLines={visibleLines}
+          folds={store.folds}
           matchPositions={matchPositions}
           onJump={scrollToAxis}
         />

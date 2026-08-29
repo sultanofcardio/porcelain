@@ -1,8 +1,21 @@
 import { useMemo } from "react";
 import { useShiki } from "../../shared/hooks/useShiki";
-import type { DiffChunk, Side } from "../utils/diff-model";
+import {
+  type ChunkKind,
+  type DiffChunk,
+  displayLine,
+  displayLineCount,
+  displayToSource,
+  type FoldRegion,
+  type Side,
+} from "../utils/diff-model";
 import type { FindMatch } from "../utils/find";
-import { buildPieces, changedRanges, syntaxSpans } from "../utils/highlight";
+import {
+  buildPieces,
+  changedRanges,
+  type Piece,
+  syntaxSpans,
+} from "../utils/highlight";
 import { LINE_HEIGHT } from "./metrics";
 
 interface DiffPaneProps {
@@ -13,9 +26,12 @@ interface DiffPaneProps {
   chunks: DiffChunk[];
   language: string;
   granularity: "line" | "word" | "character" | "none";
-  /** Fractional line offset of the top of the viewport on this side. */
+  /** Fractional display-row offset of the top of the viewport on this side. */
   offset: number;
   visibleLines: number;
+  /** The folds currently collapsed. Empty means display rows are lines. */
+  folds?: FoldRegion[];
+  onToggleFold?: (fold: FoldRegion) => void;
   /** Find hits across both sides; the pane keeps only its own. */
   matches?: FindMatch[];
   /** The match the find stepper is on, when there is one. */
@@ -56,6 +72,8 @@ export function DiffPane({
   granularity,
   offset,
   visibleLines,
+  folds = [],
+  onToggleFold,
   matches = [],
   activeMatch = null,
 }: DiffPaneProps) {
@@ -64,8 +82,15 @@ export function DiffPane({
   // Only the visible window is highlighted. Shiki tokenises per line, so the
   // cost tracks the viewport rather than the file, which is what keeps a
   // 20k-line diff from tokenising 20k lines to show forty of them.
+  //
+  // The window is a range of display rows, which are source lines exactly
+  // when nothing is folded; `displayToSource` resolves each row to the line
+  // it shows, or to the fold standing in for a hidden run.
   const first = Math.max(0, Math.floor(offset));
-  const last = Math.min(lines.length, first + visibleLines + 2);
+  const last = Math.min(
+    displayLineCount(lines.length, folds),
+    first + visibleLines + 2,
+  );
 
   // This side's find hits, addressable by line. Rebuilt only when the match
   // list changes, not on every scroll.
@@ -81,8 +106,17 @@ export function DiffPane({
   }, [matches, side]);
 
   const rows = useMemo(() => {
-    const rendered = [];
-    for (let index = first; index < last; index++) {
+    type RenderedRow =
+      | { row: number; fold: FoldRegion }
+      | { row: number; kind: ChunkKind; pieces: Piece[] };
+    const rendered: RenderedRow[] = [];
+    for (let row = first; row < last; row++) {
+      const source = displayToSource(folds, row, side);
+      if (source.kind === "fold") {
+        rendered.push({ row, fold: source.fold });
+        continue;
+      }
+      const index = source.line;
       const line = lines[index] ?? "";
       const chunk = chunkAt(chunks, side, index);
       const kind = chunk?.kind ?? "equal";
@@ -109,7 +143,7 @@ export function DiffPane({
           : null;
 
       rendered.push({
-        index,
+        row,
         kind,
         pieces: buildPieces(
           line,
@@ -133,14 +167,21 @@ export function DiffPane({
     highlighter,
     matchesByLine,
     activeMatch,
+    folds,
   ]);
 
   // Only the anchors near the viewport: a large file has one per insertion,
-  // and the rest would be DOM for nothing.
-  const anchors = anchorsFor(chunks, side).filter(
-    (anchor) =>
-      anchor.line >= offset - 2 && anchor.line <= offset + visibleLines + 2,
-  );
+  // and the rest would be DOM for nothing. Positions are display rows, so an
+  // anchor below a fold sits where its line now renders.
+  const anchors = anchorsFor(chunks, side)
+    .map((anchor) => ({
+      ...anchor,
+      row: displayLine(folds, anchor.line, side),
+    }))
+    .filter(
+      (anchor) =>
+        anchor.row >= offset - 2 && anchor.row <= offset + visibleLines + 2,
+    );
 
   return (
     <div className="diff-pane">
@@ -148,7 +189,7 @@ export function DiffPane({
         <div
           key={`anchor-${anchor.line}`}
           className={`diff-anchor diff-anchor-${anchor.kind}`}
-          style={{ top: (anchor.line - offset) * LINE_HEIGHT }}
+          style={{ top: (anchor.row - offset) * LINE_HEIGHT }}
         />
       ))}
       <div
@@ -157,34 +198,48 @@ export function DiffPane({
           transform: `translateY(${-(offset - first) * LINE_HEIGHT}px)`,
         }}
       >
-        {rows.map((row) => (
-          <div key={row.index} className={`diff-line diff-line-${row.kind}`}>
-            {row.pieces.length === 0
-              ? " "
-              : row.pieces.map((piece, i) => (
-                  <span
-                    // Pieces are positional slices of one line; there is no
-                    // stable identity to key on beyond where they sit.
-                    key={`${row.index}-${i}`}
-                    className={
-                      [
-                        piece.changed ? "diff-changed" : "",
-                        piece.activeFound
-                          ? "diff-found-active"
-                          : piece.found
-                            ? "diff-found"
-                            : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" ") || undefined
-                    }
-                    style={{ color: piece.color }}
-                  >
-                    {piece.text}
-                  </span>
-                ))}
-          </div>
-        ))}
+        {rows.map((row) =>
+          "fold" in row ? (
+            <button
+              key={row.row}
+              type="button"
+              className="diff-fold-row"
+              // The count carries the accessible name; the glyph is decor.
+              aria-label={`Expand ${row.fold.hiddenLines} unchanged lines`}
+              onClick={() => onToggleFold?.(row.fold)}
+            >
+              <span aria-hidden="true">▸ </span>
+              {row.fold.hiddenLines} unchanged lines
+            </button>
+          ) : (
+            <div key={row.row} className={`diff-line diff-line-${row.kind}`}>
+              {row.pieces.length === 0
+                ? " "
+                : row.pieces.map((piece, i) => (
+                    <span
+                      // Pieces are positional slices of one line; there is no
+                      // stable identity to key on beyond where they sit.
+                      key={`${row.row}-${i}`}
+                      className={
+                        [
+                          piece.changed ? "diff-changed" : "",
+                          piece.activeFound
+                            ? "diff-found-active"
+                            : piece.found
+                              ? "diff-found"
+                              : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ") || undefined
+                      }
+                      style={{ color: piece.color }}
+                    >
+                      {piece.text}
+                    </span>
+                  ))}
+            </div>
+          ),
+        )}
       </div>
     </div>
   );

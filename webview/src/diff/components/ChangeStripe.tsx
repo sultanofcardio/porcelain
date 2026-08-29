@@ -1,10 +1,12 @@
-import type { DiffChunk } from "../utils/diff-model";
-import { axisLength } from "../utils/diff-model";
+import type { DiffChunk, FoldRegion } from "../utils/diff-model";
+import { axisLength, chunkAxisSpan } from "../utils/diff-model";
 
 interface ChangeStripeProps {
   chunks: DiffChunk[];
   axisPosition: number;
   visibleLines: number;
+  /** The folds currently collapsed — the marks shrink with the axis. */
+  folds?: FoldRegion[];
   /** Axis positions of find hits, already deduplicated by the caller. */
   matchPositions?: number[];
   onJump: (axisPosition: number) => void;
@@ -19,10 +21,11 @@ export function ChangeStripe({
   chunks,
   axisPosition,
   visibleLines,
+  folds = [],
   matchPositions = [],
   onJump,
 }: ChangeStripeProps) {
-  const total = axisLength(chunks) || 1;
+  const total = axisLength(chunks, folds) || 1;
 
   const marks: Array<{
     key: number;
@@ -32,7 +35,7 @@ export function ChangeStripe({
   }> = [];
   let axis = 0;
   for (const [index, chunk] of chunks.entries()) {
-    const width = Math.max(chunk.left.count, chunk.right.count);
+    const width = chunkAxisSpan(chunks, index, folds);
     if (chunk.kind !== "equal") {
       marks.push({
         key: index,
