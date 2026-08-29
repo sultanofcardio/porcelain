@@ -39,7 +39,9 @@ interface DiffPaneProps {
   /**
    * Row colour overrides by source line. The merge surface paints conflict
    * regions over what the pair diff would say; anything absent falls back to
-   * the chunk kind.
+   * the chunk kind. An overridden row renders as a solid block — its
+   * intraline marks are suppressed along with its chunk colour, since the
+   * pair diff inside a region is noise.
    */
   overrideKinds?: ReadonlyMap<number, string>;
 }
@@ -129,7 +131,7 @@ export function DiffPane({
       const kind = chunk?.kind ?? "equal";
 
       let ranges: Array<{ start: number; end: number }> | null = [];
-      if (kind === "modified") {
+      if (kind === "modified" && !overrideKinds?.has(index)) {
         const span = side === "left" ? chunk?.left : chunk?.right;
         const other = side === "left" ? chunk?.right : chunk?.left;
         const positionInChunk = span ? index - span.start : 0;
@@ -176,6 +178,7 @@ export function DiffPane({
     matchesByLine,
     activeMatch,
     folds,
+    overrideKinds,
   ]);
 
   // Only the anchors near the viewport: a large file has one per insertion,

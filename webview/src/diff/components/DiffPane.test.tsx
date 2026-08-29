@@ -135,4 +135,38 @@ describe("DiffPane", () => {
     const { container } = renderPane({ lines: [], counterpart: right });
     expect(container.querySelectorAll(".diff-line").length).toBe(0);
   });
+
+  it("suppresses intraline marks on an overridden row but not its chunk-mates", () => {
+    // The merge surface's fused-chunk shape: one modified chunk spans a
+    // conflict-region row and an adjacent hand-edited row. The overridden
+    // row must paint as a solid region block, while the plain row keeps its
+    // modified background and intraline marks.
+    const counterpart = ["a", "OURS", "c", "d"];
+    const edited = ["a", "b", "cX", "d"];
+    const fused = computeChunks(
+      `${counterpart.join("\n")}\n`,
+      `${edited.join("\n")}\n`,
+    );
+    const changed = fused.filter((chunk) => chunk.kind !== "equal");
+    expect(changed).toEqual([
+      {
+        kind: "modified",
+        left: { start: 1, count: 2 },
+        right: { start: 1, count: 2 },
+      },
+    ]);
+
+    const { container } = renderPane({
+      side: "right",
+      lines: edited,
+      counterpart,
+      chunks: fused,
+      overrideKinds: new Map([[1, "conflict"]]),
+    });
+    const rows = [...container.querySelectorAll(".diff-line")];
+    expect(rows[1].className).toContain("diff-line-conflict");
+    expect(rows[1].querySelector(".diff-changed")).toBeNull();
+    expect(rows[2].className).toContain("diff-line-modified");
+    expect(rows[2].querySelector(".diff-changed")).toBeTruthy();
+  });
 });

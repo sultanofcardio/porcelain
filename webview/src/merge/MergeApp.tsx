@@ -223,11 +223,14 @@ export function MergeApp() {
     Math.max(resultLines.length, theirsLines.length),
   );
 
-  // What the panes and gutters render: the pair chunks minus everything a
-  // conflict region owns. The regions paint their own rows (the kind maps)
-  // and draw their own connectors (below) from their state — the raw diff
-  // inside them pairs landed content against the other flank as an ordinary
-  // edit, which is noise. Axis, folds and find keep the unfiltered lists.
+  // What the gutters draw chunk connectors for: the pair chunks minus
+  // everything a conflict region owns. The regions paint their own rows (the
+  // kind maps) and draw their own connectors (below) from their state — the
+  // raw diff inside them pairs landed content against the other flank as an
+  // ordinary edit, which is noise. The panes keep the unfiltered lists, so a
+  // hand edit fused into a region-touching chunk keeps its paint; the kind
+  // maps repaint the region rows themselves. Axis, folds and find are
+  // unfiltered too.
   const renderChunksO = renderableChunks(
     store.chunksOurs,
     store.regions,
@@ -430,7 +433,7 @@ export function MergeApp() {
                 side="left"
                 lines={oursLines}
                 counterpart={resultLines}
-                chunks={renderChunksO}
+                chunks={store.chunksOurs}
                 language={store.language}
                 granularity="word"
                 offset={offsets.ours}
@@ -496,7 +499,7 @@ export function MergeApp() {
                   side="right"
                   lines={resultLines}
                   counterpart={oursLines}
-                  chunks={renderChunksO}
+                  chunks={store.chunksOurs}
                   language={store.language}
                   granularity="word"
                   offset={offsets.result}
@@ -534,7 +537,7 @@ export function MergeApp() {
                 side="right"
                 lines={theirsLines}
                 counterpart={resultLines}
-                chunks={renderChunksT}
+                chunks={store.chunksTheirs}
                 language={store.language}
                 granularity="word"
                 offset={offsets.theirs}

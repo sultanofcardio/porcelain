@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -6,6 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { caretAt } from "../diff/editor/editor-model";
 
 const mocks = vi.hoisted(() => ({
   request: vi.fn(),
@@ -216,5 +218,79 @@ describe("MergeApp delete-vs-modify", () => {
     fireEvent.click(acceptOurs);
     expect(useMergeStore.getState().result.lines).toEqual(["X"]);
     expect(useMergeStore.getState().regions[0].oursState).toBe("accepted");
+  });
+});
+
+/**
+ * A hand edit right below a pending region fuses with it into one modified
+ * chunk (no common line between them in the pair diff). Filtering that chunk
+ * out of the panes erased the edit's paint entirely — no background, no
+ * intraline mark — while the region was pending. The panes now render the
+ * unfiltered chunks: the edited row keeps its modified paint, and the region
+ * row stays a solid conflict block with its intraline noise suppressed.
+ */
+describe("MergeApp edit fused with a pending region", () => {
+  beforeEach(() => {
+    useMergeStore.setState(pristine, true);
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    const root = document.createElement("div");
+    root.id = "root";
+    root.dataset.file = "src/db/pool.ts";
+    root.dataset.repoId = "/repos/demo";
+    document.body.appendChild(root);
+    mocks.request.mockImplementation((command: string) => {
+      if (command === "getFileVersions") {
+        return Promise.resolve({
+          kind: "text",
+          base: "b\nc\nd\n",
+          ours: "OURS\nc\nd\n",
+          theirs: "THEIRS\nc\nd\n",
+          filePath: "src/db/pool.ts",
+          language: "typescript",
+          mergeMsg: "",
+          oursLabel: "main",
+          theirsLabel: "fix/pool-leak",
+        });
+      }
+      return Promise.resolve({ success: true });
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    document.getElementById("root")?.remove();
+    vi.unstubAllGlobals();
+    mocks.request.mockReset();
+  });
+
+  it("keeps the edited row's paint while the region stays pending", async () => {
+    const { container } = render(<MergeApp />);
+    await waitFor(() =>
+      screen.getByRole("button", { name: "Accept ours for conflict 1" }),
+    );
+
+    // 'c' → 'cX' on the line just below the region: adjacent, not touching,
+    // so the seam rule keeps the conflict pending.
+    act(() => {
+      useMergeStore.getState().editAt(caretAt(1, 1), "X", null);
+    });
+    expect(useMergeStore.getState().result.lines).toEqual(["b", "cX", "d"]);
+    const region = useMergeStore.getState().regions[0];
+    expect(region.oursState).toBe("pending");
+    expect(region.edited).toBe(false);
+
+    const resultPane = [...container.querySelectorAll(".diff-pane")][1];
+    const rows = [...resultPane.querySelectorAll(".diff-line")];
+    expect(rows[0].className).toContain("diff-line-conflict");
+    expect(rows[0].querySelector(".diff-changed")).toBeNull();
+    expect(rows[1].className).toContain("diff-line-modified");
+    expect(rows[1].querySelector(".diff-changed")).toBeTruthy();
   });
 });

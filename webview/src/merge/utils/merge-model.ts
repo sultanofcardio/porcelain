@@ -734,22 +734,18 @@ export function flankRegionKinds(
 }
 
 /**
- * The pair chunks the merge surface should actually render — every non-equal
- * chunk touching a conflict region, on either side of the pair, is dropped.
- *
- * Inside a region the live pair diff is noise: the moment one side lands, the
- * diff pairs the landed content against the other flank as an ordinary edit —
- * intraline marks, add/remove polygons, insertion anchors, none of which mean
- * anything there. Region rows get their paint from the region kind maps and
- * their connectors from `regionConnectors`; the raw chunks still drive the
- * axis, the folds and find, which all use the unfiltered lists.
+ * The pair chunks the two gutters draw connectors for — every non-equal
+ * chunk touching a conflict region, on either side of the pair, is dropped,
+ * because `regionConnectors` draws a region's polygon from its state and the
+ * raw diff's polygons inside a region are noise. Connectors are this list's
+ * only consumer: the panes render the unfiltered chunks (the region kind
+ * maps repaint region rows and suppress their intraline marks), and the
+ * axis, the folds and find use the unfiltered lists too.
  *
  * A zero-count span is treated as a point touching the region inclusively at
  * both edges — that is what claims a flank-only add anchored on a zero-length
- * slot, at the cost of also claiming a hand edit's chunk anchored exactly on
- * a region boundary. On the flank side the test is strict body overlap only,
- * so an edit's chunk (flank span empty, anchored at a slice edge) keeps its
- * paint.
+ * slot. On the flank side the test is strict body overlap only, so an edit's
+ * chunk (flank span empty, anchored at a slice edge) keeps its connector.
  */
 export function renderableChunks(
   chunks: readonly DiffChunk[],
