@@ -219,6 +219,89 @@ describe("merge store", () => {
     expect(state.undoStack).toHaveLength(0);
   });
 
+  it("accepting a flank that deleted the base drops the lines from the merge", () => {
+    useMergeStore
+      .getState()
+      .load(textVersions("a\nb\nc\n", "a\nc\n", "a\nB\nc\n"));
+    useMergeStore
+      .getState()
+      .decideRegion(0, { action: "accept", side: "ours" });
+    const state = useMergeStore.getState();
+    expect(state.result.lines).toEqual(["a", "c"]);
+    expect(state.allResolved).toBe(true);
+    expect(state.mergedText()).toBe("a\nc\n");
+  });
+
+  it("a splice above the stepped match keeps the walk on the same hit", () => {
+    useMergeStore
+      .getState()
+      .load(
+        textVersions(
+          "a\nb\nhit\nhit\n",
+          "a\nO1\nO2\nhit\nhit\n",
+          "a\nT\nhit\nhit\n",
+        ),
+      );
+    useMergeStore.getState().openFind();
+    useMergeStore.getState().setFindQuery("result", "hit");
+    useMergeStore.getState().stepMatch("result", 1);
+    expect(useMergeStore.getState().findPanes.result.activeMatch).toBe(1);
+
+    // Accepting ours splices one base line into two above both matches: the
+    // active match must follow its own hit down, not lock onto the first
+    // occurrence that now sits at the old line number.
+    useMergeStore
+      .getState()
+      .decideRegion(0, { action: "accept", side: "ours" });
+    const after = useMergeStore.getState().findPanes.result;
+    expect(after.activeMatch).toBe(1);
+    expect(after.matches[after.activeMatch].line).toBe(4);
+  });
+
+  it("an expanded fold stays expanded across an accept above it", () => {
+    const body = Array.from({ length: 30 }, (_, i) => `line${i}`);
+    useMergeStore
+      .getState()
+      .load(
+        textVersions(
+          `b\n${body.join("\n")}\n`,
+          `O1\nO2\n${body.join("\n")}\n`,
+          `T\n${body.join("\n")}\n`,
+        ),
+      );
+    const fold = useMergeStore.getState().folds.pairO[0];
+    expect(fold).toBeDefined();
+    useMergeStore.getState().toggleFold(fold.right.start);
+    expect(useMergeStore.getState().folds.pairO).toHaveLength(0);
+
+    // The accept splices one line into two above the fold; its key must
+    // shift with the buffer or the fold snaps shut again.
+    useMergeStore
+      .getState()
+      .decideRegion(0, { action: "accept", side: "ours" });
+    expect(useMergeStore.getState().folds.pairO).toHaveLength(0);
+  });
+
+  it("opening an island expands any fold hiding part of its range", () => {
+    const body = Array.from({ length: 30 }, (_, i) => `line${i}`);
+    useMergeStore
+      .getState()
+      .load(
+        textVersions(
+          `b\n${body.join("\n")}\n`,
+          `O\n${body.join("\n")}\n`,
+          `T\n${body.join("\n")}\n`,
+        ),
+      );
+    expect(useMergeStore.getState().folds.pairO).toHaveLength(1);
+    // Line 2 sits in visible context, but the island's window reaches into
+    // the collapsed run — editing hidden lines through an overlay is not on.
+    useMergeStore.getState().openIsland(2);
+    const state = useMergeStore.getState();
+    expect(state.island).not.toBeNull();
+    expect(state.folds.pairO).toHaveLength(0);
+  });
+
   it("a splice keeps the stepped find match and never fires the reveal", () => {
     useMergeStore
       .getState()

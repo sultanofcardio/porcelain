@@ -31,13 +31,26 @@ const GRANULARITY: Array<{ value: Granularity; label: string }> = [
  * VS Code's `diffEditor.*` equivalents are global settings, so changing one
  * from a diff changes every diff the user ever opens.
  */
-export function DiffSettingsMenu({ onClose }: { onClose: () => void }) {
+export function DiffSettingsMenu({
+  onClose,
+  anchorRef,
+}: {
+  onClose: () => void;
+  /** The button that opened the menu — its own toggle handles closing. */
+  anchorRef?: React.RefObject<HTMLElement | null>;
+}) {
   const store = useDiffStore();
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const dismiss = (event: MouseEvent) => {
-      if (!ref.current?.contains(event.target as Node)) onClose();
+      const target = event.target as Node;
+      if (ref.current?.contains(target)) return;
+      // A mousedown on the anchor is not "outside": dismissing here would
+      // race the anchor's click toggle, which then reopens the menu and
+      // makes the gear unable to ever close it.
+      if (anchorRef?.current?.contains(target)) return;
+      onClose();
     };
     const onEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -57,7 +70,7 @@ export function DiffSettingsMenu({ onClose }: { onClose: () => void }) {
       window.removeEventListener("mousedown", dismiss);
       window.removeEventListener("keydown", onEscape, true);
     };
-  }, [onClose]);
+  }, [onClose, anchorRef]);
 
   // Menu semantics: focus lands on the first row when the menu opens, and
   // the arrow keys walk the rows. Without this the menu is mouse-only —

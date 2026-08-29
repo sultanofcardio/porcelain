@@ -94,10 +94,15 @@ export function classifyBinaryPair(
     left.length <= IMAGE_BYTE_LIMIT &&
     right.length <= IMAGE_BYTE_LIMIT
   ) {
+    // Only a side that is actually binary renders as an image: a text side
+    // with an image extension (an LFS pointer, say) base64ed into a data:
+    // URI would draw a broken <img>, so it degrades to an absent side.
     return {
       kind: "image",
-      leftUri: toImageDataUri(left, mime),
-      rightUri: toImageDataUri(right, mime),
+      leftUri: isBinaryContent(left) ? toImageDataUri(left, mime) : undefined,
+      rightUri: isBinaryContent(right)
+        ? toImageDataUri(right, mime)
+        : undefined,
       leftBytes: left.length,
       rightBytes: right.length,
     };

@@ -332,6 +332,39 @@ describe("computeMergeFolds", () => {
     expect(foldO.left.start).toBe(foldO.right.start + 1); // ours is one ahead
     expect(foldT.right.start).toBe(foldT.left.start - 1); // theirs one behind
   });
+
+  it("keeps edge context when a flank-only change anchors at the file edge", () => {
+    // The run touches result line 0, but ours removed lines just before it —
+    // the 2-way viewer would keep context beside that change, and so must
+    // the tri-pane folds.
+    const result = [...body];
+    const ours = ["extra", ...body];
+    const theirs = [...body];
+    const { chunksOurs, chunksTheirs } = pairChunks(ours, result, theirs);
+    const folds = computeMergeFolds(chunksOurs, chunksTheirs, result.length);
+    expect(folds.pairO).toHaveLength(1);
+    expect(folds.pairO[0].right.start).toBe(3);
+  });
+});
+
+describe("accepted deletions", () => {
+  it("an accepted flank that deleted the base lines deletes them", () => {
+    // ours deletes b, theirs edits it: accepting ours must not fall back to
+    // the base slice just because the accepted parts are empty.
+    const { result, regions } = buildInitialResult(
+      "a\nb\nc\n",
+      "a\nc\n",
+      "a\nB\nc\n",
+    );
+    expect(regions).toHaveLength(1);
+    expect(regions[0].ours).toEqual([]);
+    const accepted = applyRegionDecision(result, regions, 0, {
+      action: "accept",
+      side: "ours",
+    });
+    expect(accepted.buffer.lines).toEqual(["a", "c"]);
+    expect(regionResolved(accepted.regions[0])).toBe(true);
+  });
 });
 
 describe("buildMergeAxis", () => {

@@ -106,36 +106,95 @@ export function buildGitContentQuery(ref: string, repoId: string): string {
   return `ref=${encodeURIComponent(ref)}&repo=${encodeURIComponent(repoId)}`;
 }
 
+interface FencePath {
+  resolve: (...parts: string[]) => string;
+  sep: string;
+}
+
+/** The filesystem calls the fence needs to see through symlinks. Optional:
+ * without them the fence is lexical, which the unit tests exercise. */
+export interface FenceFileSystem {
+  existsSync(candidate: string): boolean;
+  realpathSync(candidate: string): string;
+}
+
 /**
- * The one write boundary the webview-facing write paths share: resolve a
- * repo-relative path against the work-tree root and refuse anything that
- * escapes it — or that lands in the git dir, which no editor surface has any
- * business writing (hooks live there). Defence in depth: the webview is
- * trusted extension code, but the boundary is stated once, so it holds
- * uniformly.
+ * The one path boundary the webview-facing read and write paths share:
+ * resolve a repo-relative path against the work-tree root and refuse
+ * anything that escapes it. Writes additionally refuse the git dir, which
+ * no editor surface has any business writing (hooks live there). Defence in
+ * depth: the webview is trusted extension code, but the boundary is stated
+ * once, so it holds uniformly.
+ *
+ * The git-dir rules compare case-insensitively — the default macOS and
+ * Windows filesystems are case-insensitive, so `.GIT/hooks` names the real
+ * hooks directory — and when a filesystem is supplied, the target's parent
+ * is realpathed so a symlinked directory cannot carry a fenced path outside
+ * the repository.
  */
 export function resolveRepoWritePath(
   workTreeRoot: string,
   gitDir: string,
   filePath: string,
-  path: {
-    resolve: (...parts: string[]) => string;
-    sep: string;
-  },
+  path: FencePath,
+  fs?: FenceFileSystem,
 ): string {
-  const target = path.resolve(workTreeRoot, filePath);
-  if (!target.startsWith(workTreeRoot + path.sep)) {
-    throw new Error(`Refusing to write outside the repository: ${filePath}`);
-  }
-  const resolvedGitDir = path.resolve(gitDir);
-  if (
-    target === resolvedGitDir ||
-    target.startsWith(resolvedGitDir + path.sep) ||
-    target.split(path.sep).includes(".git")
-  ) {
-    throw new Error(`Refusing to write into the git directory: ${filePath}`);
+  const { target, realTarget } = resolveWithinRepo(
+    workTreeRoot,
+    filePath,
+    path,
+    fs,
+  );
+  for (const candidate of [target, realTarget]) {
+    if (candidate !== undefined && hitsGitDir(candidate, gitDir, path)) {
+      throw new Error(`Refusing to write into the git directory: ${filePath}`);
+    }
   }
   return target;
+}
+
+/** The same containment fence for reads, without the git-dir rule. */
+export function resolveRepoReadPath(
+  workTreeRoot: string,
+  filePath: string,
+  path: FencePath,
+  fs?: FenceFileSystem,
+): string {
+  return resolveWithinRepo(workTreeRoot, filePath, path, fs).target;
+}
+
+function resolveWithinRepo(
+  workTreeRoot: string,
+  filePath: string,
+  path: FencePath,
+  fs?: FenceFileSystem,
+): { target: string; realTarget?: string } {
+  const root = path.resolve(workTreeRoot);
+  const target = path.resolve(root, filePath);
+  const outside = () =>
+    new Error(`Refusing to write outside the repository: ${filePath}`);
+  if (!target.startsWith(root + path.sep)) throw outside();
+
+  if (!fs) return { target };
+  const sepIndex = target.lastIndexOf(path.sep);
+  const parent = sepIndex > 0 ? target.slice(0, sepIndex) : path.sep;
+  if (!fs.existsSync(parent)) return { target };
+  const realRoot = fs.existsSync(root) ? fs.realpathSync(root) : root;
+  const realTarget = fs.realpathSync(parent) + target.slice(sepIndex);
+  if (!realTarget.startsWith(realRoot + path.sep)) throw outside();
+  return { target, realTarget };
+}
+
+function hitsGitDir(
+  candidate: string,
+  gitDir: string,
+  path: FencePath,
+): boolean {
+  const lower = candidate.toLowerCase();
+  const resolvedGitDir = path.resolve(gitDir).toLowerCase();
+  if (lower === resolvedGitDir) return true;
+  if (lower.startsWith(resolvedGitDir + path.sep)) return true;
+  return lower.split(path.sep).includes(".git");
 }
 
 export async function readGitContent(

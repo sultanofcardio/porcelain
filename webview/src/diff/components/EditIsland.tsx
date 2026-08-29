@@ -73,6 +73,13 @@ export function EditIsland({
         }
       }}
       onKeyDown={(event) => {
+        // A keystroke resolving an IME composition belongs to the
+        // composition: Escape cancelling it must not commit the island, and
+        // shortcuts must not fire on half-composed text.
+        if (event.nativeEvent.isComposing) {
+          event.stopPropagation();
+          return;
+        }
         if (event.key === "Escape") {
           event.preventDefault();
           event.stopPropagation();

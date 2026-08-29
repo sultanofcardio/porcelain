@@ -194,6 +194,7 @@ export function DiffToolbar({
         </Tooltip>
         {menuOpen && (
           <DiffSettingsMenu
+            anchorRef={menuButtonRef}
             onClose={() => {
               setMenuOpen(false);
               // Focus goes back where it came from, or closing the menu

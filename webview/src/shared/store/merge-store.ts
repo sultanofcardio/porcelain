@@ -26,7 +26,11 @@ import {
   type TextDoc,
 } from "../../merge/utils/merge-model";
 import type { FileVersionsResult } from "../bridge/types";
-import type { SideFindState } from "./diff-store";
+import {
+  type LineSplice,
+  remapLineKeys,
+  type SideFindState,
+} from "./diff-store";
 
 /**
  * The rebuilt merge editor's store: one result buffer, a region list over it,
@@ -186,9 +190,14 @@ function derive(state: {
   contextLines: number;
   expandedFolds: ReadonlySet<number>;
 }) {
-  const oursText = state.ours.lines.join("\n");
-  const theirsText = state.theirs.lines.join("\n");
-  const resultText = state.result.lines.join("\n");
+  // The inverse of `splitLines` for a non-empty document is join plus a
+  // trailing "\n" — a bare join makes a trailing empty line indistinguishable
+  // from none, and the chunk lists stop matching the panes' line counts.
+  const textOf = (lines: readonly string[]) =>
+    lines.length === 0 ? "" : `${lines.join("\n")}\n`;
+  const oursText = textOf(state.ours.lines);
+  const theirsText = textOf(state.theirs.lines);
+  const resultText = textOf(state.result.lines);
 
   const chunksOurs = computeChunks(oursText, resultText);
   const chunksTheirs = computeChunks(resultText, theirsText);
@@ -247,6 +256,7 @@ function recomputePane(
   pane: MergePane,
   paneState: SideFindState,
   open: boolean,
+  splice?: LineSplice,
 ): SideFindState {
   const matches =
     open && paneState.query !== ""
@@ -256,11 +266,17 @@ function recomputePane(
           regex: paneState.regex,
         })
       : [];
+  // The previous match's line shifts by the splice's delta when it sat at or
+  // below the splice — relocating by the raw coordinates would lock onto
+  // whatever occurrence happens to sit there now.
   const previous = paneState.matches[paneState.activeMatch];
-  const relocated = previous
+  const anchor =
+    previous && splice && previous.line >= splice.start
+      ? { line: previous.line + splice.delta, start: previous.start }
+      : previous;
+  const relocated = anchor
     ? matches.findIndex(
-        (match) =>
-          match.line === previous.line && match.start === previous.start,
+        (match) => match.line === anchor.line && match.start === anchor.start,
       )
     : -1;
   return {
@@ -270,7 +286,10 @@ function recomputePane(
   };
 }
 
-function deriveFind(state: MergeStoreState): {
+function deriveFind(
+  state: MergeStoreState,
+  splice?: LineSplice,
+): {
   findPanes: Record<MergePane, SideFindState>;
 } {
   return {
@@ -286,6 +305,8 @@ function deriveFind(state: MergeStoreState): {
         "result",
         state.findPanes.result,
         state.findOpen,
+        // Only the result buffer ever splices; the flanks are immutable.
+        splice,
       ),
       theirs: recomputePane(
         state.theirs.lines,
@@ -338,6 +359,27 @@ function sameBuffer(a: TextDoc, b: TextDoc): boolean {
     a.lines.length === b.lines.length &&
     a.lines.every((line, i) => line === b.lines[i])
   );
+}
+
+/**
+ * Expand any fold hiding part of a result range an island is about to own —
+ * the textarea covers the whole range, and editing lines the pane is hiding
+ * would overlay the fold row and silently rewrite invisible content.
+ */
+function expandFoldsForRange(
+  state: MergeStoreState,
+  start: number,
+  count: number,
+): Partial<MergeStoreState> {
+  const intersecting = state.folds.pairO.filter(
+    (fold) =>
+      fold.right.start < start + Math.max(1, count) &&
+      start < fold.right.start + fold.right.count,
+  );
+  if (intersecting.length === 0) return {};
+  const expandedFolds = new Set(state.expandedFolds);
+  for (const fold of intersecting) expandedFolds.add(fold.right.start);
+  return { expandedFolds, ...derive({ ...state, expandedFolds }) };
 }
 
 export const useMergeStore = create<MergeStoreState>((set, get) => ({
@@ -443,7 +485,8 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
 
   decideRegion: (index, change) =>
     set((state) => {
-      if (!state.regions[index] || state.island) return {};
+      const region = state.regions[index];
+      if (!region || state.island) return {};
       const undoStack = pushUndo(state);
       const edited = applyRegionDecision(
         state.result,
@@ -451,19 +494,27 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
         index,
         change,
       );
+      const splice: LineSplice = {
+        start: region.start,
+        end: region.start + region.count,
+        delta: edited.buffer.lines.length - state.result.lines.length,
+      };
+      const expandedFolds = remapLineKeys(state.expandedFolds, splice);
       const next = {
         ...state,
         result: edited.buffer,
         regions: edited.regions,
+        expandedFolds,
       };
       return {
         result: edited.buffer,
         regions: edited.regions,
+        expandedFolds,
         undoStack,
         dirty: true,
         activeRegion: index,
         ...derive(next),
-        ...deriveFind(next),
+        ...deriveFind(next, splice),
       };
     }),
 
@@ -507,6 +558,7 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
       return {
         island: islandFor(state, range.start, range.count),
         undoStack: pushUndo(state),
+        ...expandFoldsForRange(state, range.start, range.count),
       };
     }),
 
@@ -518,6 +570,7 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
         island: islandFor(state, region.start, region.count),
         undoStack: pushUndo(state),
         activeRegion: index,
+        ...expandFoldsForRange(state, region.start, region.count),
       };
     }),
 
@@ -533,18 +586,26 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
         island.count,
         effective,
       );
+      const splice: LineSplice = {
+        start: island.start,
+        end: island.start + island.count,
+        delta: effective.length - island.count,
+      };
+      const expandedFolds = remapLineKeys(state.expandedFolds, splice);
       const next = {
         ...state,
         result: edited.buffer,
         regions: edited.regions,
+        expandedFolds,
       };
       return {
         result: edited.buffer,
         regions: edited.regions,
+        expandedFolds,
         island: { ...island, lines, count: effective.length },
         dirty: true,
         ...derive(next),
-        ...deriveFind(next),
+        ...deriveFind(next, splice),
       };
     }),
 
@@ -583,18 +644,26 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
           ...deriveFind(next),
         };
       }
+      const splice: LineSplice = {
+        start: island.start,
+        end: island.start + island.count,
+        delta: effective.length - island.count,
+      };
+      const expandedFolds = remapLineKeys(state.expandedFolds, splice);
       const next = {
         ...state,
         result: edited.buffer,
         regions: edited.regions,
+        expandedFolds,
       };
       return {
         result: edited.buffer,
         regions: edited.regions,
+        expandedFolds,
         island: null,
         dirty: true,
         ...derive(next),
-        ...deriveFind(next),
+        ...deriveFind(next, splice),
       };
     }),
 

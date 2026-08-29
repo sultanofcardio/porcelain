@@ -46,6 +46,21 @@ describe("toDiffSpec", () => {
     assert.strictEqual(spec?.rightPath, PATH);
   });
 
+  it("derives a file: side's own path — a staged rename saves at the new name", () => {
+    // git mv old→new: the left reads the old path at HEAD, the right is the
+    // real file at the new path. Borrowing the porcelain side's path here
+    // read the wrong file and saved edits back to the old name.
+    const spec = toDiffSpec(
+      buildGitContentUri("HEAD", "src/old-name.ts", REPO),
+      vscode.Uri.file(`${REPO}/src/new-name.ts`),
+      "t",
+    );
+    assert.strictEqual(spec?.leftPath, "src/old-name.ts");
+    assert.strictEqual(spec?.rightPath, "src/new-name.ts");
+    assert.strictEqual(spec?.path, "src/new-name.ts");
+    assert.strictEqual(spec?.rightRef, WORKING_TREE_REF);
+  });
+
   it("names the working tree with a sentinel when it is the modified side", () => {
     // The Commit panel's diffs put the real file on the right so the native
     // editor can edit it; the viewer has no URI to hand, so it asks the host

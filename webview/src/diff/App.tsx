@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import { bridge } from "../shared/bridge";
-import type { DiffSidesResult } from "../shared/bridge/types";
+import { type DiffSidesResult, WORKING_TREE_REF } from "../shared/bridge/types";
 import { editableSide, useDiffStore } from "../shared/store/diff-store";
 import { ChangeStripe, splitStripeMarks } from "./components/ChangeStripe";
 import { DiffFallback } from "./components/DiffFallback";
@@ -89,9 +89,20 @@ export function DiffApp() {
       if (event !== "gitStateChanged") return;
       const payload = data as { repoId?: string } | null;
       if (repoId && payload?.repoId && payload.repoId !== repoId) return;
+      // The probe speaks in the request's orientation, which never swaps:
+      // the working-tree side comes from the dataset refs, not from the
+      // store, whose left/right flip under Swap Sides. And it reuses the
+      // force flag the view was loaded with, so a "Show anyway" diff is not
+      // reverted to the placeholder by an unrelated git event.
+      const diskSide =
+        rightRef === WORKING_TREE_REF
+          ? "right"
+          : leftRef === WORKING_TREE_REF
+            ? "left"
+            : null;
+      if (!diskSide) return;
       const state = useDiffStore.getState();
-      const side = editableSide(state);
-      if (!side || state.loading) return;
+      if (state.loading) return;
       void bridge
         .request("getDiffSides", {
           filePath,
@@ -99,7 +110,7 @@ export function DiffApp() {
           rightPath,
           leftRef,
           rightRef,
-          force: false,
+          force,
         })
         .then((raw) => {
           const sides = raw as DiffSidesResult;
@@ -107,7 +118,7 @@ export function DiffApp() {
           if (current.filePath !== filePath) return;
           const diskText =
             sides.kind === "text"
-              ? side === "left"
+              ? diskSide === "left"
                 ? sides.left
                 : sides.right
               : null;
@@ -119,18 +130,16 @@ export function DiffApp() {
           // A failed probe is not evidence of a change; stay quiet.
         });
     });
-  }, [filePath, leftPath, rightPath, leftRef, rightRef, repoId]);
+  }, [filePath, leftPath, rightPath, leftRef, rightRef, repoId, force]);
 
   const save = useCallback(async () => {
     const state = useDiffStore.getState();
     const side = editableSide(state);
     if (!side || !state.dirty) return;
+    const content = side === "left" ? state.left : state.right;
     try {
-      await bridge.request("writeFileContent", {
-        filePath,
-        content: side === "left" ? state.left : state.right,
-      });
-      useDiffStore.getState().markSaved();
+      await bridge.request("writeFileContent", { filePath, content });
+      useDiffStore.getState().markSaved(content);
     } catch (error) {
       useDiffStore
         .getState()

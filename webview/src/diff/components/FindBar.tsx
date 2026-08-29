@@ -53,16 +53,20 @@ export function FindBarView({
   // revealSeq. Keying on the sequence rather than the match object is what
   // keeps a buffer splice (which rebuilds the match list with new object
   // identities) from yanking the viewport, and what lets Enter on a 1/1
-  // result re-reveal a match whose index never changed. Sequence zero is the
-  // bar mounting with held state: nothing was asked for, nothing jumps.
+  // result re-reveal a match whose index never changed. The last-consumed
+  // sequence starts at whatever the bar mounted with: the store's state
+  // survives a remount (a second Cmd+F), and a sequence nobody bumped since
+  // asked for nothing — so nothing jumps.
   const currentMatch = state.matches[state.activeMatch];
   const currentMatchRef = useRef(currentMatch);
   currentMatchRef.current = currentMatch;
   const onActiveMatchRef = useRef(onActiveMatch);
   onActiveMatchRef.current = onActiveMatch;
   const revealSeq = state.revealSeq;
+  const consumedSeq = useRef(revealSeq);
   useEffect(() => {
-    if (revealSeq === 0) return;
+    if (revealSeq === consumedSeq.current) return;
+    consumedSeq.current = revealSeq;
     const match = currentMatchRef.current;
     if (match) onActiveMatchRef.current(match);
   }, [revealSeq]);
@@ -80,6 +84,9 @@ export function FindBarView({
         value={state.query}
         onChange={(event) => onQuery(event.target.value)}
         onKeyDown={(event) => {
+          // Enter and Escape confirming or cancelling an IME composition
+          // belong to the composition, not to the match walk or the bar.
+          if (event.nativeEvent.isComposing) return;
           if (event.key === "Enter") {
             onStep(event.shiftKey ? -1 : 1);
             event.preventDefault();

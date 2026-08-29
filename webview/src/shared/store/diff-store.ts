@@ -125,7 +125,8 @@ export interface DiffStoreState {
   islandLinesChanged: (lines: string[]) => void;
   commitIsland: (lines: string[]) => void;
   undoEdit: () => void;
-  markSaved: () => void;
+  /** Record what was actually written to disk as the new dirty baseline. */
+  markSaved: (content: string) => void;
   setDiskChanged: (changed: boolean) => void;
 
   setSides: (sides: DiffSidesResult) => void;
@@ -215,6 +216,33 @@ function chunkOptionsFor(whitespace: Whitespace): ChunkOptions {
   return { ignoreWhitespace: whitespace === "trim" };
 }
 
+/** Where a buffer splice happened, for shifting line-keyed state below it. */
+export interface LineSplice {
+  /** First line the splice replaced. */
+  start: number;
+  /** First line past the replaced run, in pre-splice numbering. */
+  end: number;
+  /** How many lines the document grew (or shrank) by. */
+  delta: number;
+}
+
+/**
+ * Shift line-number keys past a splice by its delta, so state keyed on line
+ * numbers (expanded folds) keeps naming the same content after the buffer
+ * moves underneath it.
+ */
+export function remapLineKeys(
+  keys: ReadonlySet<number>,
+  splice: LineSplice,
+): ReadonlySet<number> {
+  if (splice.delta === 0 || keys.size === 0) return keys;
+  const remapped = new Set<number>();
+  for (const key of keys) {
+    remapped.add(key >= splice.end ? key + splice.delta : key);
+  }
+  return remapped;
+}
+
 /** Mirror a fallback's per-side facts, for Swap Sides. */
 function swapFallback(
   fallback: DiffFallbackInfo | null,
@@ -285,6 +313,7 @@ function recomputeSide(
   side: Side,
   sideState: SideFindState,
   open: boolean,
+  splice?: LineSplice,
 ): SideFindState {
   const matches =
     open && sideState.query !== ""
@@ -295,12 +324,18 @@ function recomputeSide(
         })
       : [];
   // A recompute driven by a buffer splice must not reset the user's stepped
-  // position: the previous active match is re-located by (line, start).
+  // position: the previous active match is re-located by (line, start) —
+  // with its line first shifted by the splice's delta when it sat at or
+  // below the splice, or the relocation would lock onto whatever occurrence
+  // now happens to sit at the old coordinates.
   const previous = sideState.matches[sideState.activeMatch];
-  const relocated = previous
+  const anchor =
+    previous && splice && previous.line >= splice.start
+      ? { line: previous.line + splice.delta, start: previous.start }
+      : previous;
+  const relocated = anchor
     ? matches.findIndex(
-        (match) =>
-          match.line === previous.line && match.start === previous.start,
+        (match) => match.line === anchor.line && match.start === anchor.start,
       )
     : -1;
   return {
@@ -311,20 +346,30 @@ function recomputeSide(
 }
 
 /** Both bars, refreshed against the current texts. */
-function deriveFind(state: {
-  left: string;
-  right: string;
-  findOpen: boolean;
-  findLeft: SideFindState;
-  findRight: SideFindState;
-}) {
+function deriveFind(
+  state: {
+    left: string;
+    right: string;
+    findOpen: boolean;
+    findLeft: SideFindState;
+    findRight: SideFindState;
+  },
+  splice?: LineSplice & { side: Side },
+) {
   return {
-    findLeft: recomputeSide(state.left, "left", state.findLeft, state.findOpen),
+    findLeft: recomputeSide(
+      state.left,
+      "left",
+      state.findLeft,
+      state.findOpen,
+      splice?.side === "left" ? splice : undefined,
+    ),
     findRight: recomputeSide(
       state.right,
       "right",
       state.findRight,
       state.findOpen,
+      splice?.side === "right" ? splice : undefined,
     ),
   };
 }
@@ -434,11 +479,28 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         sideLines.length === 0
           ? [""]
           : sideLines.slice(range.start, range.start + range.count);
+      // A fold intersecting the island's range expands first: the textarea
+      // covers the whole range, and editing lines the pane is hiding would
+      // overlay the fold row and silently rewrite invisible content.
+      const intersecting = state.folds.filter((fold) => {
+        const span = side === "left" ? fold.left : fold.right;
+        return (
+          span.start < range.start + Math.max(1, range.count) &&
+          range.start < span.start + span.count
+        );
+      });
+      let expansion = {};
+      if (intersecting.length > 0) {
+        const expandedFolds = new Set(state.expandedFolds);
+        for (const fold of intersecting) expandedFolds.add(fold.left.start);
+        expansion = { expandedFolds, ...derive({ ...state, expandedFolds }) };
+      }
       return {
         island: { side, start: range.start, lines: islandLines },
         // One structural undo step per island, taken at open so the whole
         // edit — however many keystrokes — reverts as a unit.
         undoTexts: [...state.undoTexts.slice(-(UNDO_LIMIT - 1)), text],
+        ...expansion,
       };
     }),
 
@@ -458,25 +520,7 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
       };
     }),
 
-  commitIsland: (lines) =>
-    set((state) => {
-      const { island } = state;
-      if (!island) return {};
-      const spliced = spliceEditable(
-        state,
-        island.side,
-        island.start,
-        island.lines,
-        lines,
-      );
-      const text = island.side === "left" ? spliced.left : spliced.right;
-      // A commit that changed nothing takes its undo snapshot back with it.
-      const undoTexts =
-        state.undoTexts[state.undoTexts.length - 1] === text
-          ? state.undoTexts.slice(0, -1)
-          : state.undoTexts;
-      return { ...spliced, island: null, undoTexts };
-    }),
+  commitIsland: (lines) => set((state) => commitIslandUpdate(state, lines)),
 
   undoEdit: () =>
     set((state) => {
@@ -499,13 +543,17 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
       };
     }),
 
-  markSaved: () =>
+  markSaved: (content) =>
     set((state) => {
       const side = editableSide(state);
       if (!side) return {};
+      // The baseline is what actually reached the disk, not whatever the
+      // buffer holds when the write resolves — edits typed during an
+      // in-flight save must stay dirty or the next Cmd+S no-ops on them.
+      const text = side === "left" ? state.left : state.right;
       return {
-        savedText: side === "left" ? state.left : state.right,
-        dirty: false,
+        savedText: content,
+        dirty: text !== content,
         diskChanged: false,
       };
     }),
@@ -573,29 +621,38 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
   // relabelled.
   swapSides: () =>
     set((state) => {
+      // An open island commits first: it targets a side by name, and the
+      // swap is about to hand that name to the read-only text — spliced
+      // keystrokes would land in the wrong buffer and be lost on save.
+      const committed = state.island
+        ? { ...state, ...commitIslandUpdate(state, state.island.lines) }
+        : state;
       const swapped = {
-        left: state.right,
-        right: state.left,
-        leftRef: state.rightRef,
-        rightRef: state.leftRef,
-        leftLabel: state.rightLabel,
-        rightLabel: state.leftLabel,
+        left: committed.right,
+        right: committed.left,
+        leftRef: committed.rightRef,
+        rightRef: committed.leftRef,
+        leftLabel: committed.rightLabel,
+        rightLabel: committed.leftLabel,
       };
       // Expansion is keyed on left start lines, and the swap moves every
       // fold to the other side's numbering — so everything re-collapses.
       const expandedFolds = new Set<number>();
       return {
         ...swapped,
+        island: null,
+        dirty: committed.dirty,
+        undoTexts: committed.undoTexts,
         // The placeholder's per-side facts swap with the labels above them;
         // a swapped image diff that kept its images in place would lie.
-        fallback: swapFallback(state.fallback),
-        swapped: !state.swapped,
+        fallback: swapFallback(committed.fallback),
+        swapped: !committed.swapped,
         activeChunk: -1,
         expandedFolds,
-        ...derive({ ...state, ...swapped, expandedFolds }),
+        ...derive({ ...committed, ...swapped, expandedFolds }),
         // The bars are positional — each keeps its query and re-searches the
         // text that now sits under it.
-        ...deriveFind({ ...state, ...swapped }),
+        ...deriveFind({ ...committed, ...swapped }),
       };
     }),
 
@@ -735,7 +792,10 @@ function spliceEditable(
   start: number,
   currentLines: readonly string[],
   newLines: readonly string[],
-): Pick<DiffStoreState, "left" | "right" | "dirty" | "activeChunk"> &
+): Pick<
+  DiffStoreState,
+  "left" | "right" | "dirty" | "activeChunk" | "expandedFolds"
+> &
   ReturnType<typeof derive> &
   ReturnType<typeof deriveFind> {
   const text = side === "left" ? state.left : state.right;
@@ -744,15 +804,52 @@ function spliceEditable(
     side === "left"
       ? { left: replaced, right: state.right }
       : { left: state.left, right: replaced };
-  const next = { ...state, ...texts };
+  const splice: LineSplice = {
+    start,
+    end: start + currentLines.length,
+    delta: newLines.length - currentLines.length,
+  };
+  // Expansion keys are left start lines; a left-side splice shifts every
+  // fold below it, and the keys must follow or the folds the user expanded
+  // snap shut under the cursor.
+  const expandedFolds =
+    side === "left"
+      ? remapLineKeys(state.expandedFolds, splice)
+      : state.expandedFolds;
+  const next = { ...state, ...texts, expandedFolds };
   return {
     ...texts,
+    expandedFolds,
     dirty: replaced !== state.savedText,
     // The chunk list was just rebuilt; a held index would name a stranger.
     activeChunk: -1,
     ...derive(next),
-    ...deriveFind(next),
+    ...deriveFind(next, { ...splice, side }),
   };
+}
+
+/** Splice the island's text back and close it — Escape, blur, or the store
+ * forcing a commit before an operation that would misdirect the island. */
+function commitIslandUpdate(
+  state: DiffStoreState,
+  lines: readonly string[],
+): Partial<DiffStoreState> {
+  const { island } = state;
+  if (!island) return {};
+  const spliced = spliceEditable(
+    state,
+    island.side,
+    island.start,
+    island.lines,
+    lines,
+  );
+  const text = island.side === "left" ? spliced.left : spliced.right;
+  // A commit that changed nothing takes its undo snapshot back with it.
+  const undoTexts =
+    state.undoTexts[state.undoTexts.length - 1] === text
+      ? state.undoTexts.slice(0, -1)
+      : state.undoTexts;
+  return { ...spliced, island: null, undoTexts };
 }
 
 /**

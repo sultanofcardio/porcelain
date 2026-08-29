@@ -1,3 +1,4 @@
+import { existsSync, realpathSync } from "node:fs";
 import * as nodefs from "node:fs/promises";
 import * as nodepath from "node:path";
 import * as vscode from "vscode";
@@ -60,6 +61,7 @@ import {
   EMPTY_CONTENT_REF,
   getWorkingTreeDiffKind,
   getWorkingTreeDiffResources,
+  resolveRepoReadPath,
   resolveRepoWritePath,
   WORKING_INDEX_REF,
   WORKING_TREE_REF,
@@ -68,6 +70,14 @@ import {
 import { GitWatcher } from "./watchers/gitWatcher";
 
 const NOT_GIT_REPO = { status: "not_git_repo" as const, data: null };
+
+/**
+ * The most a working-tree side may weigh before it classifies as unreadable —
+ * the same 10MB both git-side reads already carry via their `maxBuffer`. A
+ * huge single-line file dodges the line-count gate, and shipping it through
+ * postMessage would stall the host and freeze the webview.
+ */
+const WORKTREE_READ_BYTE_LIMIT = 10 * 1024 * 1024;
 
 /** Temporary storage for shelf diff content (base/modified) */
 const shelfDiffContent = new Map<string, string>();
@@ -549,11 +559,29 @@ export async function activate(context: vscode.ExtensionContext) {
     ): Promise<Buffer | { failed: string }> => {
       if (!ref || ref === EMPTY_CONTENT_REF) return Buffer.alloc(0);
       if (ref === WORKING_TREE_REF) {
-        const onDisk = vscode.Uri.joinPath(
-          vscode.Uri.file(ctx.paths.workTreeRoot),
-          sidePath,
-        );
+        let target: string;
         try {
+          // Reads share the write path's containment fence (minus the
+          // git-dir rule): the webview names files, not paths.
+          target = resolveRepoReadPath(
+            ctx.paths.workTreeRoot,
+            sidePath,
+            nodepath,
+            { existsSync, realpathSync },
+          );
+        } catch (error) {
+          return {
+            failed: error instanceof Error ? error.message : `${error}`,
+          };
+        }
+        const onDisk = vscode.Uri.file(target);
+        try {
+          const stat = await vscode.workspace.fs.stat(onDisk);
+          if (stat.size > WORKTREE_READ_BYTE_LIMIT) {
+            return {
+              failed: `File is ${stat.size} bytes; the viewer reads at most ${WORKTREE_READ_BYTE_LIMIT}`,
+            };
+          }
           return Buffer.from(await vscode.workspace.fs.readFile(onDisk));
         } catch (error) {
           if (
@@ -633,6 +661,7 @@ export async function activate(context: vscode.ExtensionContext) {
   messageRouter.handle("stepDiffFile", async (params) => {
     // The file list lives on the host; the webview only says which way to go.
     const delta = Number(params.delta ?? 1);
+    if (!Number.isFinite(delta) || delta === 0) return { moved: false };
     const moved =
       delta > 0 ? await diffManager.nextDiff() : await diffManager.prevDiff();
     return { moved };
@@ -866,6 +895,7 @@ export async function activate(context: vscode.ExtensionContext) {
       ctx.paths.gitDir,
       params.filePath as string,
       nodepath,
+      { existsSync, realpathSync },
     );
     await ctx.gitService.saveMergedContent(
       params.filePath as string,
@@ -892,6 +922,7 @@ export async function activate(context: vscode.ExtensionContext) {
       ctx.paths.gitDir,
       filePath,
       nodepath,
+      { existsSync, realpathSync },
     );
     await nodefs.writeFile(target, content, "utf-8");
     messageRouter.broadcastEvent("gitStateChanged", {
@@ -1719,6 +1750,10 @@ export async function activate(context: vscode.ExtensionContext) {
       file,
       getWorkingTreeDiffKind(staged),
     );
+    // The panel now shows a working-tree diff; the retained commit file list
+    // no longer describes it, and "next file" stepping it would silently
+    // replace this diff with an unrelated commit's.
+    diffManager.clearNavigation();
     const toUri = (resource: WorkingTreeDiffResource): vscode.Uri => {
       if (resource.source === "workingTree") {
         return vscode.Uri.joinPath(

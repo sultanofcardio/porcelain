@@ -231,17 +231,26 @@ function sameLines(a: readonly string[], b: readonly string[]): boolean {
   return true;
 }
 
-/** What a region's result range holds for a given pair of side decisions. */
+/**
+ * What a region's result range holds for a given pair of side decisions.
+ *
+ * Keyed on the decision states, not on whether the accepted slices are empty:
+ * an accepted flank whose slice is empty is an accepted *deletion*, and its
+ * result is exactly nothing. The base slice stands in only while no flank is
+ * accepted — pending/ignored mixes and revert.
+ */
 export function regionContent(
   region: ConflictRegion,
   oursState: SideDecision,
   theirsState: SideDecision,
 ): string[] {
+  if (oursState !== "accepted" && theirsState !== "accepted") {
+    return [...region.base];
+  }
   const parts: string[] = [];
   if (oursState === "accepted") parts.push(...region.ours);
   if (theirsState === "accepted") parts.push(...region.theirs);
-  if (parts.length > 0) return parts;
-  return [...region.base];
+  return parts;
 }
 
 export interface MergeEdit {
@@ -441,10 +450,20 @@ export function computeMergeFolds(
   for (const run of runs) {
     const length = run.result.end - run.result.start;
     if (length < minimum) continue;
-    // A run touching the start or end of the file keeps context only on its
-    // inner edge — there is nothing beyond the outer one to give context to.
-    const leading = run.result.start === 0 ? 0 : context;
-    const trailing = run.result.end === resultLineCount ? 0 : context;
+    // A run keeps no context on an edge only when nothing changed beyond it
+    // in *either* pair — the same first/last-chunk rule the 2-way folds use.
+    // Touching result line 0 or EOF is not enough: a flank-only chunk can
+    // still anchor changes there, and those deserve visible context.
+    const leading =
+      run.chunkO === 0 && run.chunkT === 0 && run.result.start === 0
+        ? 0
+        : context;
+    const trailing =
+      run.chunkO === chunksOurs.length - 1 &&
+      run.chunkT === chunksTheirs.length - 1 &&
+      run.result.end === resultLineCount
+        ? 0
+        : context;
     const hidden = length - leading - trailing;
     if (hidden <= 0) continue;
     const start = run.result.start + leading;

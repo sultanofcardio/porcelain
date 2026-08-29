@@ -97,13 +97,95 @@ describe("diff store editing", () => {
   it("marks saved as the new baseline for dirty", () => {
     useDiffStore.getState().openIsland(1);
     useDiffStore.getState().commitIsland(["edited"]);
-    useDiffStore.getState().markSaved();
+    useDiffStore.getState().markSaved("a\nedited\nc\n");
     const state = useDiffStore.getState();
     expect(state.dirty).toBe(false);
     expect(state.savedText).toBe("a\nedited\nc\n");
     // Undoing past a save is dirty again relative to the new baseline.
     useDiffStore.getState().undoEdit();
     expect(useDiffStore.getState().dirty).toBe(true);
+  });
+
+  it("baselines what was written, so edits during a save stay dirty", () => {
+    useDiffStore.getState().openIsland(1);
+    useDiffStore.getState().commitIsland(["edited"]);
+    // The save captured "edited"; more typing lands while the write is in
+    // flight. When it resolves, the newer edit must still count as unsaved.
+    useDiffStore.getState().openIsland(1);
+    useDiffStore.getState().commitIsland(["newer"]);
+    useDiffStore.getState().markSaved("a\nedited\nc\n");
+    const state = useDiffStore.getState();
+    expect(state.savedText).toBe("a\nedited\nc\n");
+    expect(state.dirty).toBe(true);
+  });
+
+  it("swapping sides commits an open island instead of misdirecting it", () => {
+    useDiffStore.getState().openIsland(1);
+    useDiffStore.getState().islandLinesChanged(["typed", "typed2"]);
+    useDiffStore.getState().swapSides();
+    const state = useDiffStore.getState();
+    expect(state.island).toBeNull();
+    // The edited text swapped to the left with its ref; nothing was lost.
+    expect(state.leftRef).toBe(WORKING_TREE_REF);
+    expect(state.left).toBe("a\ntyped\ntyped2\nc\n");
+    expect(state.dirty).toBe(true);
+  });
+
+  it("a splice above the stepped match keeps the walk on the same hit", () => {
+    loadWorkingTreeDiff("a\nold\nb\nhit\nhit\n", "a\nnew\nb\nhit\nhit\n");
+    useDiffStore.getState().openFind();
+    useDiffStore.getState().setFindQuery("right", "hit");
+    useDiffStore.getState().stepMatch("right", 1);
+    expect(useDiffStore.getState().findRight.activeMatch).toBe(1);
+
+    // Growing the island above both matches shifts them down one line; the
+    // active match must follow its own hit, not lock onto the first
+    // occurrence that now sits at the old line number.
+    useDiffStore.getState().openIsland(1);
+    useDiffStore.getState().commitIsland(["new1", "new2"]);
+    const after = useDiffStore.getState().findRight;
+    expect(after.activeMatch).toBe(1);
+    expect(after.matches[after.activeMatch].line).toBe(5);
+  });
+
+  it("opening an island expands any fold hiding part of its range", () => {
+    const body = Array.from({ length: 40 }, (_, i) => `line${i}`).join("\n");
+    loadWorkingTreeDiff(`old\n${body}\n`, `new\n${body}\n`);
+    expect(useDiffStore.getState().folds).toHaveLength(1);
+    // Line 2 is visible context, but the island's window reaches into the
+    // collapsed run — editing hidden lines through an overlay is not on.
+    useDiffStore.getState().openIsland(2);
+    const state = useDiffStore.getState();
+    expect(state.island).not.toBeNull();
+    expect(state.folds).toHaveLength(0);
+    expect(state.expandedFolds.size).toBeGreaterThan(0);
+  });
+
+  it("an expanded fold stays expanded across a splice above it", () => {
+    const body = Array.from({ length: 40 }, (_, i) => `line${i}`).join("\n");
+    // The working tree sits on the left so the splice moves the fold keys,
+    // which are left start lines.
+    useDiffStore.getState().setSides({
+      kind: "text",
+      left: `new\n${body}\nz\n`,
+      right: `old\n${body}\nz\n`,
+      filePath: "src/a.ts",
+      leftRef: WORKING_TREE_REF,
+      rightRef: "HEAD",
+      leftLabel: "Working tree",
+      rightLabel: "HEAD",
+      language: "typescript",
+    });
+    const fold = useDiffStore.getState().folds[0];
+    expect(fold).toBeDefined();
+    useDiffStore.getState().toggleFold(fold.left.start);
+    expect(useDiffStore.getState().folds).toHaveLength(0);
+
+    // Growing the first line into two shifts the fold's left start; the
+    // expansion key must shift with it or the fold snaps shut mid-edit.
+    useDiffStore.getState().openIsland(0);
+    useDiffStore.getState().commitIsland(["new1", "new2"]);
+    expect(useDiffStore.getState().folds).toHaveLength(0);
   });
 
   it("refuses to open an island on a read-only surface", () => {

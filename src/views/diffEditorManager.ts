@@ -83,6 +83,16 @@ export class DiffEditorManager {
   }
 
   /**
+   * Drop the retained file list. Called when another surface takes over the
+   * diff panel (a working-tree diff): stepping the stale list from there
+   * would silently replace that diff with an unrelated commit's.
+   */
+  clearNavigation(): void {
+    this.diffFiles = [];
+    this.diffIndex = -1;
+  }
+
+  /**
    * Where the open diff sits in the file list, 1-based, or null when there is
    * no list or nothing has been opened from it yet.
    *
@@ -165,8 +175,10 @@ export class DiffEditorManager {
         : -1;
       if (index >= 0) {
         this.diffIndex = index;
-      } else if (!sameNav) {
-        this.diffFiles = [];
+      } else {
+        if (!sameNav) this.diffFiles = [];
+        // Same commit but not in the list, or another commit entirely:
+        // either way the position no longer describes this diff.
         this.diffIndex = -1;
       }
     }

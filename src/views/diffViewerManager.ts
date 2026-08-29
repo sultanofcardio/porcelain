@@ -106,15 +106,19 @@ export function toDiffSpec(
 
   // Each Porcelain side carries its own repo-relative path — a rename
   // addresses the old path on the left and the new on the right. A `file:`
-  // side's URI path is absolute and useless here; it borrows the other
-  // side's, which is always the same file for a working-tree diff. The
-  // display path is the right side's, matching the native title.
-  const relOf = (uri: vscode.Uri): string | null =>
-    uri.scheme === PORCELAIN_SCHEME
-      ? uri.path.startsWith("/")
-        ? uri.path.slice(1)
-        : uri.path
-      : null;
+  // side's path is made relative against the repo root (the repoId): a
+  // staged rename diffs the old path at HEAD against the *new* path on
+  // disk, so borrowing the porcelain side's path would read — and save —
+  // the wrong file. Only when the file sits outside the root does it fall
+  // back to borrowing. The display path is the right side's, matching the
+  // native title.
+  const relOf = (uri: vscode.Uri): string | null => {
+    if (uri.scheme === PORCELAIN_SCHEME) {
+      return uri.path.startsWith("/") ? uri.path.slice(1) : uri.path;
+    }
+    const root = repoId.endsWith("/") ? repoId : `${repoId}/`;
+    return uri.path.startsWith(root) ? uri.path.slice(root.length) : null;
+  };
   const leftRel = relOf(left);
   const rightRel = relOf(right);
   const path = rightRel ?? leftRel;
@@ -137,13 +141,22 @@ export function toDiffSpec(
  */
 export class DiffViewerManager {
   private panel: vscode.WebviewPanel | undefined;
+  /** Serialises show(): two quick opens racing openEmptyFloatingWindow would
+   * each open a window, and the loser's stays empty forever. */
+  private pendingShow: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly messageRouter: MessageRouter,
   ) {}
 
-  async show(spec: DiffSpec): Promise<void> {
+  show(spec: DiffSpec): Promise<void> {
+    const run = this.pendingShow.then(() => this.showNow(spec));
+    this.pendingShow = run.catch(() => {});
+    return run;
+  }
+
+  private async showNow(spec: DiffSpec): Promise<void> {
     const existing = this.panel;
     if (existing) {
       existing.title = spec.title;
@@ -156,17 +169,6 @@ export class DiffViewerManager {
     // content renders where it belongs instead of appearing here and jumping.
     const floating = getSurfacePresentation() === "floatingWindow";
     const detached = floating ? await openEmptyFloatingWindow() : false;
-
-    // A second show() may have won the race while the window opened; two
-    // panels would leak the first's router registration and let the stale
-    // panel's dispose handler tear down the live one.
-    const raced = this.panel;
-    if (raced) {
-      raced.title = spec.title;
-      raced.webview.html = this.html(raced.webview, spec);
-      raced.reveal(raced.viewColumn, true);
-      return;
-    }
 
     const panel = vscode.window.createWebviewPanel(
       "porcelain.diff",
