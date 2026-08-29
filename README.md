@@ -97,11 +97,11 @@ A conflicted merge is three steps, and Porcelain gives each one a surface.
 
 ![A compact floating window titled Conflicts. It lists one conflicted file, pool.ts under src/db, with columns showing that both Yours and Theirs modified it, and buttons for Accept Yours, Accept Theirs and Merge.](./images/screenshots/merge-conflicts-floating-window.png)
 
-**3. Resolve.** Double-clicking a conflicted file opens the three-way editor in its own window: Theirs on the left, your working result in the middle, Yours on the right, with each conflict individually acceptable.
+**3. Resolve.** Double-clicking a conflicted file opens the three-way editor in its own window: your side on the left, the working result in the middle, Theirs on the right, with each conflict individually acceptable.
 
 ![The three-way merge editor in a compact window. Three syntax-highlighted columns are labelled Left (Theirs), Center (Result) and Right (Yours). Two conflicting regions are highlighted in red with per-conflict accept and dismiss controls, and the header reads 2 changes, 2 conflicts.](./images/screenshots/merge-conflicts-3-way-resolution.png)
 
-Each conflict can be taken individually rather than the whole file at once, and everything stays syntax-highlighted throughout. Porcelain also integrates with the built-in VS Code Source Control view, so conflicts raised elsewhere land here too.
+Each conflict can be taken individually rather than the whole file at once, the result column can be edited directly while you work, and everything stays syntax-highlighted throughout. Porcelain also integrates with the built-in VS Code Source Control view, so conflicts raised elsewhere land here too.
 
 ### Multi-root workspace support
 
