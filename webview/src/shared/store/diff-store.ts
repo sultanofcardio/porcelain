@@ -175,6 +175,12 @@ export interface SideFindState {
   matches: FindMatch[];
   /** Index into `matches`, or -1 when there is none. */
   activeMatch: number;
+  /**
+   * Bumped by user-initiated find actions only — typing, option toggles,
+   * stepping. The bar's reveal-and-scroll keys on this, so a buffer splice
+   * that recomputes the match list cannot yank the viewport.
+   */
+  revealSeq: number;
 }
 
 const EMPTY_SIDE_FIND: SideFindState = {
@@ -184,6 +190,7 @@ const EMPTY_SIDE_FIND: SideFindState = {
   regex: false,
   matches: [],
   activeMatch: -1,
+  revealSeq: 0,
 };
 
 /**
@@ -287,7 +294,20 @@ function recomputeSide(
           regex: sideState.regex,
         })
       : [];
-  return { ...sideState, matches, activeMatch: matches.length > 0 ? 0 : -1 };
+  // A recompute driven by a buffer splice must not reset the user's stepped
+  // position: the previous active match is re-located by (line, start).
+  const previous = sideState.matches[sideState.activeMatch];
+  const relocated = previous
+    ? matches.findIndex(
+        (match) =>
+          match.line === previous.line && match.start === previous.start,
+      )
+    : -1;
+  return {
+    ...sideState,
+    matches,
+    activeMatch: relocated >= 0 ? relocated : matches.length > 0 ? 0 : -1,
+  };
 }
 
 /** Both bars, refreshed against the current texts. */
@@ -362,6 +382,9 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         loading: false,
         error: null,
         activeChunk: -1,
+        // Fresh content arrives unswapped — a reload after Swap Sides must
+        // not leave the flag lying about what the panes show.
+        swapped: false,
         // New content, new folds: what was expanded in the old diff has no
         // meaning in this one.
         expandedFolds: new Set<number>(),
@@ -470,6 +493,7 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         ...texts,
         undoTexts: state.undoTexts.slice(0, -1),
         dirty: previous !== state.savedText,
+        activeChunk: -1,
         ...derive(next),
         ...deriveFind(next),
       };
@@ -490,8 +514,14 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
 
   setWhitespace: (whitespace) =>
     // Per-side match lists are ordered within their own document, so a
-    // re-chunk moves nothing in them — no find recompute needed here.
-    set((state) => ({ whitespace, ...derive({ ...state, whitespace }) })),
+    // re-chunk moves nothing in them — no find recompute needed here. The
+    // active chunk is an index into the freshly computed list, though, and
+    // keeping it would announce a difference the user never stepped to.
+    set((state) => ({
+      whitespace,
+      activeChunk: -1,
+      ...derive({ ...state, whitespace }),
+    })),
 
   setGranularity: (granularity) => set({ granularity }),
 
@@ -656,6 +686,9 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         activeMatch:
           (current.activeMatch + delta + current.matches.length) %
           current.matches.length,
+        // Bumped even when the index wraps back onto itself, so Enter on a
+        // 1/1 result still re-reveals the match after scrolling away.
+        revealSeq: current.revealSeq + 1,
       };
       return side === "left"
         ? { findLeft: next, activeFindSide: side }
@@ -702,7 +735,7 @@ function spliceEditable(
   start: number,
   currentLines: readonly string[],
   newLines: readonly string[],
-): Pick<DiffStoreState, "left" | "right" | "dirty"> &
+): Pick<DiffStoreState, "left" | "right" | "dirty" | "activeChunk"> &
   ReturnType<typeof derive> &
   ReturnType<typeof deriveFind> {
   const text = side === "left" ? state.left : state.right;
@@ -715,6 +748,8 @@ function spliceEditable(
   return {
     ...texts,
     dirty: replaced !== state.savedText,
+    // The chunk list was just rebuilt; a held index would name a stranger.
+    activeChunk: -1,
     ...derive(next),
     ...deriveFind(next),
   };
@@ -736,10 +771,12 @@ function updateSideFind(
   const next = recomputeSide(
     text,
     side,
-    { ...current, ...change },
+    // A changed query or option starts a fresh walk from the first match.
+    { ...current, ...change, matches: [], activeMatch: -1 },
     state.findOpen,
   );
+  const bumped = { ...next, revealSeq: current.revealSeq + 1 };
   return side === "left"
-    ? { findLeft: next, activeFindSide: side }
-    : { findRight: next, activeFindSide: side };
+    ? { findLeft: bumped, activeFindSide: side }
+    : { findRight: bumped, activeFindSide: side };
 }

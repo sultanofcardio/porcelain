@@ -48,17 +48,24 @@ export function FindBarView({
     inputRef.current?.select();
   }, [autoFocus]);
 
-  // Every path that changes this bar's active match funnels through here, so
-  // typing, stepping and option toggles all reveal their result the same
-  // way. Keyed on the match itself, not its index: a query change recomputes
-  // the list and resets the index to 0, so a new first match at an unchanged
-  // index must still re-fire the reveal.
+  // Every user-driven path that changes this bar's active match funnels
+  // through here — typing, stepping, option toggles — via the store's
+  // revealSeq. Keying on the sequence rather than the match object is what
+  // keeps a buffer splice (which rebuilds the match list with new object
+  // identities) from yanking the viewport, and what lets Enter on a 1/1
+  // result re-reveal a match whose index never changed. Sequence zero is the
+  // bar mounting with held state: nothing was asked for, nothing jumps.
   const currentMatch = state.matches[state.activeMatch];
+  const currentMatchRef = useRef(currentMatch);
+  currentMatchRef.current = currentMatch;
   const onActiveMatchRef = useRef(onActiveMatch);
   onActiveMatchRef.current = onActiveMatch;
+  const revealSeq = state.revealSeq;
   useEffect(() => {
-    if (currentMatch) onActiveMatchRef.current(currentMatch);
-  }, [currentMatch]);
+    if (revealSeq === 0) return;
+    const match = currentMatchRef.current;
+    if (match) onActiveMatchRef.current(match);
+  }, [revealSeq]);
 
   const count = state.matches.length;
 

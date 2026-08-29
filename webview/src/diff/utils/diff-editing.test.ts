@@ -130,4 +130,31 @@ describe("diff store editing", () => {
     useDiffStore.getState().commitIsland(["renewed", "newer"]);
     expect(useDiffStore.getState().findRight.matches).toHaveLength(2);
   });
+
+  it("a splice preserves the find walk and never bumps the reveal", () => {
+    loadWorkingTreeDiff("hit\nold\nhit\n", "hit\nnew\nhit\n");
+    useDiffStore.getState().openFind();
+    useDiffStore.getState().setFindQuery("right", "hit");
+    const typed = useDiffStore.getState().findRight;
+    expect(typed.matches).toHaveLength(2);
+
+    // An edit below the active match: it relocates, and nothing scrolls.
+    useDiffStore.getState().openIsland(1);
+    useDiffStore.getState().commitIsland(["edited", "extra"]);
+    const after = useDiffStore.getState().findRight;
+    expect(after.matches.map((m) => m.line)).toEqual([0, 3]);
+    expect(after.activeMatch).toBe(0);
+    expect(after.revealSeq).toBe(typed.revealSeq);
+  });
+
+  it("stepping onto the same single match still bumps the reveal", () => {
+    loadWorkingTreeDiff("one hit\n", "one hit\n");
+    useDiffStore.getState().openFind();
+    useDiffStore.getState().setFindQuery("right", "hit");
+    const before = useDiffStore.getState().findRight.revealSeq;
+    useDiffStore.getState().stepMatch("right", 1);
+    const state = useDiffStore.getState().findRight;
+    expect(state.activeMatch).toBe(0);
+    expect(state.revealSeq).toBe(before + 1);
+  });
 });

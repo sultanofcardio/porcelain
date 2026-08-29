@@ -42,15 +42,27 @@ export function DiffApp() {
 
   const root = document.getElementById("root");
   const filePath = root?.dataset.diffPath ?? "";
+  // A rename diffs two different paths; each side reads its own. Sides
+  // without an explicit path (every non-rename) fall back to the file's.
+  const leftPath = root?.dataset.leftPath ?? filePath;
+  const rightPath = root?.dataset.rightPath ?? filePath;
   const leftRef = root?.dataset.leftRef ?? "";
   const rightRef = root?.dataset.rightRef ?? "";
+  const repoId = root?.dataset.repoId ?? "";
 
   useEffect(() => {
     // Not an input to the request — a re-fetch trigger (disk reloads).
     void reloadNonce;
     let cancelled = false;
     bridge
-      .request("getDiffSides", { filePath, leftRef, rightRef, force })
+      .request("getDiffSides", {
+        filePath,
+        leftPath,
+        rightPath,
+        leftRef,
+        rightRef,
+        force,
+      })
       .then((data) => {
         // Reached through getState() rather than the hook: the store is a
         // singleton whose actions never change identity, and depending on the
@@ -64,20 +76,50 @@ export function DiffApp() {
     return () => {
       cancelled = true;
     };
-  }, [filePath, leftRef, rightRef, force, reloadNonce]);
+  }, [filePath, leftPath, rightPath, leftRef, rightRef, force, reloadNonce]);
 
   // The working tree can change under an open diff — a formatter, a checkout,
-  // the native editor. Clean view: refresh quietly. Unsaved edits (or an open
-  // island): never silently merge — raise the banner and let the user pick.
+  // the native editor. gitStateChanged is a firehose, though, so nothing acts
+  // on the event alone: re-read quietly and compare against the saved
+  // baseline first. Untouched disk → nothing happens, view state intact.
+  // Actually changed: a clean view refreshes; unsaved edits (or an open
+  // island) get the banner and the user's choice — never a silent merge.
   useEffect(() => {
-    return bridge.onEvent((event) => {
+    return bridge.onEvent((event, data) => {
       if (event !== "gitStateChanged") return;
+      const payload = data as { repoId?: string } | null;
+      if (repoId && payload?.repoId && payload.repoId !== repoId) return;
       const state = useDiffStore.getState();
-      if (!editableSide(state)) return;
-      if (state.dirty || state.island) state.setDiskChanged(true);
-      else setReloadNonce((nonce) => nonce + 1);
+      const side = editableSide(state);
+      if (!side || state.loading) return;
+      void bridge
+        .request("getDiffSides", {
+          filePath,
+          leftPath,
+          rightPath,
+          leftRef,
+          rightRef,
+          force: false,
+        })
+        .then((raw) => {
+          const sides = raw as DiffSidesResult;
+          const current = useDiffStore.getState();
+          if (current.filePath !== filePath) return;
+          const diskText =
+            sides.kind === "text"
+              ? side === "left"
+                ? sides.left
+                : sides.right
+              : null;
+          if (diskText !== null && diskText === current.savedText) return;
+          if (current.dirty || current.island) current.setDiskChanged(true);
+          else current.setSides(sides);
+        })
+        .catch(() => {
+          // A failed probe is not evidence of a change; stay quiet.
+        });
     });
-  }, []);
+  }, [filePath, leftPath, rightPath, leftRef, rightRef, repoId]);
 
   const save = useCallback(async () => {
     const state = useDiffStore.getState();

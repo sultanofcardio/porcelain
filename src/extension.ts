@@ -7,7 +7,7 @@ import {
 } from "./git/branchDashboardState";
 import type { GitOperationResult } from "./git/core/operationResult";
 import { PorcelainError, PorcelainErrorCode } from "./git/errors";
-import { GitService } from "./git/gitService";
+import { GitService, isAbsentPathError } from "./git/gitService";
 import { discoverRepos } from "./git/repoDiscovery";
 import {
   type DiscoveredRepo,
@@ -60,6 +60,7 @@ import {
   EMPTY_CONTENT_REF,
   getWorkingTreeDiffKind,
   getWorkingTreeDiffResources,
+  resolveRepoWritePath,
   WORKING_INDEX_REF,
   WORKING_TREE_REF,
   type WorkingTreeDiffResource,
@@ -526,6 +527,10 @@ export async function activate(context: vscode.ExtensionContext) {
       return NOT_GIT_REPO;
     }
     const filePath = params.filePath as string;
+    // A rename diffs two different paths; every other diff sends none and
+    // both sides fall back to the file's own.
+    const leftPath = (params.leftPath as string | undefined) ?? filePath;
+    const rightPath = (params.rightPath as string | undefined) ?? filePath;
     const leftRef = params.leftRef as string;
     const rightRef = params.rightRef as string;
     // "Show anyway" on the tooLarge placeholder: the limit is soft because
@@ -538,12 +543,15 @@ export async function activate(context: vscode.ExtensionContext) {
     // needs. A working-tree file that is not on disk is the same — deleted.
     // Any *other* failure is reported as such, so "could not read" stops
     // masquerading as "deleted".
-    const read = async (ref: string): Promise<Buffer | { failed: string }> => {
+    const read = async (
+      ref: string,
+      sidePath: string,
+    ): Promise<Buffer | { failed: string }> => {
       if (!ref || ref === EMPTY_CONTENT_REF) return Buffer.alloc(0);
       if (ref === WORKING_TREE_REF) {
         const onDisk = vscode.Uri.joinPath(
           vscode.Uri.file(ctx.paths.workTreeRoot),
-          filePath,
+          sidePath,
         );
         try {
           return Buffer.from(await vscode.workspace.fs.readFile(onDisk));
@@ -561,18 +569,22 @@ export async function activate(context: vscode.ExtensionContext) {
       }
       try {
         if (ref === WORKING_INDEX_REF) {
-          return await ctx.gitService.getIndexFileContent(filePath);
+          return await ctx.gitService.getIndexFileContent(sidePath);
         }
-        // Swallowing git-show errors into an empty side is deliberate and
-        // load-bearing: history diffs of added or renamed files can name a
-        // revision the path is not in, and that side must stay empty.
-        return await ctx.gitService.getFileContentBuffer(ref, filePath);
-      } catch {
-        return Buffer.alloc(0);
+        // An absent path stays an empty side (added/renamed files in
+        // history); a genuine failure — oversized blob, corrupt object —
+        // surfaces as unreadable instead of masquerading as deleted.
+        return await ctx.gitService.getFileContentBuffer(ref, sidePath);
+      } catch (error) {
+        if (isAbsentPathError(error)) return Buffer.alloc(0);
+        return { failed: error instanceof Error ? error.message : `${error}` };
       }
     };
 
-    const [left, right] = await Promise.all([read(leftRef), read(rightRef)]);
+    const [left, right] = await Promise.all([
+      read(leftRef, leftPath),
+      read(rightRef, rightPath),
+    ]);
     const meta: DiffSidesMeta = {
       filePath,
       leftRef,
@@ -773,11 +785,16 @@ export async function activate(context: vscode.ExtensionContext) {
     // The three stages as bytes: a binary stage must be classified, not
     // UTF-8-decoded into mojibake and handed to diff3. A stage missing from
     // the index (added on one side only) reads as empty, which is exactly
-    // what the merge model wants.
+    // what the merge model wants; a genuine read failure surfaces as
+    // unreadable rather than an invented empty side.
+    const failures: string[] = [];
     const read = (stage: string) =>
-      gitService
-        .getFileContentBuffer(stage, filePath)
-        .catch(() => Buffer.alloc(0));
+      gitService.getFileContentBuffer(stage, filePath).catch((error) => {
+        if (!isAbsentPathError(error)) {
+          failures.push(error instanceof Error ? error.message : `${error}`);
+        }
+        return Buffer.alloc(0);
+      });
     const [base, ours, theirs] = await Promise.all([
       read(":1"),
       read(":2"),
@@ -787,12 +804,14 @@ export async function activate(context: vscode.ExtensionContext) {
     const mergeState = await gitService.getMergeState();
     const branch = await gitService.getCurrentBranch().catch(() => null);
     // "Merge branch 'x'" carries the human name; the hash is the fallback.
+    // Outside an actual merge (cherry-pick and rebase conflicts land here
+    // too) there is no MERGE_HEAD to name, so the label stays generic.
     const mergeMsg = mergeState.isMerging ? (mergeState.mergeMsg ?? "") : "";
     const theirsLabel =
       /branch '([^']+)'/.exec(mergeMsg)?.[1] ??
       (mergeState.isMerging && mergeState.mergeHead
         ? mergeState.mergeHead.slice(0, 7)
-        : "MERGE_HEAD");
+        : "incoming");
     const meta = {
       filePath,
       language: extToLanguage(filePath.split(".").pop() ?? ""),
@@ -800,6 +819,14 @@ export async function activate(context: vscode.ExtensionContext) {
       oursLabel: branch ?? "HEAD",
       theirsLabel,
     };
+
+    if (failures.length > 0) {
+      return {
+        kind: "unreadable",
+        reason: failures[0],
+        ...meta,
+      } satisfies FileVersionsResult;
+    }
 
     if ([base, ours, theirs].some(isBinaryContent)) {
       return {
@@ -832,6 +859,14 @@ export async function activate(context: vscode.ExtensionContext) {
 
   messageRouter.handle("saveMergedContent", async (params, ctx) => {
     if (!ctx) return NOT_GIT_REPO;
+    // Same boundary as writeFileContent: one stated write fence, held
+    // uniformly by both webview-facing write paths.
+    resolveRepoWritePath(
+      ctx.paths.workTreeRoot,
+      ctx.paths.gitDir,
+      params.filePath as string,
+      nodepath,
+    );
     await ctx.gitService.saveMergedContent(
       params.filePath as string,
       params.content as string,
@@ -850,13 +885,14 @@ export async function activate(context: vscode.ExtensionContext) {
     const filePath = params.filePath as string;
     const content = params.content as string;
     // The one write path diff editing has, and it writes only the working
-    // tree: resolve against the repo root and refuse anything that escapes
-    // it — the webview names files, it does not get to name paths.
-    const root = ctx.paths.workTreeRoot;
-    const target = nodepath.resolve(root, filePath);
-    if (!target.startsWith(root + nodepath.sep)) {
-      throw new Error(`Refusing to write outside the repository: ${filePath}`);
-    }
+    // tree: resolve against the repo root, refuse anything that escapes it
+    // or lands in the git dir — the webview names files, not paths.
+    const target = resolveRepoWritePath(
+      ctx.paths.workTreeRoot,
+      ctx.paths.gitDir,
+      filePath,
+      nodepath,
+    );
     await nodefs.writeFile(target, content, "utf-8");
     messageRouter.broadcastEvent("gitStateChanged", {
       scope: "status",

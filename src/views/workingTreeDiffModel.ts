@@ -106,6 +106,38 @@ export function buildGitContentQuery(ref: string, repoId: string): string {
   return `ref=${encodeURIComponent(ref)}&repo=${encodeURIComponent(repoId)}`;
 }
 
+/**
+ * The one write boundary the webview-facing write paths share: resolve a
+ * repo-relative path against the work-tree root and refuse anything that
+ * escapes it — or that lands in the git dir, which no editor surface has any
+ * business writing (hooks live there). Defence in depth: the webview is
+ * trusted extension code, but the boundary is stated once, so it holds
+ * uniformly.
+ */
+export function resolveRepoWritePath(
+  workTreeRoot: string,
+  gitDir: string,
+  filePath: string,
+  path: {
+    resolve: (...parts: string[]) => string;
+    sep: string;
+  },
+): string {
+  const target = path.resolve(workTreeRoot, filePath);
+  if (!target.startsWith(workTreeRoot + path.sep)) {
+    throw new Error(`Refusing to write outside the repository: ${filePath}`);
+  }
+  const resolvedGitDir = path.resolve(gitDir);
+  if (
+    target === resolvedGitDir ||
+    target.startsWith(resolvedGitDir + path.sep) ||
+    target.split(path.sep).includes(".git")
+  ) {
+    throw new Error(`Refusing to write into the git directory: ${filePath}`);
+  }
+  return target;
+}
+
 export async function readGitContent(
   service: GitContentReader,
   ref: string,

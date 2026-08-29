@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DiffPane } from "../diff/components/DiffPane";
 import { computeChunks } from "../diff/utils/diff-model";
@@ -139,6 +139,33 @@ describe("merge surface accessibility", () => {
     expect(
       screen.getByRole("button", { name: "Revert conflict 1" }),
     ).toBeTruthy();
+  });
+
+  it("keeps accept-both reachable: the other flank's verb survives resolution", () => {
+    useMergeStore
+      .getState()
+      .decideRegion(0, { action: "accept", side: "theirs" });
+    const { folds } = useMergeStore.getState();
+    render(
+      <MergeGutterVerbs
+        flank="ours"
+        folds={folds}
+        flankOffset={0}
+        resultOffset={0}
+        visibleLines={30}
+      />,
+    );
+    const accept = screen.getByRole("button", {
+      name: "Accept ours for conflict 1",
+    });
+    fireEvent.click(accept);
+    // Both slices land, ours before theirs — the order the review fixed.
+    expect(useMergeStore.getState().result.lines).toEqual([
+      "a",
+      "OURS",
+      "THEIRS",
+      "c",
+    ]);
   });
 
   it("announces conflict rows in the result pane's invisible prefix", () => {

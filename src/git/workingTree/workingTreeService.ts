@@ -3,6 +3,9 @@ import type { DiffFile, FileStatus, WorkingTreeFile } from "../types";
 import { parseNameStatusZ } from "./nameStatusParser";
 import { type GitStatusRecord, parseStatusPorcelainZ } from "./statusParser";
 
+/** File content, not porcelain output: matches gitService's MAX_BUFFER. */
+const INDEX_CONTENT_MAX_BUFFER = 10 * 1024 * 1024;
+
 export class WorkingTreeService {
   constructor(private readonly git: GitExecutor) {}
 
@@ -57,7 +60,12 @@ export class WorkingTreeService {
   }
 
   getIndexFileContent(path: string): Promise<Buffer> {
-    return this.git.buffer(["show", `:${path}`]);
+    // The executor's default cap is 1 MB — fine for porcelain output, far too
+    // small for file content: a staged file past it would throw, be swallowed
+    // into an empty side upstream, and render as a wholly added/deleted file.
+    return this.git.buffer(["show", `:${path}`], {
+      maxBuffer: INDEX_CONTENT_MAX_BUFFER,
+    });
   }
 
   private toWorkingTreeFiles(record: GitStatusRecord): WorkingTreeFile[] {

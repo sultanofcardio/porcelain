@@ -13,9 +13,16 @@ export class GitTestRepo {
   static async create(): Promise<GitTestRepo> {
     const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "porcelain-git-"));
     const repo = new GitTestRepo(rootPath);
-    await repo.git("init");
+    // Explicit branch name: with the runner's hermetic git config there is
+    // no global init.defaultBranch to lean on.
+    await repo.git("init", "-b", "main");
     await repo.git("config", "user.name", "Porcelain Test");
     await repo.git("config", "user.email", "porcelain@example.com");
+    // Scratch repos must not inherit the developer's signing setup: a global
+    // commit.gpgsign=true would make every fixture commit call out to their
+    // signing agent, and the whole suite fails the moment it is locked.
+    await repo.git("config", "commit.gpgsign", "false");
+    await repo.git("config", "tag.gpgsign", "false");
     return repo;
   }
 

@@ -23,6 +23,13 @@ import { LINE_HEIGHT } from "./metrics";
 export interface PaneIsland {
   start: number;
   lines: string[];
+  /**
+   * How many of the pane's real rows the island stands on. Defaults to the
+   * typed line count; the merge's empty-base slot passes 0 — its textarea is
+   * padded to one visual line the buffer does not have, and blanking a real
+   * row for it would hide the neighbour below the slot.
+   */
+  span?: number;
   label: string;
   onLinesChange: (lines: string[]) => void;
   onCommit: (lines: string[]) => void;
@@ -147,7 +154,7 @@ export function DiffPane({
       if (
         island &&
         index >= island.start &&
-        index < island.start + island.lines.length
+        index < island.start + (island.span ?? island.lines.length)
       ) {
         rendered.push({ row, spacer: true });
         continue;

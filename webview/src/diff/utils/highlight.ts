@@ -1,3 +1,4 @@
+import { diffChars } from "diff";
 import type { BundledLanguage, Highlighter, SpecialLanguage } from "shiki";
 import { calculateInlineDiffs } from "../../shared/utils/inline-diff";
 
@@ -93,8 +94,12 @@ export function changedRanges(
   if (granularity === "none") return [];
   if (granularity === "line" || against === undefined) return null;
 
-  const rows = calculateInlineDiffs(against, line);
-  const tokens = rows[0] ?? [];
+  // "By character" means characters: diffChars, not the word diff with a
+  // different name on it.
+  const tokens =
+    granularity === "character"
+      ? diffChars(against, line)
+      : (calculateInlineDiffs(against, line)[0] ?? []);
   const ranges: Array<{ start: number; end: number }> = [];
   let offset = 0;
   for (const token of tokens) {

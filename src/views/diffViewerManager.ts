@@ -50,7 +50,15 @@ export function refLabel(ref: string): string {
 /** The two revisions a diff webview shows. */
 export interface DiffSpec {
   repoId: string;
+  /** The file's display path — the right side's, matching the native title. */
   path: string;
+  /**
+   * Per-side read paths. A renamed or copied file diffs two different paths
+   * (old on the left, new on the right); collapsing them to one made the
+   * left read fail and the rename render as a whole-file addition.
+   */
+  leftPath: string;
+  rightPath: string;
   leftRef: string;
   rightRef: string;
   title: string;
@@ -96,13 +104,31 @@ export function toDiffSpec(
   const rightRef = refOf(right);
   if (!leftRef || !rightRef) return null;
 
-  // The path is repo-relative for a Porcelain revision but absolute for a file
-  // on disk, and the host reads content by repo-relative path.
-  const source = right.scheme === PORCELAIN_SCHEME ? right : left;
-  const path = source.path.startsWith("/") ? source.path.slice(1) : source.path;
+  // Each Porcelain side carries its own repo-relative path — a rename
+  // addresses the old path on the left and the new on the right. A `file:`
+  // side's URI path is absolute and useless here; it borrows the other
+  // side's, which is always the same file for a working-tree diff. The
+  // display path is the right side's, matching the native title.
+  const relOf = (uri: vscode.Uri): string | null =>
+    uri.scheme === PORCELAIN_SCHEME
+      ? uri.path.startsWith("/")
+        ? uri.path.slice(1)
+        : uri.path
+      : null;
+  const leftRel = relOf(left);
+  const rightRel = relOf(right);
+  const path = rightRel ?? leftRel;
   if (!path) return null;
 
-  return { repoId, path, leftRef, rightRef, title };
+  return {
+    repoId,
+    path,
+    leftPath: leftRel ?? path,
+    rightPath: rightRel ?? path,
+    leftRef,
+    rightRef,
+    title,
+  };
 }
 
 /**
@@ -111,7 +137,6 @@ export function toDiffSpec(
  */
 export class DiffViewerManager {
   private panel: vscode.WebviewPanel | undefined;
-  private routerDisposable: vscode.Disposable | undefined;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -132,6 +157,17 @@ export class DiffViewerManager {
     const floating = getSurfacePresentation() === "floatingWindow";
     const detached = floating ? await openEmptyFloatingWindow() : false;
 
+    // A second show() may have won the race while the window opened; two
+    // panels would leak the first's router registration and let the stale
+    // panel's dispose handler tear down the live one.
+    const raced = this.panel;
+    if (raced) {
+      raced.title = spec.title;
+      raced.webview.html = this.html(raced.webview, spec);
+      raced.reveal(raced.viewColumn, true);
+      return;
+    }
+
     const panel = vscode.window.createWebviewPanel(
       "porcelain.diff",
       spec.title,
@@ -144,12 +180,15 @@ export class DiffViewerManager {
     );
     panel.webview.html = this.html(panel.webview, spec);
 
-    this.routerDisposable = this.messageRouter.registerWebview(panel.webview);
+    // Scoped to this panel rather than held on the class: a stale panel's
+    // dispose must tear down its own registration and nothing else.
+    const routerDisposable = this.messageRouter.registerWebview(panel.webview);
     this.panel = panel;
     panel.onDidDispose(() => {
-      this.panel = undefined;
-      this.routerDisposable?.dispose();
-      this.routerDisposable = undefined;
+      routerDisposable.dispose();
+      if (this.panel === panel) {
+        this.panel = undefined;
+      }
     });
 
     if (floating && !detached) {
@@ -165,6 +204,8 @@ export class DiffViewerManager {
     return getWebviewHtml(webview, this.extensionUri, "diff", {
       "repo-id": spec.repoId,
       "diff-path": spec.path,
+      "left-path": spec.leftPath,
+      "right-path": spec.rightPath,
       "left-ref": spec.leftRef,
       "right-ref": spec.rightRef,
     });

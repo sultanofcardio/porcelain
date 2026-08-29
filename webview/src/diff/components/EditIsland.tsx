@@ -35,7 +35,7 @@ export function EditIsland({
   const ref = useRef<HTMLTextAreaElement>(null);
   const [rowCount, setRowCount] = useState(Math.max(1, lines.length));
   const lastCount = useRef(lines.length);
-  // Read by the unmount effect; a ref so the cleanup closure stays current.
+  // Guards the commit against double-firing: Escape commits and then blurs.
   const committed = useRef(false);
 
   useEffect(() => {
@@ -76,6 +76,13 @@ export function EditIsland({
         if (event.key === "Escape") {
           event.preventDefault();
           event.stopPropagation();
+          commit();
+          return;
+        }
+        // Cmd/Ctrl+S commits and then deliberately bubbles on to the app's
+        // save handler, so save-while-typing writes what was just typed
+        // instead of silently doing nothing.
+        if ((event.metaKey || event.ctrlKey) && event.key === "s") {
           commit();
           return;
         }

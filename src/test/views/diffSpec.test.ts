@@ -20,10 +20,30 @@ describe("toDiffSpec", () => {
     assert.deepStrictEqual(spec, {
       repoId: REPO,
       path: PATH,
+      leftPath: PATH,
+      rightPath: PATH,
       leftRef: "aaaa111",
       rightRef: "bbbb222",
       title: "t",
     });
+  });
+
+  it("keeps each side's own path — a rename reads old left, new right", () => {
+    const spec = toDiffSpec(
+      buildGitContentUri("aaaa111", "src/old-name.ts", REPO),
+      buildGitContentUri("bbbb222", "src/new-name.ts", REPO),
+      "t",
+    );
+    assert.strictEqual(spec?.leftPath, "src/old-name.ts");
+    assert.strictEqual(spec?.rightPath, "src/new-name.ts");
+    // The display path is the right side's, matching the native title.
+    assert.strictEqual(spec?.path, "src/new-name.ts");
+  });
+
+  it("lends the revision side's path to a file: side, which is absolute", () => {
+    const spec = toDiffSpec(revision("HEAD"), onDisk, "t");
+    assert.strictEqual(spec?.leftPath, PATH);
+    assert.strictEqual(spec?.rightPath, PATH);
   });
 
   it("names the working tree with a sentinel when it is the modified side", () => {

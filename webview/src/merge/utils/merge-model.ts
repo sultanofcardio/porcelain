@@ -109,13 +109,19 @@ export function buildInitialResult(
 
   const lines: string[] = [];
   const regions: ConflictRegion[] = [];
-  let oursPos = 0;
-  let theirsPos = 0;
 
+  // Flank anchors come from node-diff3's own aStart/bStart, never from
+  // running accumulators: one-sided changes are emitted as *stable* regions
+  // whose buffer content has the changed side's length (the unchanged flank
+  // consumed the base's length there), and a one-sided pure deletion emits
+  // no region at all — an accumulator drifts on both, mis-anchoring every
+  // later conflict's verbs, paints and connectors.
   const pushConflict = (
     oursSlice: string[],
     theirsSlice: string[],
     baseSlice: string[],
+    oursAt: number,
+    theirsAt: number,
   ) => {
     regions.push({
       start: lines.length,
@@ -123,86 +129,90 @@ export function buildInitialResult(
       ours: oursSlice,
       theirs: theirsSlice,
       base: baseSlice,
-      oursStart: oursPos,
-      theirsStart: theirsPos,
+      oursStart: oursAt,
+      theirsStart: theirsAt,
       oursState: "pending",
       theirsState: "pending",
       edited: false,
     });
     lines.push(...baseSlice);
-    oursPos += oursSlice.length;
-    theirsPos += theirsSlice.length;
   };
 
   for (const region of merged) {
     if (region.stable) {
-      const common = region.bufferContent ?? [];
-      lines.push(...common);
-      oursPos += common.length;
-      theirsPos += common.length;
+      lines.push(...(region.bufferContent ?? []));
       continue;
     }
 
     const oursSlice = region.aContent ?? [];
     const baseSlice = region.oContent ?? [];
     const theirsSlice = region.bContent ?? [];
+    const oursAt = region.aStart ?? 0;
+    const theirsAt = region.bStart ?? 0;
     const oursChanged = !sameLines(oursSlice, baseSlice);
     const theirsChanged = !sameLines(theirsSlice, baseSlice);
 
     if (!oursChanged && !theirsChanged) {
       lines.push(...baseSlice);
-      oursPos += oursSlice.length;
-      theirsPos += theirsSlice.length;
       continue;
     }
     if (oursChanged && !theirsChanged) {
       lines.push(...oursSlice);
-      oursPos += oursSlice.length;
-      theirsPos += theirsSlice.length;
       continue;
     }
     if (!oursChanged && theirsChanged) {
       lines.push(...theirsSlice);
-      oursPos += oursSlice.length;
-      theirsPos += theirsSlice.length;
       continue;
     }
     if (sameLines(oursSlice, theirsSlice)) {
       // Both changed identically — either side is the answer.
       lines.push(...oursSlice);
-      oursPos += oursSlice.length;
-      theirsPos += theirsSlice.length;
       continue;
     }
 
     if (baseSlice.length > 0) {
-      pushConflict(oursSlice, theirsSlice, baseSlice);
+      pushConflict(oursSlice, theirsSlice, baseSlice, oursAt, theirsAt);
       continue;
     }
 
     // Empty base: refine, so shared runs the sides agree on are not held
-    // hostage by the disagreement next to them.
+    // hostage by the disagreement next to them. Sub-anchors offset from the
+    // region's own aStart/bStart as the 2-way walk consumes each side.
+    let oursOffset = 0;
+    let theirsOffset = 0;
     const changes = diffArrays(oursSlice, theirsSlice);
     for (let i = 0; i < changes.length; i++) {
       const change = changes[i];
       if (!change.added && !change.removed) {
         lines.push(...change.value);
-        oursPos += change.value.length;
-        theirsPos += change.value.length;
+        oursOffset += change.value.length;
+        theirsOffset += change.value.length;
         continue;
       }
       if (change.removed) {
         const next = changes[i + 1];
-        if (next?.added) {
-          pushConflict(change.value, next.value, []);
-          i++;
-        } else {
-          pushConflict(change.value, [], []);
-        }
+        const theirsRun = next?.added ? next.value : [];
+        pushConflict(
+          change.value,
+          theirsRun,
+          [],
+          oursAt + oursOffset,
+          theirsAt + theirsOffset,
+        );
+        oursOffset += change.value.length;
+        theirsOffset += theirsRun.length;
+        if (next?.added) i++;
         continue;
       }
       // Added run with no preceding removal: theirs-only lines.
-      pushConflict([], change.value, []);
+      pushConflict(
+        [],
+        change.value,
+        [],
+        oursAt + oursOffset,
+        theirsAt + theirsOffset,
+      );
+      theirsOffset += change.value.length;
     }
   }
 

@@ -107,6 +107,47 @@ describe("buildInitialResult", () => {
     const dropped = buildInitialResult("a", "a\nb", "a");
     expect(dropped.result.trailingNewline).toBe(false);
   });
+
+  // node-diff3 emits one-sided changes as *stable* regions whose content
+  // length is the changed side's, and one-sided pure deletions as no region
+  // at all — so flank anchors must come from the conflict region's own
+  // aStart/bStart, never from accumulators walking the region list.
+  it("anchors flanks correctly past a one-sided insertion", () => {
+    const { regions } = buildInitialResult(
+      "k\nm\nx\n",
+      "k\nins\nm\nOURS\n",
+      "k\nm\nTHEIRS\n",
+    );
+    expect(regions).toHaveLength(1);
+    expect(regions[0].ours).toEqual(["OURS"]);
+    expect(regions[0].theirs).toEqual(["THEIRS"]);
+    expect(regions[0].oursStart).toBe(3); // OURS in [k, ins, m, OURS]
+    expect(regions[0].theirsStart).toBe(2); // THEIRS in [k, m, THEIRS]
+  });
+
+  it("anchors flanks correctly past a one-sided deletion", () => {
+    const { regions } = buildInitialResult(
+      "k\ndel\nm\nx\n",
+      "k\nm\nOURS\n",
+      "k\ndel\nm\nTHEIRS\n",
+    );
+    expect(regions).toHaveLength(1);
+    expect(regions[0].oursStart).toBe(2); // OURS in [k, m, OURS]
+    expect(regions[0].theirsStart).toBe(3); // THEIRS in [k, del, m, THEIRS]
+  });
+
+  it("anchors refined empty-base sub-conflicts from the region's own starts", () => {
+    const { regions } = buildInitialResult(
+      "a\n",
+      "x\na\nshared\nmine\n",
+      "a\nshared\nyours\n",
+    );
+    expect(regions).toHaveLength(1);
+    expect(regions[0].ours).toEqual(["mine"]);
+    expect(regions[0].theirs).toEqual(["yours"]);
+    expect(regions[0].oursStart).toBe(3); // mine in [x, a, shared, mine]
+    expect(regions[0].theirsStart).toBe(2); // yours in [a, shared, yours]
+  });
 });
 
 describe("applyRegionDecision", () => {

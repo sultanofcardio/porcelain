@@ -148,6 +148,29 @@ export class DiffEditorManager {
     baseRef?: string,
     cherryPickHashes?: string[],
   ): Promise<void> {
+    // The navigation list survives across opens, but the title reads a
+    // position from it — so an open that is not the list's current entry
+    // must re-anchor in the list, or drop it: a single-file open from
+    // another commit would otherwise be titled "3 of 7" of a list it is
+    // not in.
+    const active = this.diffFiles[this.diffIndex];
+    const sameNav = this.diffRepoId === repoId && this.diffCommit === commit;
+    const isActive =
+      sameNav && !!active && (active.newPath || active.oldPath) === filePath;
+    if (!isActive) {
+      const index = sameNav
+        ? this.diffFiles.findIndex(
+            (file) => (file.newPath || file.oldPath) === filePath,
+          )
+        : -1;
+      if (index >= 0) {
+        this.diffIndex = index;
+      } else if (!sameNav) {
+        this.diffFiles = [];
+        this.diffIndex = -1;
+      }
+    }
+
     const runtime = this.registry.get(repoId);
     if (!runtime) {
       throw new PorcelainError(

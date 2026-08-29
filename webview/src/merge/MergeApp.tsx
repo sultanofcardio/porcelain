@@ -182,10 +182,18 @@ export function MergeApp() {
   /** Whole-file resolution for content the editor cannot merge inline. */
   const acceptWholeFile = useCallback(
     async (side: "ours" | "theirs") => {
-      await bridge.request(side === "ours" ? "acceptOurs" : "acceptTheirs", {
-        filePath,
-      });
-      await bridge.request("closeMergeEditor", { filePath });
+      try {
+        await bridge.request(side === "ours" ? "acceptOurs" : "acceptTheirs", {
+          filePath,
+        });
+        await bridge.request("closeMergeEditor", { filePath });
+      } catch (error) {
+        useMergeStore
+          .getState()
+          .setError(
+            `Accept ${side} failed: ${error instanceof Error ? error.message : error}`,
+          );
+      }
     },
     [filePath],
   );
@@ -252,6 +260,9 @@ export function MergeApp() {
     ? {
         start: island.start,
         lines: island.lines,
+        // The empty-base slot owns zero buffer rows; its textarea padding
+        // must not blank the real line below the slot.
+        span: island.count,
         label: `Editing result lines ${island.start + 1} to ${
           island.start + Math.max(1, island.lines.length)
         } — Escape commits`,

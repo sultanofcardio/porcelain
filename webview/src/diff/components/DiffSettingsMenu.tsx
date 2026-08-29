@@ -40,17 +40,22 @@ export function DiffSettingsMenu({ onClose }: { onClose: () => void }) {
       if (!ref.current?.contains(event.target as Node)) onClose();
     };
     const onEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape") return;
+      // Capture phase plus stopPropagation, so the one press dismisses the
+      // menu alone — the app's own Escape handler (close find) must not run
+      // on the same keystroke.
+      event.stopPropagation();
+      onClose();
     };
     // Deferred so the click that opened the menu does not immediately close it.
     const id = window.setTimeout(() => {
       window.addEventListener("mousedown", dismiss);
-      window.addEventListener("keydown", onEscape);
+      window.addEventListener("keydown", onEscape, true);
     }, 0);
     return () => {
       window.clearTimeout(id);
       window.removeEventListener("mousedown", dismiss);
-      window.removeEventListener("keydown", onEscape);
+      window.removeEventListener("keydown", onEscape, true);
     };
   }, [onClose]);
 

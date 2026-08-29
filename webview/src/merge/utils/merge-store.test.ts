@@ -73,7 +73,12 @@ describe("merge store", () => {
   it("an island over the conflict commits as a manual resolution", () => {
     useMergeStore.getState().openIsland(1);
     const island = useMergeStore.getState().island;
-    expect(island).toEqual({ start: 1, lines: ["b"] });
+    expect(island).toEqual({
+      start: 1,
+      count: 1,
+      lines: ["b"],
+      zeroBase: false,
+    });
     useMergeStore.getState().commitIsland(["typed by hand"]);
     const state = useMergeStore.getState();
     expect(state.island).toBeNull();
@@ -149,5 +154,96 @@ describe("merge store", () => {
     expect(state.fallback).toMatchObject({ kind: "binary", bytes: 2048 });
     expect(state.conflictTotal).toBe(0);
     expect(state.result.lines).toEqual([]);
+  });
+
+  describe("empty-base slots", () => {
+    const loadSlot = () =>
+      useMergeStore
+        .getState()
+        .load(
+          textVersions(
+            "a\nc\n",
+            "a\nshared\nmine\nc\n",
+            "a\nshared\nyours\nc\n",
+          ),
+        );
+
+    it("opening the editor and escaping leaves the buffer untouched", () => {
+      loadSlot();
+      expect(useMergeStore.getState().regions[0]).toMatchObject({
+        start: 2,
+        count: 0,
+      });
+      useMergeStore.getState().openIslandForRegion(0);
+      expect(useMergeStore.getState().island).toMatchObject({
+        start: 2,
+        count: 0,
+        lines: [""],
+        zeroBase: true,
+      });
+      // The textarea's padding line is visual only: committing it must not
+      // eat the real line below the slot.
+      useMergeStore.getState().commitIsland([""]);
+      const state = useMergeStore.getState();
+      expect(state.result.lines).toEqual(["a", "shared", "c"]);
+      expect(state.regions[0].edited).toBe(false);
+      expect(state.dirty).toBe(false);
+      expect(state.undoStack).toHaveLength(0);
+    });
+
+    it("typing into the slot inserts without eating the neighbour", () => {
+      loadSlot();
+      useMergeStore.getState().openIslandForRegion(0);
+      useMergeStore.getState().commitIsland(["typed"]);
+      const state = useMergeStore.getState();
+      expect(state.result.lines).toEqual(["a", "shared", "typed", "c"]);
+      expect(state.regions[0].edited).toBe(true);
+      expect(state.allResolved).toBe(true);
+    });
+  });
+
+  it("an island session that ends where it started rolls fully back", () => {
+    useMergeStore.getState().openIsland(1);
+    // A live count change resolves the region mid-session…
+    useMergeStore.getState().islandLinesChanged(["b", "x"]);
+    expect(useMergeStore.getState().regions[0].edited).toBe(true);
+    // …but ending back at the original content must undo all of it, or a
+    // pending conflict stays silently resolved-as-base with its undo point
+    // discarded.
+    useMergeStore.getState().commitIsland(["b"]);
+    const state = useMergeStore.getState();
+    expect(state.result.lines).toEqual(["a", "b", "c"]);
+    expect(state.regions[0].edited).toBe(false);
+    expect(state.allResolved).toBe(false);
+    expect(state.dirty).toBe(false);
+    expect(state.undoStack).toHaveLength(0);
+  });
+
+  it("a splice keeps the stepped find match and never fires the reveal", () => {
+    useMergeStore
+      .getState()
+      .load(
+        textVersions(
+          "hit\nb\nhit\nd\ne\n",
+          "hit\nb\nhit\nOURS\ne\n",
+          "hit\nb\nhit\nTHEIRS\ne\n",
+        ),
+      );
+    useMergeStore.getState().openFind();
+    useMergeStore.getState().setFindQuery("result", "hit");
+    useMergeStore.getState().stepMatch("result", 1);
+    const before = useMergeStore.getState().findPanes.result;
+    expect(before.activeMatch).toBe(1);
+    expect(before.matches[1].line).toBe(2);
+
+    // The splice happens below both matches: the walk must survive it, and
+    // the reveal sequence — what scrolls the viewport — must not budge.
+    useMergeStore
+      .getState()
+      .decideRegion(0, { action: "accept", side: "ours" });
+    const after = useMergeStore.getState().findPanes.result;
+    expect(after.activeMatch).toBe(1);
+    expect(after.matches[after.activeMatch].line).toBe(2);
+    expect(after.revealSeq).toBe(before.revealSeq);
   });
 });

@@ -83,8 +83,19 @@ export interface MergeStoreState {
   /** Index into `regions` of the conflict the stepper is on. */
   activeRegion: number;
 
-  /** The island open on the result pane, when one is. */
-  island: { start: number; lines: string[] } | null;
+  /**
+   * The island open on the result pane, when one is. `count` is how many
+   * buffer lines the island actually owns — zero for an empty-base slot,
+   * whose textarea is padded to one visual line the buffer does not have —
+   * and every splice uses it, never the padded line count. `zeroBase` marks
+   * that padding so clearing the textarea returns to the empty slot.
+   */
+  island: {
+    start: number;
+    count: number;
+    lines: string[];
+    zeroBase: boolean;
+  } | null;
   undoStack: MergeSnapshot[];
 
   findOpen: boolean;
@@ -138,6 +149,7 @@ const EMPTY_FIND: SideFindState = {
   regex: false,
   matches: [],
   activeMatch: -1,
+  revealSeq: 0,
 };
 
 const EMPTY_DOC: TextDoc = { lines: [], trailingNewline: false };
@@ -224,7 +236,12 @@ function derive(state: {
   };
 }
 
-/** One pane's match list, refreshed against its text. */
+/**
+ * One pane's match list, refreshed against its text. A buffer splice must not
+ * reset the user's stepped position or fire the reveal: the previous active
+ * match is re-located by its (line, start) identity in the new list, and
+ * `revealSeq` is left alone — only user-initiated actions bump it.
+ */
 function recomputePane(
   lines: readonly string[],
   pane: MergePane,
@@ -239,7 +256,18 @@ function recomputePane(
           regex: paneState.regex,
         })
       : [];
-  return { ...paneState, matches, activeMatch: matches.length > 0 ? 0 : -1 };
+  const previous = paneState.matches[paneState.activeMatch];
+  const relocated = previous
+    ? matches.findIndex(
+        (match) =>
+          match.line === previous.line && match.start === previous.start,
+      )
+    : -1;
+  return {
+    ...paneState,
+    matches,
+    activeMatch: relocated >= 0 ? relocated : matches.length > 0 ? 0 : -1,
+  };
 }
 
 function deriveFind(state: MergeStoreState): {
@@ -276,6 +304,40 @@ function pushUndo(state: MergeStoreState): MergeSnapshot[] {
     ...state.undoStack.slice(-(UNDO_LIMIT - 1)),
     { result: state.result, regions: state.regions },
   ];
+}
+
+/** An island over a range, with the empty-slot padding kept visual-only. */
+function islandFor(
+  state: MergeStoreState,
+  start: number,
+  count: number,
+): NonNullable<MergeStoreState["island"]> {
+  return {
+    start,
+    count,
+    lines: count === 0 ? [""] : state.result.lines.slice(start, start + count),
+    zeroBase: count === 0,
+  };
+}
+
+/**
+ * What the typed lines mean for the buffer: on an island opened over an
+ * empty-base slot, a single empty line is the padding, not content — clearing
+ * the textarea returns to the empty slot instead of leaving a blank line.
+ */
+function effectiveIslandLines(
+  island: NonNullable<MergeStoreState["island"]>,
+  lines: string[],
+): string[] {
+  if (island.zeroBase && lines.length === 1 && lines[0] === "") return [];
+  return lines;
+}
+
+function sameBuffer(a: TextDoc, b: TextDoc): boolean {
+  return (
+    a.lines.length === b.lines.length &&
+    a.lines.every((line, i) => line === b.lines[i])
+  );
 }
 
 export const useMergeStore = create<MergeStoreState>((set, get) => ({
@@ -442,12 +504,8 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
         line,
         state.result.lines.length,
       );
-      const lines =
-        range.count === 0
-          ? [""]
-          : state.result.lines.slice(range.start, range.start + range.count);
       return {
-        island: { start: range.start, lines },
+        island: islandFor(state, range.start, range.count),
         undoStack: pushUndo(state),
       };
     }),
@@ -456,12 +514,8 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
     set((state) => {
       const region = state.regions[index];
       if (!region || state.island) return {};
-      const lines =
-        region.count === 0
-          ? [""]
-          : state.result.lines.slice(region.start, region.start + region.count);
       return {
-        island: { start: region.start, lines },
+        island: islandFor(state, region.start, region.count),
         undoStack: pushUndo(state),
         activeRegion: index,
       };
@@ -471,12 +525,13 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
     set((state) => {
       const { island } = state;
       if (!island) return {};
+      const effective = effectiveIslandLines(island, lines);
       const edited = applyIslandEdit(
         state.result,
         state.regions,
         island.start,
-        island.lines.length,
-        lines,
+        island.count,
+        effective,
       );
       const next = {
         ...state,
@@ -486,7 +541,7 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
       return {
         result: edited.buffer,
         regions: edited.regions,
-        island: { ...island, lines },
+        island: { ...island, lines, count: effective.length },
         dirty: true,
         ...derive(next),
         ...deriveFind(next),
@@ -497,20 +552,36 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
     set((state) => {
       const { island } = state;
       if (!island) return {};
+      const effective = effectiveIslandLines(island, lines);
       const edited = applyIslandEdit(
         state.result,
         state.regions,
         island.start,
-        island.lines.length,
-        lines,
+        island.count,
+        effective,
       );
-      // A commit that changed nothing takes its undo snapshot back with it —
-      // and does not mark anything edited or dirty.
-      const untouched =
-        edited.buffer.lines.length === state.result.lines.length &&
-        edited.buffer.lines.every((l, i) => l === state.result.lines[i]);
-      if (untouched) {
-        return { island: null, undoStack: state.undoStack.slice(0, -1) };
+      // "Nothing changed" is judged against the pre-island snapshot, not the
+      // live buffer: line-count edits were applied live, so a session that
+      // ends back where it started must roll the buffer, the regions (their
+      // `edited` flags included) and the snapshot all the way back — or a
+      // pending conflict would stay silently resolved-as-base with its undo
+      // point discarded.
+      const snapshot = state.undoStack[state.undoStack.length - 1];
+      if (snapshot && sameBuffer(edited.buffer, snapshot.result)) {
+        const next = {
+          ...state,
+          result: snapshot.result,
+          regions: snapshot.regions,
+        };
+        return {
+          result: snapshot.result,
+          regions: snapshot.regions,
+          island: null,
+          undoStack: state.undoStack.slice(0, -1),
+          dirty: state.undoStack.length > 1,
+          ...derive(next),
+          ...deriveFind(next),
+        };
       }
       const next = {
         ...state,
@@ -619,6 +690,9 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
             activeMatch:
               (current.activeMatch + delta + current.matches.length) %
               current.matches.length,
+            // Bumped even when the index wraps back onto itself, so Enter on
+            // a 1/1 result still re-reveals the match after scrolling away.
+            revealSeq: current.revealSeq + 1,
           },
         },
         activeFindPane: pane,
@@ -668,14 +742,19 @@ function updatePaneFind(
     Pick<SideFindState, "query" | "caseSensitive" | "wholeWord" | "regex">
   >,
 ): Partial<MergeStoreState> {
+  const current = state.findPanes[pane];
   const next = recomputePane(
     paneLines(state, pane),
     pane,
-    { ...state.findPanes[pane], ...change },
+    // A changed query or option starts a fresh walk from the first match.
+    { ...current, ...change, matches: [], activeMatch: -1 },
     state.findOpen,
   );
   return {
-    findPanes: { ...state.findPanes, [pane]: next },
+    findPanes: {
+      ...state.findPanes,
+      [pane]: { ...next, revealSeq: current.revealSeq + 1 },
+    },
     activeFindPane: pane,
   };
 }

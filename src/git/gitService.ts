@@ -36,6 +36,24 @@ const FMT_RECORD_SEP = "%x00%x00%x01";
 const REF_FMT_FIELD_SEP = "%00";
 const MAX_BUFFER = 10 * 1024 * 1024; // 10MB
 
+/**
+ * Git's ways of saying "this path is not in that revision" — the one class of
+ * `git show` failure that is an ordinary empty side (added/deleted/renamed
+ * files) rather than an error worth surfacing.
+ */
+const ABSENT_PATH_MARKERS = [
+  "does not exist in",
+  "exists on disk, but not in",
+  "is in the index, but not at",
+  "not in the working tree",
+  "neither on disk nor in the index",
+];
+
+export function isAbsentPathError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return ABSENT_PATH_MARKERS.some((marker) => message.includes(marker));
+}
+
 const LOG_FORMAT = [
   "%H", // hash
   "%h", // shortHash
@@ -440,8 +458,13 @@ export class GitService {
       return await this.executor.buffer(["show", `${ref}:${filePath}`], {
         maxBuffer: MAX_BUFFER,
       });
-    } catch {
-      return Buffer.alloc(0);
+    } catch (error) {
+      // A path absent from the revision is not a failure — it is how an
+      // added, deleted or renamed file diffs, and that side must stay empty.
+      // Anything else (an oversized blob, a corrupt object, a bad ref) must
+      // surface, or "could not read" masquerades as "deleted".
+      if (isAbsentPathError(error)) return Buffer.alloc(0);
+      throw error;
     }
   }
 

@@ -67,17 +67,37 @@ export function MergeGutterVerbs({
             }}
           >
             {resolved ? (
-              <Tooltip text="Revert this conflict to the base">
-                <button
-                  type="button"
-                  className="merge-verb merge-verb-revert"
-                  aria-label={`Revert ${ordinal}`}
-                  disabled={island !== null}
-                  onClick={() => decideRegion(index, { action: "revert" })}
-                >
-                  ↺
-                </button>
-              </Tooltip>
+              <>
+                <Tooltip text="Revert this conflict to the base">
+                  <button
+                    type="button"
+                    className="merge-verb merge-verb-revert"
+                    aria-label={`Revert ${ordinal}`}
+                    disabled={island !== null}
+                    onClick={() => decideRegion(index, { action: "revert" })}
+                  >
+                    ↺
+                  </button>
+                </Tooltip>
+                {/* Accept-both stays reachable, IntelliJ-style: a resolved
+                    region keeps the accept verb for the flank not yet taken,
+                    and clicking it adds that slice after the accepted one. */}
+                {state !== "accepted" && slice.length > 0 && (
+                  <Tooltip text={`Also accept ${flank} into the result`}>
+                    <button
+                      type="button"
+                      className="merge-verb merge-verb-accept"
+                      aria-label={`Accept ${flank} for ${ordinal}`}
+                      disabled={island !== null}
+                      onClick={() =>
+                        decideRegion(index, { action: "accept", side: flank })
+                      }
+                    >
+                      {acceptGlyph}
+                    </button>
+                  </Tooltip>
+                )}
+              </>
             ) : (
               <>
                 <Tooltip text={`Accept ${flank} into the result`}>
