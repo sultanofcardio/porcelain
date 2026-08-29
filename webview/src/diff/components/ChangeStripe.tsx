@@ -5,6 +5,8 @@ interface ChangeStripeProps {
   chunks: DiffChunk[];
   axisPosition: number;
   visibleLines: number;
+  /** Axis positions of find hits, already deduplicated by the caller. */
+  matchPositions?: number[];
   onJump: (axisPosition: number) => void;
 }
 
@@ -17,6 +19,7 @@ export function ChangeStripe({
   chunks,
   axisPosition,
   visibleLines,
+  matchPositions = [],
   onJump,
 }: ChangeStripeProps) {
   const total = axisLength(chunks) || 1;
@@ -62,6 +65,16 @@ export function ChangeStripe({
           key={mark.key}
           className={`diff-stripe-mark diff-stripe-${mark.kind}`}
           style={{ top: `${mark.top}%`, height: `${mark.height}%` }}
+        />
+      ))}
+      {/* Find hits, narrower than the change marks so both stay readable
+          when they overlap. Disproportionately useful: they show where the
+          matches are in the file you have not scrolled through. */}
+      {matchPositions.map((position) => (
+        <span
+          key={position}
+          className="diff-stripe-found"
+          style={{ top: `${(position / total) * 100}%` }}
         />
       ))}
       <span

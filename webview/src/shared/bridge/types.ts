@@ -52,6 +52,46 @@ export interface CommitChangesParams extends Record<string, unknown> {
   filePaths?: string[];
 }
 
+/** What both sides of a diff are, independent of what they contain. */
+export interface DiffSidesMeta {
+  filePath: string;
+  leftRef: string;
+  rightRef: string;
+  leftLabel: string;
+  rightLabel: string;
+  language: string;
+}
+
+/**
+ * The `getDiffSides` answer: a classification, not just two strings.
+ *
+ * The host holds the bytes, so it decides what they are; the webview only
+ * branches on `kind`. Before this, a PNG was UTF-8-decoded into mojibake and
+ * a failed read was indistinguishable from a deleted file — both arrived as
+ * the empty string.
+ */
+export type DiffSidesResult =
+  | ({ kind: "text"; left: string; right: string } & DiffSidesMeta)
+  /** A NUL byte in the first 8000 bytes — git's own heuristic. */
+  | ({
+      kind: "binary";
+      leftBytes: number;
+      rightBytes: number;
+      differs: boolean;
+    } & DiffSidesMeta)
+  /** Binary with a known image extension: `data:` URIs the CSP already allows. */
+  | ({
+      kind: "image";
+      leftUri?: string;
+      rightUri?: string;
+      leftBytes: number;
+      rightBytes: number;
+    } & DiffSidesMeta)
+  /** Soft limit with a "Show anyway" escape — re-request with `force`. */
+  | ({ kind: "tooLarge"; lines: number; limit: number } & DiffSidesMeta)
+  /** A read that failed for a reason other than the file being absent. */
+  | ({ kind: "unreadable"; reason: string } & DiffSidesMeta);
+
 /**
  * Public repo identity as seen by the webview. The host-only `RepositoryPaths`
  * (workTreeRoot/gitDir/commonDir) is intentionally NOT mirrored here.

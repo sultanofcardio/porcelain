@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useShiki } from "../../shared/hooks/useShiki";
 import type { DiffChunk, Side } from "../utils/diff-model";
+import type { FindMatch } from "../utils/find";
 import { buildPieces, changedRanges, syntaxSpans } from "../utils/highlight";
 import { LINE_HEIGHT } from "./metrics";
 
@@ -15,6 +16,10 @@ interface DiffPaneProps {
   /** Fractional line offset of the top of the viewport on this side. */
   offset: number;
   visibleLines: number;
+  /** Find hits across both sides; the pane keeps only its own. */
+  matches?: FindMatch[];
+  /** The match the find stepper is on, when there is one. */
+  activeMatch?: FindMatch | null;
 }
 
 /**
@@ -51,6 +56,8 @@ export function DiffPane({
   granularity,
   offset,
   visibleLines,
+  matches = [],
+  activeMatch = null,
 }: DiffPaneProps) {
   const highlighter = useShiki();
 
@@ -59,6 +66,19 @@ export function DiffPane({
   // 20k-line diff from tokenising 20k lines to show forty of them.
   const first = Math.max(0, Math.floor(offset));
   const last = Math.min(lines.length, first + visibleLines + 2);
+
+  // This side's find hits, addressable by line. Rebuilt only when the match
+  // list changes, not on every scroll.
+  const matchesByLine = useMemo(() => {
+    const byLine = new Map<number, Array<{ start: number; end: number }>>();
+    for (const match of matches) {
+      if (match.side !== side) continue;
+      const ranges = byLine.get(match.line);
+      if (ranges) ranges.push({ start: match.start, end: match.end });
+      else byLine.set(match.line, [{ start: match.start, end: match.end }]);
+    }
+    return byLine;
+  }, [matches, side]);
 
   const rows = useMemo(() => {
     const rendered = [];
@@ -83,6 +103,11 @@ export function DiffPane({
       // it double-paints the row and leaves gaps between spans; intra-line
       // highlighting is only meaningful where a line was edited.
 
+      const active =
+        activeMatch && activeMatch.side === side && activeMatch.line === index
+          ? { start: activeMatch.start, end: activeMatch.end }
+          : null;
+
       rendered.push({
         index,
         kind,
@@ -90,6 +115,8 @@ export function DiffPane({
           line,
           syntaxSpans(highlighter, line, language),
           ranges,
+          matchesByLine.get(index) ?? [],
+          active,
         ),
       });
     }
@@ -104,6 +131,8 @@ export function DiffPane({
     language,
     granularity,
     highlighter,
+    matchesByLine,
+    activeMatch,
   ]);
 
   // Only the anchors near the viewport: a large file has one per insertion,
@@ -137,7 +166,18 @@ export function DiffPane({
                     // Pieces are positional slices of one line; there is no
                     // stable identity to key on beyond where they sit.
                     key={`${row.index}-${i}`}
-                    className={piece.changed ? "diff-changed" : undefined}
+                    className={
+                      [
+                        piece.changed ? "diff-changed" : "",
+                        piece.activeFound
+                          ? "diff-found-active"
+                          : piece.found
+                            ? "diff-found"
+                            : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ") || undefined
+                    }
                     style={{ color: piece.color }}
                   >
                     {piece.text}

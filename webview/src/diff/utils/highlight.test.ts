@@ -83,4 +83,21 @@ describe("buildPieces", () => {
     );
     expect(pieces.map((p) => p.text).join("")).toBe(line);
   });
+
+  it("layers find matches over word-change ranges without displacing them", () => {
+    // "abcdef": changed b-d, found c-e, active c-e. All three coexist on the
+    // overlap, which is the property the whole splitter exists for.
+    const found = [{ start: 2, end: 4 }];
+    const pieces = buildPieces("abcdef", [], [{ start: 1, end: 3 }], found, {
+      start: 2,
+      end: 4,
+    });
+    expect(pieces.map((p) => p.text).join("")).toBe("abcdef");
+    const c = pieces.find((p) => p.text.includes("c"));
+    expect(c?.changed).toBe(true);
+    expect(c?.found).toBe(true);
+    expect(c?.activeFound).toBe(true);
+    const a = pieces.find((p) => p.text.includes("a"));
+    expect(a?.found).toBeUndefined();
+  });
 });

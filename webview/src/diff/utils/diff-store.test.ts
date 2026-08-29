@@ -3,15 +3,17 @@ import { useDiffStore } from "../../shared/store/diff-store";
 
 const lines = (...values: string[]) => `${values.join("\n")}\n`;
 
+const meta = {
+  filePath: "src/app.ts",
+  leftRef: "aaaa111",
+  rightRef: "bbbb222",
+  leftLabel: "aaaa111",
+  rightLabel: "bbbb222",
+  language: "typescript",
+};
+
 const load = (left: string, right: string) =>
-  useDiffStore.getState().setSides({
-    left,
-    right,
-    filePath: "src/app.ts",
-    leftRef: "aaaa111",
-    rightRef: "bbbb222",
-    language: "typescript",
-  });
+  useDiffStore.getState().setSides({ kind: "text", left, right, ...meta });
 
 describe("diff store", () => {
   beforeEach(() => {
@@ -98,5 +100,54 @@ describe("diff store", () => {
     load(lines("a", "b", "c"), lines("a", "x", "y", "b", "c"));
     useDiffStore.getState().stepDifference(1);
     expect(useDiffStore.getState().activeChunkAxis()).toBe(1);
+  });
+
+  it("empties the derived state when the host reports a fallback", () => {
+    useDiffStore.getState().setSides({
+      kind: "binary",
+      leftBytes: 100,
+      rightBytes: 200,
+      differs: true,
+      ...meta,
+    });
+    const state = useDiffStore.getState();
+    expect(state.fallback?.kind).toBe("binary");
+    expect(state.chunks).toEqual([]);
+    expect(state.differences).toBe(0);
+    expect(state.loading).toBe(false);
+  });
+
+  it("clears a previous fallback when text content arrives", () => {
+    // "Show anyway" on an oversized diff: the forced text must replace the
+    // placeholder, not sit behind it.
+    useDiffStore.getState().setSides({
+      kind: "tooLarge",
+      lines: 30000,
+      limit: 25000,
+      ...meta,
+    });
+    load(lines("a"), lines("b"));
+    const state = useDiffStore.getState();
+    expect(state.fallback).toBeNull();
+    expect(state.differences).toBe(1);
+  });
+
+  it("mirrors an image fallback's sides when swapped", () => {
+    useDiffStore.getState().setSides({
+      kind: "image",
+      leftUri: undefined,
+      rightUri: "data:image/png;base64,AA==",
+      leftBytes: 0,
+      rightBytes: 3,
+      ...meta,
+    });
+    useDiffStore.getState().swapSides();
+    const fallback = useDiffStore.getState().fallback;
+    expect(fallback?.kind).toBe("image");
+    if (fallback?.kind === "image") {
+      expect(fallback.leftUri).toBe("data:image/png;base64,AA==");
+      expect(fallback.rightUri).toBeUndefined();
+      expect(fallback.leftBytes).toBe(3);
+    }
   });
 });

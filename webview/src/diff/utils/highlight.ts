@@ -6,6 +6,15 @@ export interface Piece {
   color?: string;
   /** Set on the sub-range that actually differs, for word/character granularity. */
   changed?: boolean;
+  /** Set on a find match. */
+  found?: boolean;
+  /** Set on the find match the stepper is on; implies `found`. */
+  activeFound?: boolean;
+}
+
+export interface Range {
+  start: number;
+  end: number;
 }
 
 /**
@@ -98,13 +107,17 @@ export function changedRanges(
 }
 
 /**
- * Merge syntax colour with change ranges by splitting at every boundary, so a
- * single span carries both and neither has to win.
+ * Merge syntax colour with change ranges — and find matches, when there are
+ * any — by splitting at every boundary, so a single span carries all of them
+ * and none has to win.
  */
 export function buildPieces(
   line: string,
   syntax: Array<{ start: number; end: number; color?: string }>,
-  changed: Array<{ start: number; end: number }> | null,
+  changed: Range[] | null,
+  found: Range[] = [],
+  /** The one match the find stepper is on, when it is on this line. */
+  active: Range | null = null,
 ): Piece[] {
   if (line.length === 0) return [];
 
@@ -117,6 +130,14 @@ export function buildPieces(
     boundaries.add(span.start);
     boundaries.add(span.end);
   }
+  for (const span of found) {
+    boundaries.add(span.start);
+    boundaries.add(span.end);
+  }
+  if (active) {
+    boundaries.add(active.start);
+    boundaries.add(active.end);
+  }
 
   const points = [...boundaries]
     .filter((point) => point >= 0 && point <= line.length)
@@ -127,12 +148,17 @@ export function buildPieces(
     const start = points[i];
     const end = points[i + 1];
     if (start >= end) continue;
+    const isFound = found.some((s) => s.start <= start && s.end >= end);
     pieces.push({
       text: line.slice(start, end),
       color: syntax.find((s) => s.start <= start && s.end >= end)?.color,
       changed:
         changed === null ||
         changed.some((s) => s.start <= start && s.end >= end),
+      found: isFound || undefined,
+      activeFound:
+        (isFound && active && active.start <= start && active.end >= end) ||
+        undefined,
     });
   }
   return pieces;

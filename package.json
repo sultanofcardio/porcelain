@@ -203,7 +203,7 @@
             "Porcelain's own diff surface: paired centre gutter, curved connectors, per-side revision headers and a live difference count."
           ],
           "default": "native",
-          "markdownDescription": "Which renderer shows file diffs. Diffs against the working tree always use the built-in editor, so that side stays editable."
+          "markdownDescription": "Which renderer shows file diffs, including diffs against the working tree and the index. The Porcelain surface is read-only — use its Edit Source button to open the real file. Binary and oversized files show a placeholder with a way into the built-in editor."
         }
       }
     },

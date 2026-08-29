@@ -15,6 +15,14 @@ import { diffLines } from "diff";
 
 export type ChunkKind = "equal" | "modified" | "added" | "removed";
 
+/** Split keeping no trailing empty line, so line counts match the chunks'. */
+export function splitLines(text: string): string[] {
+  if (text === "") return [];
+  const lines = text.split("\n");
+  if (lines[lines.length - 1] === "") lines.pop();
+  return lines;
+}
+
 /** A half-open run of lines on one side, 0-based. */
 export interface Span {
   start: number;

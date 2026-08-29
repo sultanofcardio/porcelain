@@ -2,44 +2,37 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import { bridge } from "../shared/bridge";
+import type { DiffSidesResult } from "../shared/bridge/types";
 import { useDiffStore } from "../shared/store/diff-store";
 import { ChangeStripe } from "./components/ChangeStripe";
+import { DiffFallback } from "./components/DiffFallback";
 import { DiffGutter } from "./components/DiffGutter";
 import { DiffPane } from "./components/DiffPane";
 import { DiffToolbar } from "./components/DiffToolbar";
+import { FindBar } from "./components/FindBar";
 import { LINE_HEIGHT } from "./components/metrics";
 import { RevisionHeader } from "./components/RevisionHeader";
-import { axisToSide, chooseLayout } from "./utils/diff-model";
+import {
+  axisToSide,
+  chooseLayout,
+  sideToAxis,
+  splitLines,
+} from "./utils/diff-model";
 import "./diff.css";
-
-interface DiffSides {
-  left: string;
-  right: string;
-  filePath: string;
-  leftRef: string;
-  rightRef: string;
-  leftLabel: string;
-  rightLabel: string;
-  language: string;
-}
-
-/** Split keeping no trailing empty line, so line counts match the model's. */
-function toLines(text: string): string[] {
-  if (text === "") return [];
-  const lines = text.split("\n");
-  if (lines[lines.length - 1] === "") lines.pop();
-  return lines;
-}
 
 export function DiffApp() {
   const store = useDiffStore();
   const viewportRef = useRef<HTMLDivElement>(null);
   const [axisPosition, setAxisPosition] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
+  // "Show anyway" on an oversized diff. Per-diff by construction: opening
+  // another diff replaces the webview's html, which remounts the app.
+  const [force, setForce] = useState(false);
 
   const root = document.getElementById("root");
   const filePath = root?.dataset.diffPath ?? "";
@@ -49,12 +42,13 @@ export function DiffApp() {
   useEffect(() => {
     let cancelled = false;
     bridge
-      .request("getDiffSides", { filePath, leftRef, rightRef })
+      .request("getDiffSides", { filePath, leftRef, rightRef, force })
       .then((data) => {
         // Reached through getState() rather than the hook: the store is a
         // singleton whose actions never change identity, and depending on the
         // hook's object would re-run this fetch on every render.
-        if (!cancelled) useDiffStore.getState().setSides(data as DiffSides);
+        if (!cancelled)
+          useDiffStore.getState().setSides(data as DiffSidesResult);
       })
       .catch((error: Error) => {
         if (!cancelled) useDiffStore.getState().setError(error.message);
@@ -62,7 +56,7 @@ export function DiffApp() {
     return () => {
       cancelled = true;
     };
-  }, [filePath, leftRef, rightRef]);
+  }, [filePath, leftRef, rightRef, force]);
 
   // Measured rather than derived, because the number of rows to render depends
   // on it.
@@ -115,9 +109,48 @@ export function DiffApp() {
     [scrollToAxis],
   );
 
-  const leftLines = toLines(store.left);
-  const rightLines = toLines(store.right);
+  // Remounting the bar is how a second Cmd+F refocuses the input while the
+  // bar is already up; its state all lives in the store, so nothing is lost.
+  const [findNonce, setFindNonce] = useState(0);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "f") {
+        useDiffStore.getState().openFind();
+        setFindNonce((nonce) => nonce + 1);
+        event.preventDefault();
+      }
+      if (event.key === "Escape" && useDiffStore.getState().findOpen) {
+        useDiffStore.getState().closeFind();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const leftLines = splitLines(store.left);
+  const rightLines = splitLines(store.right);
   const visibleLines = Math.ceil(viewportHeight / LINE_HEIGHT);
+
+  const activeMatch = store.matches[store.activeMatch] ?? null;
+
+  // Where the hits sit on the stripe. Deduplicated onto a coarse grid: the
+  // stripe is a few hundred pixels tall, and a common query in a big file can
+  // hit thousands of lines — distinct marks past one per half-percent are
+  // just DOM.
+  const { matches, chunks, axis: axisTotal } = store;
+  const matchPositions = useMemo(() => {
+    if (matches.length === 0) return [];
+    const seen = new Set<number>();
+    const positions: number[] = [];
+    for (const match of matches) {
+      const axis = sideToAxis(chunks, match.line, match.side);
+      const cell = Math.round((axis / Math.max(1, axisTotal)) * 400);
+      if (seen.has(cell)) continue;
+      seen.add(cell);
+      positions.push(axis);
+    }
+    return positions;
+  }, [matches, chunks, axisTotal]);
 
   // With synchronised scrolling off the panes decouple: the left holds still
   // and only the right follows the axis, which is the state the connectors
@@ -147,6 +180,7 @@ export function DiffApp() {
         onEditSource={() => void bridge.request("openFile", { filePath })}
         onFile={(delta) => void bridge.request("stepDiffFile", { delta })}
       />
+      {store.findOpen && <FindBar key={findNonce} onJump={scrollToAxis} />}
       <RevisionHeader />
       <div className="diff-body">
         <div className="diff-viewport" ref={viewportRef} onScroll={onScroll}>
@@ -176,6 +210,8 @@ export function DiffApp() {
                     granularity={store.granularity}
                     offset={layout.side === "left" ? leftOffset : rightOffset}
                     visibleLines={visibleLines}
+                    matches={store.matches}
+                    activeMatch={activeMatch}
                   />
                 </>
               ) : (
@@ -189,6 +225,8 @@ export function DiffApp() {
                     granularity={store.granularity}
                     offset={leftOffset}
                     visibleLines={visibleLines}
+                    matches={store.matches}
+                    activeMatch={activeMatch}
                   />
                   <DiffGutter
                     chunks={store.chunks}
@@ -208,6 +246,8 @@ export function DiffApp() {
                     granularity={store.granularity}
                     offset={rightOffset}
                     visibleLines={visibleLines}
+                    matches={store.matches}
+                    activeMatch={activeMatch}
                   />
                 </>
               )}
@@ -219,10 +259,22 @@ export function DiffApp() {
           />
         </div>
         {status && <div className="diff-message">{status}</div>}
+        {/* An overlay rather than a replacement, for the same reason as the
+            message above: unmounting the viewport would detach its
+            ResizeObserver, and "Show anyway" would swap the panes back in
+            clipped to a height measured as zero. */}
+        {store.fallback && !store.loading && (
+          <DiffFallback
+            fallback={store.fallback}
+            onOpenInEditor={() => void bridge.request("openFile", { filePath })}
+            onShowAnyway={() => setForce(true)}
+          />
+        )}
         <ChangeStripe
           chunks={store.chunks}
           axisPosition={axisPosition}
           visibleLines={visibleLines}
+          matchPositions={matchPositions}
           onJump={scrollToAxis}
         />
       </div>

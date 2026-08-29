@@ -23,7 +23,11 @@ import {
 import type { CommitSelection, DiffFile } from "./git/types";
 import { registerLogHandlers } from "./messages/logHandlers";
 import { MessageRouter } from "./messages/messageRouter";
-import { ErrorCode } from "./messages/protocol";
+import {
+  type DiffSidesMeta,
+  type DiffSidesResult,
+  ErrorCode,
+} from "./messages/protocol";
 import { ChangesWindowManager } from "./views/changesWindowManager";
 import { CommitViewProvider } from "./views/commitViewProvider";
 import {
@@ -31,6 +35,13 @@ import {
   registerComparePanelHandlers,
 } from "./views/comparePanelManager";
 import { ConflictsManager } from "./views/conflictsManager";
+import {
+  countLines,
+  imageMimeType,
+  isBinaryContent,
+  LARGE_DIFF_LINE_LIMIT,
+  toImageDataUri,
+} from "./views/diffContentClassifier";
 import { DiffEditorManager } from "./views/diffEditorManager";
 import { DiffViewerManager, refLabel } from "./views/diffViewerManager";
 import { DiffWindow } from "./views/diffWindow";
@@ -516,37 +527,52 @@ export async function activate(context: vscode.ExtensionContext) {
     const filePath = params.filePath as string;
     const leftRef = params.leftRef as string;
     const rightRef = params.rightRef as string;
+    // "Show anyway" on the tooLarge placeholder: the limit is soft because
+    // change density is the other axis of diff cost, and a refusal would
+    // leave a small edit in a huge file with no way in.
+    const force = params.force === true;
 
     // A side missing from its revision is not an error: it is how an added or
-    // deleted file diffs, and the empty string is exactly what the model needs.
-    // The same is true of a working-tree read for a file that is not there.
-    const read = async (ref: string) => {
-      if (!ref || ref === EMPTY_CONTENT_REF) return "";
+    // deleted file diffs, and the empty buffer is exactly what the model
+    // needs. A working-tree file that is not on disk is the same — deleted.
+    // Any *other* failure is reported as such, so "could not read" stops
+    // masquerading as "deleted".
+    const read = async (ref: string): Promise<Buffer | { failed: string }> => {
+      if (!ref || ref === EMPTY_CONTENT_REF) return Buffer.alloc(0);
+      if (ref === WORKING_TREE_REF) {
+        const onDisk = vscode.Uri.joinPath(
+          vscode.Uri.file(ctx.paths.workTreeRoot),
+          filePath,
+        );
+        try {
+          return Buffer.from(await vscode.workspace.fs.readFile(onDisk));
+        } catch (error) {
+          if (
+            error instanceof vscode.FileSystemError &&
+            error.code === "FileNotFound"
+          ) {
+            return Buffer.alloc(0);
+          }
+          return {
+            failed: error instanceof Error ? error.message : `${error}`,
+          };
+        }
+      }
       try {
-        if (ref === WORKING_TREE_REF) {
-          const onDisk = vscode.Uri.joinPath(
-            vscode.Uri.file(ctx.paths.workTreeRoot),
-            filePath,
-          );
-          return Buffer.from(
-            await vscode.workspace.fs.readFile(onDisk),
-          ).toString("utf8");
-        }
         if (ref === WORKING_INDEX_REF) {
-          return (await ctx.gitService.getIndexFileContent(filePath)).toString(
-            "utf8",
-          );
+          return await ctx.gitService.getIndexFileContent(filePath);
         }
-        return await ctx.gitService.getFileContent(ref, filePath);
+        // Swallowing git-show errors into an empty side is deliberate and
+        // load-bearing: history diffs of added or renamed files can name a
+        // revision the path is not in, and that side must stay empty.
+        return await ctx.gitService.getFileContentBuffer(ref, filePath);
       } catch {
-        return "";
+        return Buffer.alloc(0);
       }
     };
 
     const [left, right] = await Promise.all([read(leftRef), read(rightRef)]);
-    return {
-      left,
-      right,
+    const meta: DiffSidesMeta = {
       filePath,
       leftRef,
       rightRef,
@@ -554,6 +580,55 @@ export async function activate(context: vscode.ExtensionContext) {
       rightLabel: refLabel(rightRef),
       language: extToLanguage(filePath.split(".").pop() ?? ""),
     };
+
+    const failure = [left, right].find(
+      (side): side is { failed: string } => !Buffer.isBuffer(side),
+    );
+    if (failure || !Buffer.isBuffer(left) || !Buffer.isBuffer(right)) {
+      return {
+        kind: "unreadable",
+        reason: failure?.failed ?? "unknown error",
+        ...meta,
+      } satisfies DiffSidesResult;
+    }
+
+    if (isBinaryContent(left) || isBinaryContent(right)) {
+      const mime = imageMimeType(filePath);
+      if (mime) {
+        return {
+          kind: "image",
+          leftUri: toImageDataUri(left, mime),
+          rightUri: toImageDataUri(right, mime),
+          leftBytes: left.length,
+          rightBytes: right.length,
+          ...meta,
+        } satisfies DiffSidesResult;
+      }
+      return {
+        kind: "binary",
+        leftBytes: left.length,
+        rightBytes: right.length,
+        differs: !left.equals(right),
+        ...meta,
+      } satisfies DiffSidesResult;
+    }
+
+    const lines = Math.max(countLines(left), countLines(right));
+    if (!force && lines > LARGE_DIFF_LINE_LIMIT) {
+      return {
+        kind: "tooLarge",
+        lines,
+        limit: LARGE_DIFF_LINE_LIMIT,
+        ...meta,
+      } satisfies DiffSidesResult;
+    }
+
+    return {
+      kind: "text",
+      left: left.toString("utf8"),
+      right: right.toString("utf8"),
+      ...meta,
+    } satisfies DiffSidesResult;
   });
 
   messageRouter.handle("stepDiffFile", async (params) => {

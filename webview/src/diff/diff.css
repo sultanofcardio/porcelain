@@ -58,6 +58,106 @@
   text-align: center;
 }
 
+/* ── fallback placeholder ────────────────────────────────── */
+/* Overlays the viewport rather than replacing it — see App.tsx: unmounting
+   the viewport would detach its ResizeObserver. */
+.diff-fallback {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  background: var(--app-bg);
+  font-family: var(--font-family);
+  text-align: center;
+}
+.diff-fallback-title {
+  font-size: 14px;
+  color: var(--app-fg);
+}
+.diff-fallback-detail {
+  color: var(--description-fg);
+  font-size: 12.5px;
+  max-width: 60ch;
+}
+.diff-fallback-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+button.diff-fallback-btn {
+  padding: 4px 14px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--vscode-button-secondaryBackground, var(--panel, #2d2d30));
+  color: var(--vscode-button-secondaryForeground, var(--app-fg));
+  font-size: 12.5px;
+  cursor: pointer;
+}
+button.diff-fallback-btn-primary {
+  background: var(--vscode-button-background, rgba(77, 157, 224, 0.25));
+  border-color: transparent;
+  color: var(--vscode-button-foreground, var(--app-fg));
+}
+button.diff-fallback-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Image diffs keep both columns: an added image reads best next to the empty
+   space it replaced. */
+.diff-fallback-images {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 16px;
+  overflow: auto;
+}
+.diff-image-side {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.diff-image-side img {
+  max-width: 100%;
+  max-height: calc(100% - 28px);
+  object-fit: contain;
+  /* Checkerboard, so transparency reads as transparency rather than as the
+     editor background. */
+  background:
+    conic-gradient(
+      rgba(128, 128, 128, 0.25) 25%,
+      transparent 0 50%,
+      rgba(128, 128, 128, 0.25) 0 75%,
+      transparent 0
+    )
+    0 0 / 16px 16px;
+  border: 1px solid var(--border);
+}
+.diff-image-side figcaption {
+  color: var(--description-fg);
+  font-size: 11.5px;
+}
+.diff-image-absent {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  width: 100%;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  color: var(--description-fg);
+  font-size: 12.5px;
+}
+
 /* ── toolbar ─────────────────────────────────────────────── */
 .diff-toolbar {
   display: flex;
@@ -99,9 +199,90 @@ button.diff-btn {
 button.diff-btn:hover {
   background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
 }
+/* The stylesheet had no focus treatment at all, which made every keyboard
+   change unreviewable by eye. One rule covers every interactive element the
+   surface has. */
+button.diff-btn:focus-visible,
+button.diff-menu-row:focus-visible,
+button.diff-fallback-btn:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, #4d9de0);
+  outline-offset: -1px;
+}
 button.diff-btn-on {
   background: var(--vscode-toolbar-activeBackground, rgba(90, 93, 94, 0.5));
   border-color: var(--border);
+}
+
+/* ── find bar ────────────────────────────────────────────── */
+.diff-find {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--vscode-editorWidget-background, var(--panel, #2d2d30));
+  flex: none;
+}
+.diff-find-input {
+  flex: 1 1 160px;
+  min-width: 0;
+  padding: 2px 7px;
+  border: 1px solid var(--vscode-input-border, var(--border));
+  border-radius: 3px;
+  background: var(--vscode-input-background, var(--app-bg));
+  color: var(--vscode-input-foreground, var(--app-fg));
+  font-family: var(--editor-font);
+  font-size: 12px;
+}
+.diff-find-input:focus {
+  outline: 1px solid var(--vscode-focusBorder, #4d9de0);
+  outline-offset: -1px;
+}
+button.diff-find-chip {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--description-fg);
+  font-family: var(--editor-font);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+button.diff-find-chip-on {
+  color: var(--vscode-inputOption-activeForeground, var(--app-fg));
+  background: var(
+    --vscode-inputOption-activeBackground,
+    rgba(77, 157, 224, 0.25)
+  );
+  border-color: var(--vscode-inputOption-activeBorder, rgba(77, 157, 224, 0.5));
+}
+button.diff-find-chip:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, #4d9de0);
+  outline-offset: -1px;
+}
+.diff-find-count {
+  color: var(--description-fg);
+  font-size: 11.5px;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+
+/* Matches on top of everything else the line carries — the modified-line
+   background, the word-level highlight — without displacing either. */
+.diff-found {
+  background: var(
+    --vscode-editor-findMatchHighlightBackground,
+    rgba(229, 192, 123, 0.35)
+  );
+  border-radius: 2px;
+}
+.diff-found-active {
+  background: var(
+    --vscode-editor-findMatchBackground,
+    rgba(229, 192, 123, 0.55)
+  );
+  border-radius: 2px;
 }
 
 /* ── settings menu ───────────────────────────────────────── */
@@ -376,6 +557,18 @@ button.diff-menu-row:hover {
 }
 .diff-stripe-removed {
   background: var(--diff-removed-edge);
+}
+.diff-stripe-found {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(
+    --vscode-editorOverviewRuler-findMatchForeground,
+    rgba(229, 192, 123, 0.8)
+  );
+  pointer-events: none;
 }
 .diff-stripe-viewport {
   position: absolute;

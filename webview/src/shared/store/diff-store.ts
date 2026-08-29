@@ -8,7 +8,31 @@ import {
   type DiffChunk,
   type FoldRegion,
   sideToAxis,
+  splitLines,
 } from "../../diff/utils/diff-model";
+import {
+  computeMatches,
+  type FindMatch,
+  type FindScope,
+} from "../../diff/utils/find";
+import type { DiffSidesResult } from "../bridge/types";
+
+/**
+ * What the viewer shows instead of text panes. `null` means an ordinary text
+ * diff; everything else is the host's verdict that the content is not
+ * line-diffable, carried verbatim so the placeholder can say why.
+ */
+export type DiffFallbackInfo =
+  | { kind: "binary"; leftBytes: number; rightBytes: number; differs: boolean }
+  | {
+      kind: "image";
+      leftUri?: string;
+      rightUri?: string;
+      leftBytes: number;
+      rightBytes: number;
+    }
+  | { kind: "tooLarge"; lines: number; limit: number }
+  | { kind: "unreadable"; reason: string };
 
 /** How much of a changed line is highlighted within the line. */
 export type Granularity = "line" | "word" | "character" | "none";
@@ -34,6 +58,8 @@ export interface DiffStoreState {
   language: string;
   loading: boolean;
   error: string | null;
+  /** Non-null when the host classified the content as not line-diffable. */
+  fallback: DiffFallbackInfo | null;
 
   chunks: DiffChunk[];
   folds: FoldRegion[];
@@ -50,16 +76,24 @@ export interface DiffStoreState {
   /** Index into `chunks` of the difference the toolbar last stepped to. */
   activeChunk: number;
 
-  setSides: (sides: {
-    left: string;
-    right: string;
-    filePath: string;
-    leftRef: string;
-    rightRef: string;
-    leftLabel: string;
-    rightLabel: string;
-    language: string;
-  }) => void;
+  /**
+   * Find state — searched against the store's full texts, never the DOM.
+   * The panes are virtualised to roughly a viewport of rows, which is what
+   * rules out the webview's native find widget: it would silently match only
+   * what happens to be on screen.
+   */
+  findOpen: boolean;
+  findQuery: string;
+  findCase: boolean;
+  findWord: boolean;
+  findRegex: boolean;
+  findScope: FindScope;
+  /** Every hit, in reading (axis) order. */
+  matches: FindMatch[];
+  /** Index into `matches`, or -1 when there is none. */
+  activeMatch: number;
+
+  setSides: (sides: DiffSidesResult) => void;
   setError: (message: string | null) => void;
   setWhitespace: (value: Whitespace) => void;
   setGranularity: (value: Granularity) => void;
@@ -70,10 +104,47 @@ export interface DiffStoreState {
   stepDifference: (delta: number) => void;
   /** Axis position that reveals the active difference, or null when there is none. */
   activeChunkAxis: () => number | null;
+
+  openFind: () => void;
+  closeFind: () => void;
+  setFindQuery: (query: string) => void;
+  toggleFindCase: () => void;
+  toggleFindWord: () => void;
+  toggleFindRegex: () => void;
+  cycleFindScope: () => void;
+  /** Move to the next (+1) or previous (-1) match, wrapping. */
+  stepMatch: (delta: number) => void;
+  /** Axis position that reveals the active match, or null when there is none. */
+  activeMatchAxis: () => number | null;
 }
 
 function chunkOptionsFor(whitespace: Whitespace): ChunkOptions {
   return { ignoreWhitespace: whitespace === "trim" };
+}
+
+/** Mirror a fallback's per-side facts, for Swap Sides. */
+function swapFallback(
+  fallback: DiffFallbackInfo | null,
+): DiffFallbackInfo | null {
+  if (!fallback) return null;
+  if (fallback.kind === "binary") {
+    return {
+      ...fallback,
+      leftBytes: fallback.rightBytes,
+      rightBytes: fallback.leftBytes,
+    };
+  }
+  if (fallback.kind === "image") {
+    return {
+      ...fallback,
+      leftUri: fallback.rightUri,
+      rightUri: fallback.leftUri,
+      leftBytes: fallback.rightBytes,
+      rightBytes: fallback.leftBytes,
+    };
+  }
+  // tooLarge and unreadable carry nothing per-side.
+  return fallback;
 }
 
 /** Recompute everything derived from the two texts and the current options. */
@@ -99,6 +170,43 @@ function derive(state: {
   };
 }
 
+/**
+ * Recompute the match list from the texts and the current find options.
+ *
+ * Runs on every keystroke without debouncing: the tooLarge gate caps text
+ * diffs at 25k lines, and a substring scan over that is single-digit
+ * milliseconds. The first match becomes active so typing jumps to it, which
+ * is what every editor's find does.
+ */
+function deriveFind(state: {
+  left: string;
+  right: string;
+  chunks: DiffChunk[];
+  findOpen: boolean;
+  findQuery: string;
+  findCase: boolean;
+  findWord: boolean;
+  findRegex: boolean;
+  findScope: FindScope;
+}) {
+  const matches =
+    state.findOpen && state.findQuery !== ""
+      ? computeMatches(
+          splitLines(state.left),
+          splitLines(state.right),
+          state.chunks,
+          state.findQuery,
+          {
+            caseSensitive: state.findCase,
+            wholeWord: state.findWord,
+            regex: state.findRegex,
+            scope: state.findScope,
+          },
+        )
+      : [];
+  return { matches, activeMatch: matches.length > 0 ? 0 : -1 };
+}
+
 export const useDiffStore = create<DiffStoreState>((set, get) => ({
   left: "",
   right: "",
@@ -110,6 +218,7 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
   language: "plaintext",
   loading: true,
   error: null,
+  fallback: null,
 
   chunks: [],
   folds: [],
@@ -124,19 +233,75 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
   swapped: false,
   activeChunk: -1,
 
+  findOpen: false,
+  findQuery: "",
+  findCase: false,
+  findWord: false,
+  findRegex: false,
+  findScope: "both",
+  matches: [],
+  activeMatch: -1,
+
   setSides: (sides) =>
-    set((state) => ({
-      ...sides,
-      loading: false,
-      error: null,
-      activeChunk: -1,
-      ...derive({ ...state, left: sides.left, right: sides.right }),
-    })),
+    set((state) => {
+      const { kind, filePath, leftRef, rightRef, leftLabel, rightLabel } =
+        sides;
+      const meta = {
+        filePath,
+        leftRef,
+        rightRef,
+        leftLabel,
+        rightLabel,
+        language: sides.language,
+        loading: false,
+        error: null,
+        activeChunk: -1,
+      };
+      if (kind !== "text") {
+        // Nothing to chunk: the placeholder carries the host's verdict, and
+        // the derived state empties so the toolbar and stripe go quiet.
+        const derived = derive({ ...state, left: "", right: "" });
+        return {
+          ...meta,
+          left: "",
+          right: "",
+          fallback: sides,
+          ...derived,
+          ...deriveFind({ ...state, left: "", right: "", ...derived }),
+        };
+      }
+      const derived = derive({
+        ...state,
+        left: sides.left,
+        right: sides.right,
+      });
+      return {
+        ...meta,
+        left: sides.left,
+        right: sides.right,
+        fallback: null,
+        ...derived,
+        ...deriveFind({
+          ...state,
+          left: sides.left,
+          right: sides.right,
+          ...derived,
+        }),
+      };
+    }),
 
   setError: (message) => set({ error: message, loading: false }),
 
   setWhitespace: (whitespace) =>
-    set((state) => ({ whitespace, ...derive({ ...state, whitespace }) })),
+    set((state) => {
+      const derived = derive({ ...state, whitespace });
+      return {
+        whitespace,
+        ...derived,
+        // Chunks moved, so the matches' reading order may have too.
+        ...deriveFind({ ...state, ...derived }),
+      };
+    }),
 
   setGranularity: (granularity) => set({ granularity }),
 
@@ -165,11 +330,16 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         leftLabel: state.rightLabel,
         rightLabel: state.leftLabel,
       };
+      const derived = derive({ ...state, ...swapped });
       return {
         ...swapped,
+        // The placeholder's per-side facts swap with the labels above them;
+        // a swapped image diff that kept its images in place would lie.
+        fallback: swapFallback(state.fallback),
         swapped: !state.swapped,
         activeChunk: -1,
-        ...derive({ ...state, ...swapped }),
+        ...derived,
+        ...deriveFind({ ...state, ...swapped, ...derived }),
       };
     }),
 
@@ -201,5 +371,62 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
     const side = chunk.right.count > 0 ? "right" : "left";
     const span = side === "right" ? chunk.right : chunk.left;
     return sideToAxis(chunks, span.start, side);
+  },
+
+  openFind: () =>
+    // Reopening with a query still typed brings its matches straight back.
+    set((state) => {
+      const opened = { ...state, findOpen: true };
+      return { findOpen: true, ...deriveFind(opened) };
+    }),
+
+  closeFind: () =>
+    // The query survives the close — reopening restores it, the way every
+    // editor's find behaves — but the highlights go with the bar.
+    set({ findOpen: false, matches: [], activeMatch: -1 }),
+
+  setFindQuery: (findQuery) =>
+    set((state) => ({ findQuery, ...deriveFind({ ...state, findQuery }) })),
+
+  toggleFindCase: () =>
+    set((state) => {
+      const findCase = !state.findCase;
+      return { findCase, ...deriveFind({ ...state, findCase }) };
+    }),
+
+  toggleFindWord: () =>
+    set((state) => {
+      const findWord = !state.findWord;
+      return { findWord, ...deriveFind({ ...state, findWord }) };
+    }),
+
+  toggleFindRegex: () =>
+    set((state) => {
+      const findRegex = !state.findRegex;
+      return { findRegex, ...deriveFind({ ...state, findRegex }) };
+    }),
+
+  cycleFindScope: () =>
+    set((state) => {
+      const order: FindScope[] = ["both", "left", "right"];
+      const findScope =
+        order[(order.indexOf(state.findScope) + 1) % order.length];
+      return { findScope, ...deriveFind({ ...state, findScope }) };
+    }),
+
+  stepMatch: (delta) =>
+    set((state) => {
+      if (state.matches.length === 0) return {};
+      const next =
+        (state.activeMatch + delta + state.matches.length) %
+        state.matches.length;
+      return { activeMatch: next };
+    }),
+
+  activeMatchAxis: () => {
+    const { chunks, matches, activeMatch } = get();
+    const match = matches[activeMatch];
+    if (!match) return null;
+    return sideToAxis(chunks, match.line, match.side);
   },
 }));
