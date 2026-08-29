@@ -218,26 +218,26 @@ describe("merge store", () => {
     it("the ✎ verb gives the slot a line to type on, one undo step away", () => {
       loadSlot();
       expect(useMergeStore.getState().regions[0]).toMatchObject({
-        start: 2,
+        start: 1,
         count: 0,
       });
       useMergeStore.getState().editRegionByHand(0);
       const opened = useMergeStore.getState();
       // The inserted line belongs to the region — the neighbour below moved
       // down intact, nothing was eaten.
-      expect(opened.result.lines).toEqual(["a", "shared", "", "c"]);
+      expect(opened.result.lines).toEqual(["a", "", "c"]);
       expect(opened.regions[0]).toMatchObject({
-        start: 2,
+        start: 1,
         count: 1,
         edited: true,
       });
-      expect(opened.cursor?.head).toEqual({ line: 2, col: 0 });
+      expect(opened.cursor?.head).toEqual({ line: 1, col: 0 });
       expect(opened.allResolved).toBe(true);
       // Undo takes the whole gesture back to a pending empty slot.
       useMergeStore.getState().undo();
       const undone = useMergeStore.getState();
-      expect(undone.result.lines).toEqual(["a", "shared", "c"]);
-      expect(undone.regions[0]).toMatchObject({ start: 2, count: 0 });
+      expect(undone.result.lines).toEqual(["a", "c"]);
+      expect(undone.regions[0]).toMatchObject({ start: 1, count: 0 });
       expect(undone.allResolved).toBe(false);
     });
 
@@ -268,9 +268,9 @@ describe("merge store", () => {
     it("typing on the slot's line fills the conflict without eating the neighbour", () => {
       loadSlot();
       useMergeStore.getState().editRegionByHand(0);
-      useMergeStore.getState().editAt(caretAt(2, 0), "typed", "type");
+      useMergeStore.getState().editAt(caretAt(1, 0), "typed", "type");
       const state = useMergeStore.getState();
-      expect(state.result.lines).toEqual(["a", "shared", "typed", "c"]);
+      expect(state.result.lines).toEqual(["a", "typed", "c"]);
       expect(state.regions[0].edited).toBe(true);
       expect(state.allResolved).toBe(true);
     });
@@ -282,13 +282,13 @@ describe("merge store", () => {
       .load(
         textVersions("a\nc\n", "a\nshared\nmine\nc\n", "a\nshared\nyours\nc\n"),
       );
-    // Edit the line the slot sits before ("c", line 2) — aimed at
+    // Edit the line the slot sits before ("c", line 1) — aimed at
     // neighbouring text, not at the conflict.
-    useMergeStore.getState().editAt(caretAt(2, 1), "!", "type");
+    useMergeStore.getState().editAt(caretAt(1, 1), "!", "type");
     const state = useMergeStore.getState();
-    expect(state.result.lines).toEqual(["a", "shared", "c!"]);
+    expect(state.result.lines).toEqual(["a", "c!"]);
     expect(state.regions[0]).toMatchObject({
-      start: 2,
+      start: 1,
       count: 0,
       edited: false,
     });

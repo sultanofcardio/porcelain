@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { caretAt } from "../../diff/editor/editor-model";
 import { WORKING_TREE_REF } from "../../shared/bridge/types";
 import { editableSide, useDiffStore } from "../../shared/store/diff-store";
-import { computeChunks, editRangeAt, replaceLineRange } from "./diff-model";
 
 /**
- * The diff surface's editing story (the merge review's decision 2): the
- * working-tree side owns a buffer, islands splice into it, and the EOF
- * newline survives every splice.
+ * The diff surface's editing story: the working-tree side owns a buffer
+ * edited through the same editor core as the merge result — a cursor, free
+ * edits, one coalescing history — and the EOF newline survives every splice.
  */
 
 function loadWorkingTreeDiff(left: string, right: string) {
@@ -23,32 +23,6 @@ function loadWorkingTreeDiff(left: string, right: string) {
   });
 }
 
-describe("replaceLineRange", () => {
-  it("splices lines and keeps the trailing-newline state", () => {
-    expect(replaceLineRange("a\nb\nc\n", 1, 1, ["B1", "B2"])).toBe(
-      "a\nB1\nB2\nc\n",
-    );
-    expect(replaceLineRange("a\nb\nc", 1, 1, ["B"])).toBe("a\nB\nc");
-    expect(replaceLineRange("a\n", 0, 1, [])).toBe("");
-    expect(replaceLineRange("", 0, 0, ["x"])).toBe("x\n");
-  });
-});
-
-describe("editRangeAt", () => {
-  it("covers the containing changed chunk", () => {
-    const chunks = computeChunks("a\nx\ny\nd\n", "a\nX\nY\nd\n");
-    expect(editRangeAt(chunks, "right", 2, 4)).toEqual({ start: 1, count: 2 });
-  });
-
-  it("windows a spot edit inside a long equal run", () => {
-    const lines = Array.from({ length: 100 }, (_, i) => `l${i}`).join("\n");
-    const chunks = computeChunks(lines, lines);
-    const range = editRangeAt(chunks, "right", 50, 100);
-    expect(range.start).toBe(30);
-    expect(range.count).toBe(41);
-  });
-});
-
 describe("diff store editing", () => {
   beforeEach(() => loadWorkingTreeDiff("a\nold\nc\n", "a\nnew\nc\n"));
 
@@ -60,135 +34,62 @@ describe("diff store editing", () => {
     );
   });
 
-  it("opens an island on the containing chunk and commits a splice", () => {
-    useDiffStore.getState().openIsland(1);
-    expect(useDiffStore.getState().island).toEqual({
-      side: "right",
-      start: 1,
-      lines: ["new"],
-    });
-    useDiffStore.getState().commitIsland(["edited", "lines"]);
+  it("edits splice the working-tree text and re-derive everything", () => {
+    useDiffStore.getState().setCursor(caretAt(1, 3));
+    useDiffStore
+      .getState()
+      .editAt(
+        { anchor: { line: 1, col: 0 }, head: { line: 1, col: 3 } },
+        "edited\nlines",
+        "type",
+      );
     const state = useDiffStore.getState();
-    expect(state.island).toBeNull();
     expect(state.right).toBe("a\nedited\nlines\nc\n");
     expect(state.dirty).toBe(true);
+    expect(state.cursor?.head).toEqual({ line: 2, col: 5 });
     // The re-derive kept every positional structure in step.
     expect(state.chunks.some((chunk) => chunk.kind !== "equal")).toBe(true);
+    expect(state.activeChunk).toBe(-1);
   });
 
-  it("undoes one island as one step and lands clean again", () => {
-    useDiffStore.getState().openIsland(1);
-    useDiffStore.getState().commitIsland(["edited"]);
-    expect(useDiffStore.getState().dirty).toBe(true);
-    useDiffStore.getState().undoEdit();
-    const state = useDiffStore.getState();
-    expect(state.right).toBe("a\nnew\nc\n");
-    expect(state.dirty).toBe(false);
+  it("preserves a missing EOF newline through edits", () => {
+    loadWorkingTreeDiff("a\nb", "a\nb");
+    useDiffStore.getState().editAt(caretAt(1, 1), "!", "type");
+    expect(useDiffStore.getState().right).toBe("a\nb!");
   });
 
-  it("drops the undo snapshot of a commit that changed nothing", () => {
-    useDiffStore.getState().openIsland(1);
-    useDiffStore.getState().commitIsland(["new"]);
+  it("a typing run is one undo step, and redo brings it back", () => {
+    useDiffStore.getState().editAt(caretAt(1, 3), "x", "type");
+    useDiffStore.getState().editAt(caretAt(1, 4), "y", "type");
+    expect(useDiffStore.getState().right).toBe("a\nnewxy\nc\n");
+    useDiffStore.getState().undo();
+    const undone = useDiffStore.getState();
+    expect(undone.right).toBe("a\nnew\nc\n");
+    expect(undone.dirty).toBe(false);
+    expect(undone.canRedo).toBe(true);
+    useDiffStore.getState().redo();
+    expect(useDiffStore.getState().right).toBe("a\nnewxy\nc\n");
+  });
+
+  it("a no-op edit records no history and dirties nothing", () => {
+    useDiffStore.getState().editAt(caretAt(1, 0), "", "type");
     const state = useDiffStore.getState();
-    expect(state.undoTexts).toHaveLength(0);
+    expect(state.canUndo).toBe(false);
     expect(state.dirty).toBe(false);
   });
 
   it("marks saved as the new baseline for dirty", () => {
-    useDiffStore.getState().openIsland(1);
-    useDiffStore.getState().commitIsland(["edited"]);
-    useDiffStore.getState().markSaved("a\nedited\nc\n");
-    const state = useDiffStore.getState();
-    expect(state.dirty).toBe(false);
-    expect(state.savedText).toBe("a\nedited\nc\n");
+    useDiffStore.getState().editAt(caretAt(1, 3), "!", "type");
+    const written = useDiffStore.getState().right;
+    useDiffStore.getState().markSaved(written);
+    expect(useDiffStore.getState().dirty).toBe(false);
+    expect(useDiffStore.getState().savedText).toBe(written);
     // Undoing past a save is dirty again relative to the new baseline.
-    useDiffStore.getState().undoEdit();
+    useDiffStore.getState().undo();
     expect(useDiffStore.getState().dirty).toBe(true);
   });
 
-  it("baselines what was written, so edits during a save stay dirty", () => {
-    useDiffStore.getState().openIsland(1);
-    useDiffStore.getState().commitIsland(["edited"]);
-    // The save captured "edited"; more typing lands while the write is in
-    // flight. When it resolves, the newer edit must still count as unsaved.
-    useDiffStore.getState().openIsland(1);
-    useDiffStore.getState().commitIsland(["newer"]);
-    useDiffStore.getState().markSaved("a\nedited\nc\n");
-    const state = useDiffStore.getState();
-    expect(state.savedText).toBe("a\nedited\nc\n");
-    expect(state.dirty).toBe(true);
-  });
-
-  it("swapping sides commits an open island instead of misdirecting it", () => {
-    useDiffStore.getState().openIsland(1);
-    useDiffStore.getState().islandLinesChanged(["typed", "typed2"]);
-    useDiffStore.getState().swapSides();
-    const state = useDiffStore.getState();
-    expect(state.island).toBeNull();
-    // The edited text swapped to the left with its ref; nothing was lost.
-    expect(state.leftRef).toBe(WORKING_TREE_REF);
-    expect(state.left).toBe("a\ntyped\ntyped2\nc\n");
-    expect(state.dirty).toBe(true);
-  });
-
-  it("a splice above the stepped match keeps the walk on the same hit", () => {
-    loadWorkingTreeDiff("a\nold\nb\nhit\nhit\n", "a\nnew\nb\nhit\nhit\n");
-    useDiffStore.getState().openFind();
-    useDiffStore.getState().setFindQuery("right", "hit");
-    useDiffStore.getState().stepMatch("right", 1);
-    expect(useDiffStore.getState().findRight.activeMatch).toBe(1);
-
-    // Growing the island above both matches shifts them down one line; the
-    // active match must follow its own hit, not lock onto the first
-    // occurrence that now sits at the old line number.
-    useDiffStore.getState().openIsland(1);
-    useDiffStore.getState().commitIsland(["new1", "new2"]);
-    const after = useDiffStore.getState().findRight;
-    expect(after.activeMatch).toBe(1);
-    expect(after.matches[after.activeMatch].line).toBe(5);
-  });
-
-  it("opening an island expands any fold hiding part of its range", () => {
-    const body = Array.from({ length: 40 }, (_, i) => `line${i}`).join("\n");
-    loadWorkingTreeDiff(`old\n${body}\n`, `new\n${body}\n`);
-    expect(useDiffStore.getState().folds).toHaveLength(1);
-    // Line 2 is visible context, but the island's window reaches into the
-    // collapsed run — editing hidden lines through an overlay is not on.
-    useDiffStore.getState().openIsland(2);
-    const state = useDiffStore.getState();
-    expect(state.island).not.toBeNull();
-    expect(state.folds).toHaveLength(0);
-    expect(state.expandedFolds.size).toBeGreaterThan(0);
-  });
-
-  it("an expanded fold stays expanded across a splice above it", () => {
-    const body = Array.from({ length: 40 }, (_, i) => `line${i}`).join("\n");
-    // The working tree sits on the left so the splice moves the fold keys,
-    // which are left start lines.
-    useDiffStore.getState().setSides({
-      kind: "text",
-      left: `new\n${body}\nz\n`,
-      right: `old\n${body}\nz\n`,
-      filePath: "src/a.ts",
-      leftRef: WORKING_TREE_REF,
-      rightRef: "HEAD",
-      leftLabel: "Working tree",
-      rightLabel: "HEAD",
-      language: "typescript",
-    });
-    const fold = useDiffStore.getState().folds[0];
-    expect(fold).toBeDefined();
-    useDiffStore.getState().toggleFold(fold.left.start);
-    expect(useDiffStore.getState().folds).toHaveLength(0);
-
-    // Growing the first line into two shifts the fold's left start; the
-    // expansion key must shift with it or the fold snaps shut mid-edit.
-    useDiffStore.getState().openIsland(0);
-    useDiffStore.getState().commitIsland(["new1", "new2"]);
-    expect(useDiffStore.getState().folds).toHaveLength(0);
-  });
-
-  it("refuses to open an island on a read-only surface", () => {
+  it("refuses to edit a read-only surface", () => {
     useDiffStore.getState().setSides({
       kind: "text",
       left: "a\n",
@@ -200,16 +101,72 @@ describe("diff store editing", () => {
       rightLabel: "def456",
       language: "typescript",
     });
-    useDiffStore.getState().openIsland(0);
-    expect(useDiffStore.getState().island).toBeNull();
+    useDiffStore.getState().setCursor(caretAt(0, 0));
+    expect(useDiffStore.getState().cursor).toBeNull();
+    useDiffStore.getState().editAt(caretAt(0, 0), "x", "type");
+    expect(useDiffStore.getState().right).toBe("b\n");
+  });
+
+  it("a composition session is one lazy history step; cancelled leaves none", () => {
+    useDiffStore.getState().setCursor(caretAt(1, 3));
+    useDiffStore.getState().beginComposition();
+    // Cancelled before producing anything: no step, no dirt.
+    useDiffStore.getState().endComposition("");
+    expect(useDiffStore.getState().canUndo).toBe(false);
+    expect(useDiffStore.getState().dirty).toBe(false);
+
+    useDiffStore.getState().beginComposition();
+    useDiffStore.getState().updateComposition("に");
+    useDiffStore.getState().endComposition("日本");
+    const state = useDiffStore.getState();
+    expect(state.right).toBe("a\nnew日本\nc\n");
+    expect(state.composition).toBeNull();
+    useDiffStore.getState().undo();
+    expect(useDiffStore.getState().right).toBe("a\nnew\nc\n");
+  });
+
+  it("placing the caret in a collapsed run expands its fold", () => {
+    const body = Array.from({ length: 30 }, (_, i) => `line${i}`).join("\n");
+    loadWorkingTreeDiff(`old\n${body}\n`, `new\n${body}\n`);
+    const fold = useDiffStore.getState().folds[0];
+    expect(fold).toBeDefined();
+    useDiffStore.getState().setCursor(caretAt(fold.right.start + 2, 0));
+    const state = useDiffStore.getState();
+    expect(state.cursor?.head.line).toBe(fold.right.start + 2);
+    expect(state.folds).toHaveLength(0);
+  });
+
+  it("an expanded fold stays expanded across an edit above it", () => {
+    const body = Array.from({ length: 30 }, (_, i) => `line${i}`).join("\n");
+    loadWorkingTreeDiff(`old\n${body}\n`, `new\n${body}\n`);
+    const fold = useDiffStore.getState().folds[0];
+    useDiffStore.getState().toggleFold(fold.left.start);
+    expect(useDiffStore.getState().folds).toHaveLength(0);
+    // Insert a line at the top of the editable (right) side; the fold's
+    // left-keyed expansion is untouched by right-side splices.
+    useDiffStore.getState().editAt(caretAt(0, 3), "\nadded", null);
+    expect(useDiffStore.getState().folds).toHaveLength(0);
+  });
+
+  it("swapping sides drops the cursor rather than misdirecting it", () => {
+    useDiffStore.getState().setCursor(caretAt(1, 2));
+    useDiffStore.getState().swapSides();
+    const state = useDiffStore.getState();
+    expect(state.cursor).toBeNull();
+    expect(editableSide(state)).toBe("left");
   });
 
   it("keeps find matches honest across an edit", () => {
     useDiffStore.getState().openFind();
     useDiffStore.getState().setFindQuery("right", "new");
     expect(useDiffStore.getState().findRight.matches).toHaveLength(1);
-    useDiffStore.getState().openIsland(1);
-    useDiffStore.getState().commitIsland(["renewed", "newer"]);
+    useDiffStore
+      .getState()
+      .editAt(
+        { anchor: { line: 1, col: 0 }, head: { line: 1, col: 3 } },
+        "renewed\nnewer",
+        null,
+      );
     expect(useDiffStore.getState().findRight.matches).toHaveLength(2);
   });
 
@@ -221,8 +178,7 @@ describe("diff store editing", () => {
     expect(typed.matches).toHaveLength(2);
 
     // An edit below the active match: it relocates, and nothing scrolls.
-    useDiffStore.getState().openIsland(1);
-    useDiffStore.getState().commitIsland(["edited", "extra"]);
+    useDiffStore.getState().editAt(caretAt(1, 3), "\nextra", null);
     const after = useDiffStore.getState().findRight;
     expect(after.matches.map((m) => m.line)).toEqual([0, 3]);
     expect(after.activeMatch).toBe(0);

@@ -12,15 +12,18 @@ import { editableSide, useDiffStore } from "../shared/store/diff-store";
 import { ChangeStripe, splitStripeMarks } from "./components/ChangeStripe";
 import { DiffFallback } from "./components/DiffFallback";
 import { DiffGutter } from "./components/DiffGutter";
-import { DiffPane, type PaneIsland } from "./components/DiffPane";
+import { DiffPane } from "./components/DiffPane";
 import { DiffToolbar } from "./components/DiffToolbar";
 import { FindBar } from "./components/FindBar";
 import { gutterMetrics, LINE_HEIGHT } from "./components/metrics";
 import { RevisionHeader } from "./components/RevisionHeader";
 import { UnifiedPane } from "./components/UnifiedPane";
+import { type DisplayMapping, EditablePane } from "./editor/EditablePane";
 import {
   axisToSide,
   chooseLayout,
+  displayLine,
+  displayToSource,
   type Side,
   sideToAxis,
   splitLines,
@@ -82,8 +85,8 @@ export function DiffApp() {
   // the native editor. gitStateChanged is a firehose, though, so nothing acts
   // on the event alone: re-read quietly and compare against the saved
   // baseline first. Untouched disk → nothing happens, view state intact.
-  // Actually changed: a clean view refreshes; unsaved edits (or an open
-  // island) get the banner and the user's choice — never a silent merge.
+  // Actually changed: a clean view refreshes; unsaved edits (or a live
+  // composition) get the banner and the user's choice — never a silent merge.
   useEffect(() => {
     return bridge.onEvent((event, data) => {
       if (event !== "gitStateChanged") return;
@@ -123,7 +126,8 @@ export function DiffApp() {
                 : sides.right
               : null;
           if (diskText !== null && diskText === current.savedText) return;
-          if (current.dirty || current.island) current.setDiskChanged(true);
+          if (current.dirty || current.composition)
+            current.setDiskChanged(true);
           else current.setSides(sides);
         })
         .catch(() => {
@@ -246,8 +250,12 @@ export function DiffApp() {
         stepRef.current(event.shiftKey ? -1 : 1);
         event.preventDefault();
       }
-      if ((event.metaKey || event.ctrlKey) && event.key === "z") {
-        useDiffStore.getState().undoEdit();
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        (event.key === "z" || event.key === "Z")
+      ) {
+        if (event.shiftKey) useDiffStore.getState().redo();
+        else useDiffStore.getState().undo();
         event.preventDefault();
       }
       if (
@@ -289,27 +297,57 @@ export function DiffApp() {
   const unified = store.viewMode === "unified" && layout.mode === "split";
 
   // Editing, where a side owns a buffer (the working tree, per the merge
-  // scope review's decision 2). Unified view stays read-only: islands live
-  // in a pane's own coordinate space, which unified rows do not have.
+  // scope review's decision 2) — through the same editor core the merge
+  // result pane uses: click anywhere, type anywhere. Unified view stays
+  // read-only: the editor lives in a pane's own coordinate space, which
+  // unified rows do not have.
   const editable = editableSide(store);
-  const { island } = store;
-  const paneIslandFor = (side: Side): PaneIsland | null =>
-    island && island.side === side
-      ? {
-          start: island.start,
-          lines: island.lines,
-          label: `Editing lines ${island.start + 1} to ${
-            island.start + Math.max(1, island.lines.length)
-          } of ${filePath} — Escape commits`,
-          onLinesChange: (lines) =>
-            useDiffStore.getState().islandLinesChanged(lines),
-          onCommit: (lines) => useDiffStore.getState().commitIsland(lines),
+  const editorMapping = (side: Side): DisplayMapping => ({
+    toDisplayRow: (line) => displayLine(store.folds, line, side),
+    toSourceLine: (row) => {
+      const source = displayToSource(store.folds, row, side);
+      return source.kind === "line" ? source.line : null;
+    },
+  });
+  const wrapEditable = (side: Side, pane: React.ReactNode) => {
+    if (editable !== side || unified || store.fallback) return pane;
+    const offset = side === "left" ? leftOffset : rightOffset;
+    return (
+      <EditablePane
+        lines={side === "left" ? leftLines : rightLines}
+        cursor={store.cursor}
+        composition={store.composition}
+        offset={offset}
+        visibleLines={visibleLines}
+        mapping={editorMapping(side)}
+        label={`Working-tree editor for ${filePath}. A full text editor: type anywhere; Cmd+S saves.`}
+        onSetCursor={(selection, goal) =>
+          useDiffStore.getState().setCursor(selection, goal)
         }
-      : null;
-  const activateFor = (side: Side) =>
-    editable === side && !unified && !store.fallback
-      ? (line: number) => useDiffStore.getState().openIsland(line)
-      : undefined;
+        onEdit={(selection, text, key) =>
+          useDiffStore.getState().editAt(selection, text, key)
+        }
+        onCompositionBegin={() => useDiffStore.getState().beginComposition()}
+        onCompositionUpdate={(text) =>
+          useDiffStore.getState().updateComposition(text)
+        }
+        onCompositionEnd={(text) =>
+          useDiffStore.getState().endComposition(text)
+        }
+        onUndo={() => useDiffStore.getState().undo()}
+        onRedo={() => useDiffStore.getState().redo()}
+        onRevealRow={(row) => {
+          const source = displayToSource(store.folds, Math.floor(row), side);
+          if (source.kind !== "line") return;
+          scrollToAxis(
+            sideToAxis(store.chunks, source.line, side, store.folds),
+          );
+        }}
+      >
+        {pane}
+      </EditablePane>
+    );
+  };
 
   // The unified row list: the same chunks and folds, rendered one column.
   const rows = useMemo(
@@ -518,45 +556,47 @@ export function DiffApp() {
                     folds={store.folds}
                     only={layout.side}
                   />
-                  <DiffPane
-                    side={layout.side}
-                    lines={layout.side === "left" ? leftLines : rightLines}
-                    counterpart={[]}
-                    chunks={store.chunks}
-                    language={store.language}
-                    granularity={store.granularity}
-                    offset={layout.side === "left" ? leftOffset : rightOffset}
-                    visibleLines={visibleLines}
-                    folds={store.folds}
-                    onToggleFold={(fold) =>
-                      useDiffStore.getState().toggleFold(fold.left.start)
-                    }
-                    matches={matches}
-                    activeMatch={activeMatch}
-                    onActivateLine={activateFor(layout.side)}
-                    island={paneIslandFor(layout.side)}
-                  />
+                  {wrapEditable(
+                    layout.side,
+                    <DiffPane
+                      side={layout.side}
+                      lines={layout.side === "left" ? leftLines : rightLines}
+                      counterpart={[]}
+                      chunks={store.chunks}
+                      language={store.language}
+                      granularity={store.granularity}
+                      offset={layout.side === "left" ? leftOffset : rightOffset}
+                      visibleLines={visibleLines}
+                      folds={store.folds}
+                      onToggleFold={(fold) =>
+                        useDiffStore.getState().toggleFold(fold.left.start)
+                      }
+                      matches={matches}
+                      activeMatch={activeMatch}
+                    />,
+                  )}
                 </>
               ) : (
                 <>
-                  <DiffPane
-                    side="left"
-                    lines={leftLines}
-                    counterpart={rightLines}
-                    chunks={store.chunks}
-                    language={store.language}
-                    granularity={store.granularity}
-                    offset={leftOffset}
-                    visibleLines={visibleLines}
-                    folds={store.folds}
-                    onToggleFold={(fold) =>
-                      useDiffStore.getState().toggleFold(fold.left.start)
-                    }
-                    matches={matches}
-                    activeMatch={activeMatch}
-                    onActivateLine={activateFor("left")}
-                    island={paneIslandFor("left")}
-                  />
+                  {wrapEditable(
+                    "left",
+                    <DiffPane
+                      side="left"
+                      lines={leftLines}
+                      counterpart={rightLines}
+                      chunks={store.chunks}
+                      language={store.language}
+                      granularity={store.granularity}
+                      offset={leftOffset}
+                      visibleLines={visibleLines}
+                      folds={store.folds}
+                      onToggleFold={(fold) =>
+                        useDiffStore.getState().toggleFold(fold.left.start)
+                      }
+                      matches={matches}
+                      activeMatch={activeMatch}
+                    />,
+                  )}
                   <DiffGutter
                     chunks={store.chunks}
                     axisPosition={axisPosition}
@@ -567,24 +607,25 @@ export function DiffApp() {
                     rightLineCount={rightLines.length}
                     folds={store.folds}
                   />
-                  <DiffPane
-                    side="right"
-                    lines={rightLines}
-                    counterpart={leftLines}
-                    chunks={store.chunks}
-                    language={store.language}
-                    granularity={store.granularity}
-                    offset={rightOffset}
-                    visibleLines={visibleLines}
-                    folds={store.folds}
-                    onToggleFold={(fold) =>
-                      useDiffStore.getState().toggleFold(fold.left.start)
-                    }
-                    matches={matches}
-                    activeMatch={activeMatch}
-                    onActivateLine={activateFor("right")}
-                    island={paneIslandFor("right")}
-                  />
+                  {wrapEditable(
+                    "right",
+                    <DiffPane
+                      side="right"
+                      lines={rightLines}
+                      counterpart={leftLines}
+                      chunks={store.chunks}
+                      language={store.language}
+                      granularity={store.granularity}
+                      offset={rightOffset}
+                      visibleLines={visibleLines}
+                      folds={store.folds}
+                      onToggleFold={(fold) =>
+                        useDiffStore.getState().toggleFold(fold.left.start)
+                      }
+                      matches={matches}
+                      activeMatch={activeMatch}
+                    />,
+                  )}
                 </>
               )}
             </div>

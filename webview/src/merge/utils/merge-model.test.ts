@@ -83,21 +83,24 @@ describe("buildInitialResult", () => {
     expect(regionResolved(region)).toBe(false);
   });
 
-  it("refines an empty-base conflict so agreed runs are not held hostage", () => {
+  it("keeps a both-sides-added run whole so accept-both appends full units", () => {
+    // No refinement around incidentally shared lines: splitting close() and
+    // drain() apart from a shared closing brace is how accept-both used to
+    // interleave fragments instead of appending complete methods.
     const { result, regions } = buildInitialResult(
       "a\nc\n",
       "a\nshared\nmine\nc\n",
       "a\nshared\nyours\nc\n",
     );
-    expect(result.lines).toEqual(["a", "shared", "c"]);
+    expect(result.lines).toEqual(["a", "c"]);
     expect(regions).toHaveLength(1);
     const region = regions[0];
-    expect(region.start).toBe(2);
+    expect(region.start).toBe(1);
     expect(region.count).toBe(0); // an empty base renders as a slot
-    expect(region.ours).toEqual(["mine"]);
-    expect(region.theirs).toEqual(["yours"]);
-    expect(region.oursStart).toBe(2);
-    expect(region.theirsStart).toBe(2);
+    expect(region.ours).toEqual(["shared", "mine"]);
+    expect(region.theirs).toEqual(["shared", "yours"]);
+    expect(region.oursStart).toBe(1);
+    expect(region.theirsStart).toBe(1);
   });
 
   it("keeps a trailing newline when either input has one", () => {
@@ -135,17 +138,17 @@ describe("buildInitialResult", () => {
     expect(regions[0].theirsStart).toBe(3); // THEIRS in [k, del, m, THEIRS]
   });
 
-  it("anchors refined empty-base sub-conflicts from the region's own starts", () => {
+  it("anchors an empty-base conflict from diff3's own starts", () => {
     const { regions } = buildInitialResult(
       "a\n",
       "x\na\nshared\nmine\n",
       "a\nshared\nyours\n",
     );
     expect(regions).toHaveLength(1);
-    expect(regions[0].ours).toEqual(["mine"]);
-    expect(regions[0].theirs).toEqual(["yours"]);
-    expect(regions[0].oursStart).toBe(3); // mine in [x, a, shared, mine]
-    expect(regions[0].theirsStart).toBe(2); // yours in [a, shared, yours]
+    expect(regions[0].ours).toEqual(["shared", "mine"]);
+    expect(regions[0].theirs).toEqual(["shared", "yours"]);
+    expect(regions[0].oursStart).toBe(2); // in [x, a, shared, mine]
+    expect(regions[0].theirsStart).toBe(1); // in [a, shared, yours]
   });
 });
 

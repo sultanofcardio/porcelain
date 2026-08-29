@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DiffPane } from "../diff/components/DiffPane";
-import { computeChunks } from "../diff/utils/diff-model";
+import { EditablePane } from "../diff/editor/EditablePane";
 import type { FileVersionsResult } from "../shared/bridge/types";
 import { useMergeStore } from "../shared/store/merge-store";
 import { MergeGutterVerbs } from "./components/MergeGutterVerbs";
@@ -49,6 +49,7 @@ describe("merge surface accessibility", () => {
       "Previous conflict",
       "Next conflict",
       "Undo",
+      "Redo",
       "Collapse unchanged regions",
       "Find in merge",
       "Cancel",
@@ -189,29 +190,32 @@ describe("merge surface accessibility", () => {
     expect(prefixes).toContain("Line 2, conflict: ");
   });
 
-  it("gives the edit island an accessible name and native text semantics", () => {
+  it("gives the result editor an accessible name and native text semantics", () => {
+    const state = useMergeStore.getState();
     render(
-      <DiffPane
-        side="right"
-        lines={["a", "b", "c"]}
-        counterpart={["a", "b", "c"]}
-        chunks={computeChunks("a\nb\nc\n", "a\nb\nc\n")}
-        language="plaintext"
-        granularity="word"
+      <EditablePane
+        lines={state.result.lines}
+        cursor={null}
+        composition={null}
         offset={0}
         visibleLines={10}
-        island={{
-          start: 1,
-          lines: ["b"],
-          label: "Editing result lines 2 to 2 — Escape commits",
-          onLinesChange: () => {},
-          onCommit: () => {},
-        }}
-      />,
+        mapping={{ toDisplayRow: (line) => line, toSourceLine: (row) => row }}
+        label="Merge result editor for src/db/pool.ts"
+        onSetCursor={() => {}}
+        onEdit={() => {}}
+        onCompositionBegin={() => {}}
+        onCompositionUpdate={() => {}}
+        onCompositionEnd={() => {}}
+        onUndo={() => {}}
+        onRedo={() => {}}
+        onRevealRow={() => {}}
+      >
+        <div />
+      </EditablePane>,
     );
     expect(
       screen.getByRole("textbox", {
-        name: "Editing result lines 2 to 2 — Escape commits",
+        name: "Merge result editor for src/db/pool.ts",
       }),
     ).toBeTruthy();
   });

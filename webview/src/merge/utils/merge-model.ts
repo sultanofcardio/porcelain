@@ -1,4 +1,3 @@
-import { diffArrays } from "diff";
 import { diff3MergeRegions } from "node-diff3";
 import {
   type DiffChunk,
@@ -89,12 +88,9 @@ export interface InitialMerge {
  * until someone decides; when the base is empty the region occupies zero
  * result lines and renders as a slot between its neighbours.
  *
- * Conflicts with an empty base are refined by a 2-way diff between the sides,
- * because diff3 lumps everything into one region when there is no ancestor to
- * anchor on — runs the sides agree on are applied, only the genuine
- * disagreements stay conflicts. (The refinement deliberately does not run when
- * the base has content: those regions keep their base slice for the revert
- * path.)
+ * Every conflict keeps its slices whole — an empty base included. Splitting a
+ * both-sides-added run around incidentally shared lines reads clever and
+ * merges wrong: accept-both must append complete units, IntelliJ-style.
  */
 export function buildInitialResult(
   baseText: string,
@@ -170,50 +166,14 @@ export function buildInitialResult(
       continue;
     }
 
-    if (baseSlice.length > 0) {
-      pushConflict(oursSlice, theirsSlice, baseSlice, oursAt, theirsAt);
-      continue;
-    }
-
-    // Empty base: refine, so shared runs the sides agree on are not held
-    // hostage by the disagreement next to them. Sub-anchors offset from the
-    // region's own aStart/bStart as the 2-way walk consumes each side.
-    let oursOffset = 0;
-    let theirsOffset = 0;
-    const changes = diffArrays(oursSlice, theirsSlice);
-    for (let i = 0; i < changes.length; i++) {
-      const change = changes[i];
-      if (!change.added && !change.removed) {
-        lines.push(...change.value);
-        oursOffset += change.value.length;
-        theirsOffset += change.value.length;
-        continue;
-      }
-      if (change.removed) {
-        const next = changes[i + 1];
-        const theirsRun = next?.added ? next.value : [];
-        pushConflict(
-          change.value,
-          theirsRun,
-          [],
-          oursAt + oursOffset,
-          theirsAt + theirsOffset,
-        );
-        oursOffset += change.value.length;
-        theirsOffset += theirsRun.length;
-        if (next?.added) i++;
-        continue;
-      }
-      // Added run with no preceding removal: theirs-only lines.
-      pushConflict(
-        [],
-        change.value,
-        [],
-        oursAt + oursOffset,
-        theirsAt + theirsOffset,
-      );
-      theirsOffset += change.value.length;
-    }
+    // One region per diff3 verdict, slices kept whole — empty base included.
+    // The legacy editor refined empty-base conflicts into sub-conflicts
+    // around lines the sides happened to share ("}", a common call), and
+    // hand-testing showed why that is wrong: accepting both sides then
+    // interleaves fragments — close() { and drain() { sharing one closing
+    // brace — instead of appending complete units below each other, which is
+    // the IntelliJ behaviour accept-both exists for.
+    pushConflict(oursSlice, theirsSlice, baseSlice, oursAt, theirsAt);
   }
 
   return {

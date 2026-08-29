@@ -1,14 +1,22 @@
 import { create } from "zustand";
 import {
+  applyTextEdit,
+  caretAt,
+  clampPosition,
+  EditHistory,
+  type EditorSelection,
+  isCaret,
+  ordered,
+  type Position,
+} from "../../diff/editor/editor-model";
+import {
   axisLength,
   type ChunkOptions,
   computeChunks,
   computeFolds,
   countDifferences,
   type DiffChunk,
-  editRangeAt,
   type FoldRegion,
-  replaceLineRange,
   type Side,
   sideToAxis,
   splitLines,
@@ -110,21 +118,37 @@ export interface DiffStoreState {
    * the sides addressed as the working tree (decision 2 of the merge scope
    * review). Everything here is inert when `editableSide()` is null.
    */
-  island: { side: Side; start: number; lines: string[] } | null;
+  cursor: EditorSelection | null;
+  goalVisual: number | null;
+  composition: { start: Position; endLine: number; recorded: boolean } | null;
+  /** Undo/redo over the editable side, typing runs coalesced. */
+  history: EditHistory<DiffEditSnapshot>;
+  canUndo: boolean;
+  canRedo: boolean;
   /** The editable side's text differs from what was last loaded or saved. */
   dirty: boolean;
   /** What the disk held at load/save time — the baseline `dirty` compares to. */
   savedText: string | null;
   /** The file changed on disk while there are unsaved edits. */
   diskChanged: boolean;
-  /** Snapshots of the editable side, one per structural edit, oldest first. */
-  undoTexts: string[];
 
-  openIsland: (line: number) => void;
-  /** Live splice while typing — fired when the island's line count changes. */
-  islandLinesChanged: (lines: string[]) => void;
-  commitIsland: (lines: string[]) => void;
-  undoEdit: () => void;
+  /** Place the cursor; folds hiding it expand so the caret is never invisible. */
+  setCursor: (
+    selection: EditorSelection | null,
+    goalVisual?: number | null,
+  ) => void;
+  /** The one editing primitive: replace `selection` with `text`. */
+  editAt: (
+    selection: EditorSelection,
+    text: string,
+    coalesceKey: string | null,
+  ) => void;
+  /** IME composition: one lazy history step, live replaces until end. */
+  beginComposition: () => void;
+  updateComposition: (text: string) => void;
+  endComposition: (text: string) => void;
+  undo: () => void;
+  redo: () => void;
   /** Record what was actually written to disk as the new dirty baseline. */
   markSaved: (content: string) => void;
   setDiskChanged: (changed: boolean) => void;
@@ -209,8 +233,6 @@ export function editableSide(state: {
   if (state.leftRef === WORKING_TREE_REF) return "left";
   return null;
 }
-
-const UNDO_LIMIT = 100;
 
 function chunkOptionsFor(whitespace: Whitespace): ChunkOptions {
   return { ignoreWhitespace: whitespace === "trim" };
@@ -407,11 +429,15 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
   findRight: EMPTY_SIDE_FIND,
   activeFindSide: null,
 
-  island: null,
+  cursor: null,
+  goalVisual: null,
+  composition: null,
+  history: new EditHistory<DiffEditSnapshot>(),
+  canUndo: false,
+  canRedo: false,
   dirty: false,
   savedText: null,
   diskChanged: false,
-  undoTexts: [],
 
   setSides: (sides) =>
     set((state) => {
@@ -445,7 +471,12 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
       // just arrived, and history over the old text would splice garbage.
       const editable = editableSide({ leftRef, rightRef });
       const editing = {
-        island: null,
+        cursor: null,
+        goalVisual: null,
+        composition: null,
+        history: new EditHistory<DiffEditSnapshot>(),
+        canUndo: false,
+        canRedo: false,
         dirty: false,
         savedText:
           kind === "text" && editable
@@ -454,7 +485,6 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
               : text.right
             : null,
         diskChanged: false,
-        undoTexts: [] as string[],
       };
       const next = { ...state, ...meta, ...text };
       return {
@@ -468,25 +498,26 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
 
   setError: (message) => set({ error: message, loading: false }),
 
-  openIsland: (line) =>
+  setCursor: (selection, goalVisual = null) =>
     set((state) => {
       const side = editableSide(state);
-      if (!side || state.fallback || state.loading || state.island) return {};
-      const text = side === "left" ? state.left : state.right;
-      const sideLines = splitLines(text);
-      const range = editRangeAt(state.chunks, side, line, sideLines.length);
-      const islandLines =
-        sideLines.length === 0
-          ? [""]
-          : sideLines.slice(range.start, range.start + range.count);
-      // A fold intersecting the island's range expands first: the textarea
-      // covers the whole range, and editing lines the pane is hiding would
-      // overlay the fold row and silently rewrite invisible content.
+      if (!side || state.fallback || state.loading || state.composition) {
+        return selection === null ? { cursor: null, goalVisual: null } : {};
+      }
+      if (!selection) return { cursor: null, goalVisual: null };
+      const lines = splitLines(side === "left" ? state.left : state.right);
+      const clamped = {
+        anchor: clampPosition(lines, selection.anchor),
+        head: clampPosition(lines, selection.head),
+      };
+      const span = ordered(clamped);
+      // A caret must never sit on hidden content: expand any fold whose
+      // editable-side span intersects the selection.
       const intersecting = state.folds.filter((fold) => {
-        const span = side === "left" ? fold.left : fold.right;
+        const hidden = side === "left" ? fold.left : fold.right;
         return (
-          span.start < range.start + Math.max(1, range.count) &&
-          range.start < span.start + span.count
+          hidden.start <= span.end.line &&
+          span.start.line < hidden.start + hidden.count
         );
       });
       let expansion = {};
@@ -495,51 +526,118 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         for (const fold of intersecting) expandedFolds.add(fold.left.start);
         expansion = { expandedFolds, ...derive({ ...state, expandedFolds }) };
       }
-      return {
-        island: { side, start: range.start, lines: islandLines },
-        // One structural undo step per island, taken at open so the whole
-        // edit — however many keystrokes — reverts as a unit.
-        undoTexts: [...state.undoTexts.slice(-(UNDO_LIMIT - 1)), text],
-        ...expansion,
-      };
+      return { cursor: clamped, goalVisual, ...expansion };
     }),
 
-  islandLinesChanged: (lines) =>
-    set((state) => {
-      const { island } = state;
-      if (!island) return {};
-      return {
-        ...spliceEditable(
-          state,
-          island.side,
-          island.start,
-          island.lines,
-          lines,
-        ),
-        island: { ...island, lines },
-      };
-    }),
-
-  commitIsland: (lines) => set((state) => commitIslandUpdate(state, lines)),
-
-  undoEdit: () =>
+  editAt: (selection, text, coalesceKey) =>
     set((state) => {
       const side = editableSide(state);
-      // Not while an island is open: its textarea owns undo until it commits.
-      if (!side || state.island || state.undoTexts.length === 0) return {};
-      const previous = state.undoTexts[state.undoTexts.length - 1];
-      const texts =
-        side === "left"
-          ? { left: previous, right: state.right }
-          : { left: state.left, right: previous };
-      const next = { ...state, ...texts };
+      if (!side || state.fallback || state.loading || state.composition) {
+        return {};
+      }
+      const applied = applyEditorEdit(state, side, selection, text);
+      if (!applied) return {};
+      state.history.record(snapshotOf(state, side), coalesceKey, Date.now());
       return {
-        ...texts,
-        undoTexts: state.undoTexts.slice(0, -1),
-        dirty: previous !== state.savedText,
-        activeChunk: -1,
-        ...derive(next),
-        ...deriveFind(next),
+        ...applied,
+        canUndo: state.history.canUndo,
+        canRedo: state.history.canRedo,
+      };
+    }),
+
+  beginComposition: () =>
+    set((state) => {
+      const side = editableSide(state);
+      if (!side || !state.cursor || state.composition) return {};
+      // One history step for the whole session — recorded lazily on the
+      // first update that changes anything, so a cancelled session leaves
+      // no undo step. A selection is consumed as the session opens.
+      if (isCaret(state.cursor)) {
+        const lines = splitLines(side === "left" ? state.left : state.right);
+        const start = clampPosition(lines, state.cursor.head);
+        return { composition: { start, endLine: start.line, recorded: false } };
+      }
+      state.history.record(snapshotOf(state, side), null, Date.now());
+      const applied = applyEditorEdit(state, side, state.cursor, "");
+      const at = applied?.cursor?.head ?? ordered(state.cursor).start;
+      return {
+        ...(applied ?? {}),
+        composition: { start: at, endLine: at.line, recorded: true },
+        canUndo: state.history.canUndo,
+        canRedo: state.history.canRedo,
+      };
+    }),
+
+  updateComposition: (text) =>
+    set((state) => {
+      const side = editableSide(state);
+      const { composition, cursor } = state;
+      if (!side || !composition || !cursor) return {};
+      let recorded = composition.recorded;
+      if (!recorded && text !== "") {
+        state.history.record(snapshotOf(state, side), null, Date.now());
+        recorded = true;
+      }
+      const applied = applyEditorEdit(
+        state,
+        side,
+        { anchor: composition.start, head: cursor.head },
+        text,
+      );
+      const endLine = applied?.cursor?.head.line ?? composition.endLine;
+      return {
+        ...(applied ?? {}),
+        composition: { start: composition.start, endLine, recorded },
+        canUndo: state.history.canUndo,
+        canRedo: state.history.canRedo,
+      };
+    }),
+
+  endComposition: (text) =>
+    set((state) => {
+      const side = editableSide(state);
+      const { composition, cursor } = state;
+      if (!side || !composition || !cursor) return {};
+      if (!composition.recorded && text !== "") {
+        state.history.record(snapshotOf(state, side), null, Date.now());
+      }
+      const applied = applyEditorEdit(
+        state,
+        side,
+        { anchor: composition.start, head: cursor.head },
+        text,
+      );
+      return {
+        ...(applied ?? {}),
+        composition: null,
+        canUndo: state.history.canUndo,
+        canRedo: state.history.canRedo,
+      };
+    }),
+
+  undo: () =>
+    set((state) => {
+      const side = editableSide(state);
+      if (!side || state.composition) return {};
+      const snapshot = state.history.undo(snapshotOf(state, side));
+      if (!snapshot) return {};
+      return {
+        ...restoreSnapshot(state, side, snapshot),
+        canUndo: state.history.canUndo,
+        canRedo: state.history.canRedo,
+      };
+    }),
+
+  redo: () =>
+    set((state) => {
+      const side = editableSide(state);
+      if (!side || state.composition) return {};
+      const snapshot = state.history.redo(snapshotOf(state, side));
+      if (!snapshot) return {};
+      return {
+        ...restoreSnapshot(state, side, snapshot),
+        canUndo: state.history.canUndo,
+        canRedo: state.history.canRedo,
       };
     }),
 
@@ -621,12 +719,10 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
   // relabelled.
   swapSides: () =>
     set((state) => {
-      // An open island commits first: it targets a side by name, and the
-      // swap is about to hand that name to the read-only text — spliced
-      // keystrokes would land in the wrong buffer and be lost on save.
-      const committed = state.island
-        ? { ...state, ...commitIslandUpdate(state, state.island.lines) }
-        : state;
+      // A live composition's text is already in the buffer (updates apply
+      // live); the session bookkeeping and the cursor speak in the old
+      // side's coordinates, so both reset with the swap.
+      const committed = state;
       const swapped = {
         left: committed.right,
         right: committed.left,
@@ -640,9 +736,10 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
       const expandedFolds = new Set<number>();
       return {
         ...swapped,
-        island: null,
+        cursor: null,
+        goalVisual: null,
+        composition: null,
         dirty: committed.dirty,
-        undoTexts: committed.undoTexts,
         // The placeholder's per-side facts swap with the labels above them;
         // a swapped image diff that kept its images in place would lie.
         fallback: swapFallback(committed.fallback),
@@ -781,33 +878,70 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
   },
 }));
 
-/**
- * Replace an island's current lines with what was typed, on the editable
- * side, and re-derive everything positional. Returns the full replacement
- * slice of state, including the updated texts, so callers can compose it.
- */
-function spliceEditable(
+/** What one history step remembers: the editable side's text and cursor. */
+interface DiffEditSnapshot {
+  text: string;
+  cursor: EditorSelection | null;
+}
+
+function snapshotOf(state: DiffStoreState, side: Side): DiffEditSnapshot {
+  return {
+    text: side === "left" ? state.left : state.right,
+    cursor: state.cursor,
+  };
+}
+
+function restoreSnapshot(
   state: DiffStoreState,
   side: Side,
-  start: number,
-  currentLines: readonly string[],
-  newLines: readonly string[],
-): Pick<
-  DiffStoreState,
-  "left" | "right" | "dirty" | "activeChunk" | "expandedFolds"
-> &
-  ReturnType<typeof derive> &
-  ReturnType<typeof deriveFind> {
-  const text = side === "left" ? state.left : state.right;
-  const replaced = replaceLineRange(text, start, currentLines.length, newLines);
+  snapshot: DiffEditSnapshot,
+): Partial<DiffStoreState> {
+  const texts =
+    side === "left"
+      ? { left: snapshot.text, right: state.right }
+      : { left: state.left, right: snapshot.text };
+  const next = { ...state, ...texts };
+  return {
+    ...texts,
+    cursor: snapshot.cursor,
+    goalVisual: null,
+    dirty: snapshot.text !== state.savedText,
+    activeChunk: -1,
+    ...derive(next),
+    ...deriveFind(next),
+  };
+}
+
+/**
+ * Apply one editor edit to the editable side and carry every dependent
+ * structure with it — texts, fold-expansion keys, the find walk, the derived
+ * world, cursor and dirty. Returns null for a true no-op (a collapsed
+ * selection inserting nothing), which callers must not record in history.
+ */
+function applyEditorEdit(
+  state: DiffStoreState,
+  side: Side,
+  selection: EditorSelection,
+  text: string,
+): (Partial<DiffStoreState> & { cursor: EditorSelection }) | null {
+  if (text === "" && isCaret(selection)) return null;
+  const sideText = side === "left" ? state.left : state.right;
+  const lines = splitLines(sideText);
+  const edit = applyTextEdit(lines, selection, text);
+  const trailing = sideText === "" ? true : sideText.endsWith("\n");
+  const replaced =
+    edit.lines.length === 0
+      ? ""
+      : edit.lines.join("\n") + (trailing ? "\n" : "");
+  if (replaced === sideText) return null;
   const texts =
     side === "left"
       ? { left: replaced, right: state.right }
       : { left: state.left, right: replaced };
   const splice: LineSplice = {
-    start,
-    end: start + currentLines.length,
-    delta: newLines.length - currentLines.length,
+    start: edit.replaced.start.line,
+    end: edit.replaced.end.line + 1,
+    delta: edit.lineDelta,
   };
   // Expansion keys are left start lines; a left-side splice shifts every
   // fold below it, and the keys must follow or the folds the user expanded
@@ -820,36 +954,14 @@ function spliceEditable(
   return {
     ...texts,
     expandedFolds,
+    cursor: caretAt(edit.caret.line, edit.caret.col),
+    goalVisual: null,
     dirty: replaced !== state.savedText,
     // The chunk list was just rebuilt; a held index would name a stranger.
     activeChunk: -1,
     ...derive(next),
     ...deriveFind(next, { ...splice, side }),
   };
-}
-
-/** Splice the island's text back and close it — Escape, blur, or the store
- * forcing a commit before an operation that would misdirect the island. */
-function commitIslandUpdate(
-  state: DiffStoreState,
-  lines: readonly string[],
-): Partial<DiffStoreState> {
-  const { island } = state;
-  if (!island) return {};
-  const spliced = spliceEditable(
-    state,
-    island.side,
-    island.start,
-    island.lines,
-    lines,
-  );
-  const text = island.side === "left" ? spliced.left : spliced.right;
-  // A commit that changed nothing takes its undo snapshot back with it.
-  const undoTexts =
-    state.undoTexts[state.undoTexts.length - 1] === text
-      ? state.undoTexts.slice(0, -1)
-      : state.undoTexts;
-  return { ...spliced, island: null, undoTexts };
 }
 
 /**

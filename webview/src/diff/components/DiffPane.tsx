@@ -16,24 +16,7 @@ import {
   type Piece,
   syntaxSpans,
 } from "../utils/highlight";
-import { EditIsland } from "./EditIsland";
 import { LINE_HEIGHT } from "./metrics";
-
-/** An edit island living on this pane: which lines it took over, and hooks. */
-export interface PaneIsland {
-  start: number;
-  lines: string[];
-  /**
-   * How many of the pane's real rows the island stands on. Defaults to the
-   * typed line count; the merge's empty-base slot passes 0 — its textarea is
-   * padded to one visual line the buffer does not have, and blanking a real
-   * row for it would hide the neighbour below the slot.
-   */
-  span?: number;
-  label: string;
-  onLinesChange: (lines: string[]) => void;
-  onCommit: (lines: string[]) => void;
-}
 
 interface DiffPaneProps {
   side: Side;
@@ -59,10 +42,6 @@ interface DiffPaneProps {
    * the chunk kind.
    */
   overrideKinds?: ReadonlyMap<number, string>;
-  /** Double-click opens an edit island — only wired on an editable pane. */
-  onActivateLine?: (line: number) => void;
-  /** The island currently open on this pane, replacing its rows. */
-  island?: PaneIsland | null;
 }
 
 /**
@@ -104,8 +83,6 @@ export function DiffPane({
   matches = [],
   activeMatch = null,
   overrideKinds,
-  onActivateLine,
-  island = null,
 }: DiffPaneProps) {
   const highlighter = useShiki();
 
@@ -138,7 +115,6 @@ export function DiffPane({
   const rows = useMemo(() => {
     type RenderedRow =
       | { row: number; fold: FoldRegion }
-      | { row: number; spacer: true }
       | { row: number; line: number; kind: ChunkKind; pieces: Piece[] };
     const rendered: RenderedRow[] = [];
     for (let row = first; row < last; row++) {
@@ -148,17 +124,6 @@ export function DiffPane({
         continue;
       }
       const index = source.line;
-      // An open island owns its lines: the textarea renders them, so the
-      // pane keeps their rows as blank spacers — the rows below must not
-      // shift up into the island's space.
-      if (
-        island &&
-        index >= island.start &&
-        index < island.start + (island.span ?? island.lines.length)
-      ) {
-        rendered.push({ row, spacer: true });
-        continue;
-      }
       const line = lines[index] ?? "";
       const chunk = chunkAt(chunks, side, index);
       const kind = chunk?.kind ?? "equal";
@@ -211,7 +176,6 @@ export function DiffPane({
     matchesByLine,
     activeMatch,
     folds,
-    island,
   ]);
 
   // Only the anchors near the viewport: a large file has one per insertion,
@@ -258,22 +222,9 @@ export function DiffPane({
               </button>
             );
           }
-          if ("spacer" in row) {
-            // A row the island's textarea is standing on: it keeps the
-            // height and stays silent — the textarea announces itself.
-            return (
-              <div key={row.row} className="diff-line" aria-hidden="true" />
-            );
-          }
           const kind = overrideKinds?.get(row.line) ?? row.kind;
           return (
-            <div
-              key={row.row}
-              className={`diff-line diff-line-${kind}`}
-              onDoubleClick={
-                onActivateLine ? () => onActivateLine(row.line) : undefined
-              }
-            >
+            <div key={row.row} className={`diff-line diff-line-${kind}`}>
               {/* The row's state lives entirely in a background colour, which
                   a screen reader cannot see; this prefix is the audible
                   version, and takes no visual space. */}
@@ -308,18 +259,6 @@ export function DiffPane({
           );
         })}
       </div>
-      {island && (
-        <EditIsland
-          // Positioned against the viewport rather than rendered as a row, so
-          // it stays mounted — and keeps its caret, selection and undo —
-          // however far the user scrolls while it is open.
-          top={(displayLine(folds, island.start, side) - offset) * LINE_HEIGHT}
-          lines={island.lines}
-          label={island.label}
-          onLinesChange={island.onLinesChange}
-          onCommit={island.onCommit}
-        />
-      )}
     </div>
   );
 }

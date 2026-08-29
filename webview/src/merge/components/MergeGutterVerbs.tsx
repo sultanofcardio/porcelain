@@ -3,7 +3,6 @@ import { displayLine } from "../../diff/utils/diff-model";
 import { Tooltip } from "../../shared/components/Tooltip";
 import { paneFolds, useMergeStore } from "../../shared/store/merge-store";
 import type { MergeFolds } from "../utils/merge-model";
-import { regionResolved } from "../utils/merge-model";
 
 interface MergeGutterVerbsProps {
   /** Which flank this gutter faces — decides the verbs and their glyphs. */
@@ -55,10 +54,14 @@ export function MergeGutterVerbs({
             : displayLine(folds.pairO, region.start, "right") - resultOffset;
         if (row < -1 || row > visibleLines + 1) return null;
 
-        const resolved = regionResolved(region);
         const state = flank === "ours" ? region.oursState : region.theirsState;
         const ordinal = `conflict ${index + 1}`;
 
+        // Each flank's verbs follow that flank's own state, the IntelliJ
+        // shape: an accepted side offers revert; an un-taken side keeps its
+        // accept verb — clicking it appends that slice below what already
+        // landed — and a still-pending side keeps its full set. Nothing here
+        // depends on whether the region as a whole counts as resolved.
         return (
           <div
             key={index}
@@ -68,80 +71,67 @@ export function MergeGutterVerbs({
               [flank === "ours" ? "left" : "right"]: 2,
             }}
           >
-            {resolved ? (
-              <>
-                <Tooltip text="Revert this conflict to the base">
-                  <button
-                    type="button"
-                    className="merge-verb merge-verb-revert"
-                    aria-label={`Revert ${ordinal}`}
-                    disabled={composing}
-                    onClick={() => decideRegion(index, { action: "revert" })}
-                  >
-                    ↺
-                  </button>
-                </Tooltip>
-                {/* Accept-both stays reachable, IntelliJ-style: a resolved
-                    region keeps the accept verb for the flank not yet taken,
-                    and clicking it adds that slice after the accepted one. */}
-                {state !== "accepted" && slice.length > 0 && (
-                  <Tooltip text={`Also accept ${flank} into the result`}>
-                    <button
-                      type="button"
-                      className="merge-verb merge-verb-accept"
-                      aria-label={`Accept ${flank} for ${ordinal}`}
-                      disabled={composing}
-                      onClick={() =>
-                        decideRegion(index, { action: "accept", side: flank })
-                      }
-                    >
-                      {acceptGlyph}
-                    </button>
-                  </Tooltip>
-                )}
-              </>
-            ) : (
-              <>
-                <Tooltip text={`Accept ${flank} into the result`}>
-                  <button
-                    type="button"
-                    className="merge-verb merge-verb-accept"
-                    aria-label={`Accept ${flank} for ${ordinal}`}
-                    disabled={composing || state === "accepted"}
-                    onClick={() =>
-                      decideRegion(index, { action: "accept", side: flank })
-                    }
-                  >
-                    {acceptGlyph}
-                  </button>
-                </Tooltip>
-                <Tooltip text={`Ignore the ${flank} side`}>
-                  <button
-                    type="button"
-                    className="merge-verb merge-verb-ignore"
-                    aria-label={`Ignore ${flank} for ${ordinal}`}
-                    disabled={composing || state === "ignored"}
-                    onClick={() =>
-                      decideRegion(index, { action: "ignore", side: flank })
-                    }
-                  >
-                    ✕
-                  </button>
-                </Tooltip>
-                {flank === "ours" && (
-                  <Tooltip text="Edit the result here by hand">
-                    <button
-                      type="button"
-                      className="merge-verb"
-                      aria-label={`Edit result for ${ordinal}`}
-                      disabled={composing}
-                      onClick={() => editRegionByHand(index)}
-                    >
-                      ✎
-                    </button>
-                  </Tooltip>
-                )}
-              </>
+            {state !== "accepted" && slice.length > 0 && (
+              <Tooltip
+                text={
+                  state === "ignored"
+                    ? `Also accept ${flank} below what landed`
+                    : `Accept ${flank} into the result`
+                }
+              >
+                <button
+                  type="button"
+                  className="merge-verb merge-verb-accept"
+                  aria-label={`Accept ${flank} for ${ordinal}`}
+                  disabled={composing}
+                  onClick={() =>
+                    decideRegion(index, { action: "accept", side: flank })
+                  }
+                >
+                  {acceptGlyph}
+                </button>
+              </Tooltip>
+            )}
+            {state === "pending" && (
+              <Tooltip text={`Ignore the ${flank} side`}>
+                <button
+                  type="button"
+                  className="merge-verb merge-verb-ignore"
+                  aria-label={`Ignore ${flank} for ${ordinal}`}
+                  disabled={composing}
+                  onClick={() =>
+                    decideRegion(index, { action: "ignore", side: flank })
+                  }
+                >
+                  ✕
+                </button>
+              </Tooltip>
+            )}
+            {(state !== "pending" || region.edited) && (
+              <Tooltip text="Revert this conflict to the base">
+                <button
+                  type="button"
+                  className="merge-verb merge-verb-revert"
+                  aria-label={`Revert ${ordinal}`}
+                  disabled={composing}
+                  onClick={() => decideRegion(index, { action: "revert" })}
+                >
+                  ↺
+                </button>
+              </Tooltip>
+            )}
+            {flank === "ours" && state === "pending" && !region.edited && (
+              <Tooltip text="Edit the result here by hand">
+                <button
+                  type="button"
+                  className="merge-verb"
+                  aria-label={`Edit result for ${ordinal}`}
+                  disabled={composing}
+                  onClick={() => editRegionByHand(index)}
+                >
+                  ✎
+                </button>
+              </Tooltip>
             )}
           </div>
         );

@@ -23,28 +23,6 @@ export function splitLines(text: string): string[] {
   return lines;
 }
 
-/**
- * Replace a run of lines in a document, preserving its trailing-newline state.
- *
- * The editing paths (edit islands, the merge result buffer) speak in lines,
- * but the store and the save pipeline speak in whole strings — this is the
- * one place the two meet, so the EOF newline cannot be silently eaten or
- * invented by a splice.
- */
-export function replaceLineRange(
-  text: string,
-  start: number,
-  count: number,
-  newLines: readonly string[],
-): string {
-  const lines = splitLines(text);
-  lines.splice(start, count, ...newLines);
-  if (lines.length === 0) return "";
-  // An empty document that gains lines gets the conventional trailing newline.
-  const trailing = text === "" ? true : text.endsWith("\n");
-  return lines.join("\n") + (trailing ? "\n" : "");
-}
-
 /** A half-open run of lines on one side, 0-based. */
 export interface Span {
   start: number;
@@ -399,41 +377,6 @@ export function computeFolds(
   }
 
   return folds;
-}
-
-/** The widest edit island, in lines — a textarea, not a document editor. */
-const EDIT_RANGE_CAP = 200;
-const EDIT_RANGE_WINDOW = 20;
-
-/**
- * What an edit island opened at `line` covers on one side: the containing
- * chunk, so an edit maps cleanly onto one change — capped for huge chunks,
- * where it becomes a window around the click instead. Equal runs use the
- * small window: touching up unchanged code is a spot edit, not a review.
- */
-export function editRangeAt(
-  chunks: readonly DiffChunk[],
-  side: Side,
-  line: number,
-  lineCount: number,
-): { start: number; count: number } {
-  const clamp = (start: number, end: number) => ({
-    start: Math.max(0, start),
-    count: Math.max(1, Math.min(lineCount, end) - Math.max(0, start)),
-  });
-  for (const chunk of chunks) {
-    const span = side === "left" ? chunk.left : chunk.right;
-    if (line < span.start || line >= span.start + span.count) continue;
-    if (chunk.kind !== "equal" && span.count <= EDIT_RANGE_CAP) {
-      return { start: span.start, count: span.count };
-    }
-    const window = chunk.kind === "equal" ? EDIT_RANGE_WINDOW : 100;
-    return clamp(
-      Math.max(span.start, line - window),
-      Math.min(span.start + span.count, line + window + 1),
-    );
-  }
-  return clamp(line, line + 1);
 }
 
 export type DiffLayout = { mode: "split" } | { mode: "single"; side: Side };
