@@ -52,6 +52,13 @@ export interface CommitChangesParams extends Record<string, unknown> {
   filePaths?: string[];
 }
 
+/**
+ * The one ref sentinel the webview must recognise: a side addressed as the
+ * file on disk is the only side that can own an editable buffer. Mirrors the
+ * host's `workingTreeDiffModel.ts`.
+ */
+export const WORKING_TREE_REF = "__porcelain_worktree__";
+
 /** What both sides of a diff are, independent of what they contain. */
 export interface DiffSidesMeta {
   filePath: string;
@@ -91,6 +98,34 @@ export type DiffSidesResult =
   | ({ kind: "tooLarge"; lines: number; limit: number } & DiffSidesMeta)
   /** A read that failed for a reason other than the file being absent. */
   | ({ kind: "unreadable"; reason: string } & DiffSidesMeta);
+
+/** What every `getFileVersions` answer carries, whatever the content is. */
+export interface FileVersionsMeta {
+  filePath: string;
+  language: string;
+  mergeMsg: string;
+  /** Display labels: the current branch, and what is being merged in. */
+  oursLabel: string;
+  theirsLabel: string;
+}
+
+/**
+ * The `getFileVersions` answer, typed at last — the webview used to re-declare
+ * this shape locally and silently drop fields. Classified like `getDiffSides`:
+ * the host holds the bytes of all three stages, so it says what they are, and
+ * a binary or oversized conflict gets a placeholder with whole-file verbs
+ * instead of feeding diff3 garbage.
+ */
+export type FileVersionsResult =
+  | ({
+      kind: "text";
+      base: string;
+      ours: string;
+      theirs: string;
+    } & FileVersionsMeta)
+  | ({ kind: "binary"; bytes: number } & FileVersionsMeta)
+  | ({ kind: "tooLarge"; lines: number; limit: number } & FileVersionsMeta)
+  | ({ kind: "unreadable"; reason: string } & FileVersionsMeta);
 
 /**
  * Public repo identity as seen by the webview. The host-only `RepositoryPaths`
@@ -145,6 +180,7 @@ export type CommandType =
   | "getConflictFiles"
   | "getFileVersions"
   | "saveMergedContent"
+  | "writeFileContent"
   | "stageFile"
   | "unstageFile"
   | "stageAll"

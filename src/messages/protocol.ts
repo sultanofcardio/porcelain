@@ -82,6 +82,34 @@ export type DiffSidesResult =
   /** A read that failed for a reason other than the file being absent. */
   | ({ kind: "unreadable"; reason: string } & DiffSidesMeta);
 
+/** What every `getFileVersions` answer carries, whatever the content is. */
+export interface FileVersionsMeta {
+  filePath: string;
+  language: string;
+  mergeMsg: string;
+  /** Display labels: the current branch, and what is being merged in. */
+  oursLabel: string;
+  theirsLabel: string;
+}
+
+/**
+ * The `getFileVersions` answer, typed at last — the webview used to re-declare
+ * this shape locally and silently drop fields. Classified like `getDiffSides`:
+ * the host holds the bytes of all three stages, so it says what they are, and
+ * a binary or oversized conflict gets a placeholder with whole-file verbs
+ * instead of feeding diff3 garbage.
+ */
+export type FileVersionsResult =
+  | ({
+      kind: "text";
+      base: string;
+      ours: string;
+      theirs: string;
+    } & FileVersionsMeta)
+  | ({ kind: "binary"; bytes: number } & FileVersionsMeta)
+  | ({ kind: "tooLarge"; lines: number; limit: number } & FileVersionsMeta)
+  | ({ kind: "unreadable"; reason: string } & FileVersionsMeta);
+
 export interface RequestMessage {
   type: "request";
   id: string;
@@ -141,6 +169,7 @@ export type CommandType =
   | "getConflictFiles"
   | "getFileVersions"
   | "saveMergedContent"
+  | "writeFileContent"
   | "stageFile"
   | "unstageFile"
   | "stageAll"

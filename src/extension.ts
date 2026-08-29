@@ -1,4 +1,5 @@
 import * as nodefs from "node:fs/promises";
+import * as nodepath from "node:path";
 import * as vscode from "vscode";
 import {
   BranchDashboardStateStore,
@@ -27,6 +28,7 @@ import {
   type DiffSidesMeta,
   type DiffSidesResult,
   ErrorCode,
+  type FileVersionsResult,
 } from "./messages/protocol";
 import { ChangesWindowManager } from "./views/changesWindowManager";
 import { CommitViewProvider } from "./views/commitViewProvider";
@@ -767,14 +769,65 @@ export async function activate(context: vscode.ExtensionContext) {
     if (!ctx) return NOT_GIT_REPO;
     const { gitService } = ctx;
     const filePath = params.filePath as string;
-    const versions = await gitService.getFileVersions(filePath);
+
+    // The three stages as bytes: a binary stage must be classified, not
+    // UTF-8-decoded into mojibake and handed to diff3. A stage missing from
+    // the index (added on one side only) reads as empty, which is exactly
+    // what the merge model wants.
+    const read = (stage: string) =>
+      gitService
+        .getFileContentBuffer(stage, filePath)
+        .catch(() => Buffer.alloc(0));
+    const [base, ours, theirs] = await Promise.all([
+      read(":1"),
+      read(":2"),
+      read(":3"),
+    ]);
+
     const mergeState = await gitService.getMergeState();
-    const ext = filePath.split(".").pop() ?? "";
-    return {
-      ...versions,
-      language: extToLanguage(ext),
-      mergeMsg: mergeState.mergeMsg,
+    const branch = await gitService.getCurrentBranch().catch(() => null);
+    // "Merge branch 'x'" carries the human name; the hash is the fallback.
+    const mergeMsg = mergeState.isMerging ? (mergeState.mergeMsg ?? "") : "";
+    const theirsLabel =
+      /branch '([^']+)'/.exec(mergeMsg)?.[1] ??
+      (mergeState.isMerging && mergeState.mergeHead
+        ? mergeState.mergeHead.slice(0, 7)
+        : "MERGE_HEAD");
+    const meta = {
+      filePath,
+      language: extToLanguage(filePath.split(".").pop() ?? ""),
+      mergeMsg,
+      oursLabel: branch ?? "HEAD",
+      theirsLabel,
     };
+
+    if ([base, ours, theirs].some(isBinaryContent)) {
+      return {
+        kind: "binary",
+        bytes: Math.max(ours.length, theirs.length),
+        ...meta,
+      } satisfies FileVersionsResult;
+    }
+    const lines = Math.max(
+      countLines(base),
+      countLines(ours),
+      countLines(theirs),
+    );
+    if (lines > LARGE_DIFF_LINE_LIMIT) {
+      return {
+        kind: "tooLarge",
+        lines,
+        limit: LARGE_DIFF_LINE_LIMIT,
+        ...meta,
+      } satisfies FileVersionsResult;
+    }
+    return {
+      kind: "text",
+      base: base.toString("utf8"),
+      ours: ours.toString("utf8"),
+      theirs: theirs.toString("utf8"),
+      ...meta,
+    } satisfies FileVersionsResult;
   });
 
   messageRouter.handle("saveMergedContent", async (params, ctx) => {
@@ -783,6 +836,32 @@ export async function activate(context: vscode.ExtensionContext) {
       params.filePath as string,
       params.content as string,
     );
+    // The save is a working-tree change like any other: without this the
+    // conflicts list and the log panel only hear about it at the next poke.
+    messageRouter.broadcastEvent("gitStateChanged", {
+      scope: "status",
+      repoId: ctx.repoId,
+    });
+    return { success: true };
+  });
+
+  messageRouter.handle("writeFileContent", async (params, ctx) => {
+    if (!ctx) return NOT_GIT_REPO;
+    const filePath = params.filePath as string;
+    const content = params.content as string;
+    // The one write path diff editing has, and it writes only the working
+    // tree: resolve against the repo root and refuse anything that escapes
+    // it — the webview names files, it does not get to name paths.
+    const root = ctx.paths.workTreeRoot;
+    const target = nodepath.resolve(root, filePath);
+    if (!target.startsWith(root + nodepath.sep)) {
+      throw new Error(`Refusing to write outside the repository: ${filePath}`);
+    }
+    await nodefs.writeFile(target, content, "utf-8");
+    messageRouter.broadcastEvent("gitStateChanged", {
+      scope: "status",
+      repoId: ctx.repoId,
+    });
     return { success: true };
   });
 

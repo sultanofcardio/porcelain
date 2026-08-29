@@ -16,7 +16,17 @@ import {
   type Piece,
   syntaxSpans,
 } from "../utils/highlight";
+import { EditIsland } from "./EditIsland";
 import { LINE_HEIGHT } from "./metrics";
+
+/** An edit island living on this pane: which lines it took over, and hooks. */
+export interface PaneIsland {
+  start: number;
+  lines: string[];
+  label: string;
+  onLinesChange: (lines: string[]) => void;
+  onCommit: (lines: string[]) => void;
+}
 
 interface DiffPaneProps {
   side: Side;
@@ -36,6 +46,16 @@ interface DiffPaneProps {
   matches?: FindMatch[];
   /** The match the find stepper is on, when there is one. */
   activeMatch?: FindMatch | null;
+  /**
+   * Row colour overrides by source line. The merge surface paints conflict
+   * regions over what the pair diff would say; anything absent falls back to
+   * the chunk kind.
+   */
+  overrideKinds?: ReadonlyMap<number, string>;
+  /** Double-click opens an edit island — only wired on an editable pane. */
+  onActivateLine?: (line: number) => void;
+  /** The island currently open on this pane, replacing its rows. */
+  island?: PaneIsland | null;
 }
 
 /**
@@ -76,6 +96,9 @@ export function DiffPane({
   onToggleFold,
   matches = [],
   activeMatch = null,
+  overrideKinds,
+  onActivateLine,
+  island = null,
 }: DiffPaneProps) {
   const highlighter = useShiki();
 
@@ -108,6 +131,7 @@ export function DiffPane({
   const rows = useMemo(() => {
     type RenderedRow =
       | { row: number; fold: FoldRegion }
+      | { row: number; spacer: true }
       | { row: number; line: number; kind: ChunkKind; pieces: Piece[] };
     const rendered: RenderedRow[] = [];
     for (let row = first; row < last; row++) {
@@ -117,6 +141,17 @@ export function DiffPane({
         continue;
       }
       const index = source.line;
+      // An open island owns its lines: the textarea renders them, so the
+      // pane keeps their rows as blank spacers — the rows below must not
+      // shift up into the island's space.
+      if (
+        island &&
+        index >= island.start &&
+        index < island.start + island.lines.length
+      ) {
+        rendered.push({ row, spacer: true });
+        continue;
+      }
       const line = lines[index] ?? "";
       const chunk = chunkAt(chunks, side, index);
       const kind = chunk?.kind ?? "equal";
@@ -169,6 +204,7 @@ export function DiffPane({
     matchesByLine,
     activeMatch,
     folds,
+    island,
   ]);
 
   // Only the anchors near the viewport: a large file has one per insertion,
@@ -199,26 +235,43 @@ export function DiffPane({
           transform: `translateY(${-(offset - first) * LINE_HEIGHT}px)`,
         }}
       >
-        {rows.map((row) =>
-          "fold" in row ? (
-            <button
+        {rows.map((row) => {
+          if ("fold" in row) {
+            return (
+              <button
+                key={row.row}
+                type="button"
+                className="diff-fold-row"
+                // The count carries the accessible name; the glyph is decor.
+                aria-label={`Expand ${row.fold.hiddenLines} unchanged lines`}
+                onClick={() => onToggleFold?.(row.fold)}
+              >
+                <span aria-hidden="true">▸ </span>
+                {row.fold.hiddenLines} unchanged lines
+              </button>
+            );
+          }
+          if ("spacer" in row) {
+            // A row the island's textarea is standing on: it keeps the
+            // height and stays silent — the textarea announces itself.
+            return (
+              <div key={row.row} className="diff-line" aria-hidden="true" />
+            );
+          }
+          const kind = overrideKinds?.get(row.line) ?? row.kind;
+          return (
+            <div
               key={row.row}
-              type="button"
-              className="diff-fold-row"
-              // The count carries the accessible name; the glyph is decor.
-              aria-label={`Expand ${row.fold.hiddenLines} unchanged lines`}
-              onClick={() => onToggleFold?.(row.fold)}
+              className={`diff-line diff-line-${kind}`}
+              onDoubleClick={
+                onActivateLine ? () => onActivateLine(row.line) : undefined
+              }
             >
-              <span aria-hidden="true">▸ </span>
-              {row.fold.hiddenLines} unchanged lines
-            </button>
-          ) : (
-            <div key={row.row} className={`diff-line diff-line-${row.kind}`}>
               {/* The row's state lives entirely in a background colour, which
                   a screen reader cannot see; this prefix is the audible
                   version, and takes no visual space. */}
               <span className="diff-sr-only">
-                {`Line ${row.line + 1}${row.kind === "equal" ? "" : `, ${row.kind}`}: `}
+                {`Line ${row.line + 1}${kind === "equal" ? "" : `, ${kind}`}: `}
               </span>
               {row.pieces.length === 0
                 ? " "
@@ -245,9 +298,21 @@ export function DiffPane({
                     </span>
                   ))}
             </div>
-          ),
-        )}
+          );
+        })}
       </div>
+      {island && (
+        <EditIsland
+          // Positioned against the viewport rather than rendered as a row, so
+          // it stays mounted — and keeps its caret, selection and undo —
+          // however far the user scrolls while it is open.
+          top={(displayLine(folds, island.start, side) - offset) * LINE_HEIGHT}
+          lines={island.lines}
+          label={island.label}
+          onLinesChange={island.onLinesChange}
+          onCommit={island.onCommit}
+        />
+      )}
     </div>
   );
 }

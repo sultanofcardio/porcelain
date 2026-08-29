@@ -6,7 +6,9 @@ import {
   computeFolds,
   countDifferences,
   type DiffChunk,
+  editRangeAt,
   type FoldRegion,
+  replaceLineRange,
   type Side,
   sideToAxis,
   splitLines,
@@ -17,7 +19,7 @@ import {
   unifiedRowOf,
   unifiedRows,
 } from "../../diff/utils/unified";
-import type { DiffSidesResult } from "../bridge/types";
+import { type DiffSidesResult, WORKING_TREE_REF } from "../bridge/types";
 
 /**
  * What the viewer shows instead of text panes. `null` means an ordinary text
@@ -103,6 +105,29 @@ export interface DiffStoreState {
   findRight: SideFindState;
   activeFindSide: Side | null;
 
+  /**
+   * Editing — exposed only where a side can own a buffer, which is exactly
+   * the sides addressed as the working tree (decision 2 of the merge scope
+   * review). Everything here is inert when `editableSide()` is null.
+   */
+  island: { side: Side; start: number; lines: string[] } | null;
+  /** The editable side's text differs from what was last loaded or saved. */
+  dirty: boolean;
+  /** What the disk held at load/save time — the baseline `dirty` compares to. */
+  savedText: string | null;
+  /** The file changed on disk while there are unsaved edits. */
+  diskChanged: boolean;
+  /** Snapshots of the editable side, one per structural edit, oldest first. */
+  undoTexts: string[];
+
+  openIsland: (line: number) => void;
+  /** Live splice while typing — fired when the island's line count changes. */
+  islandLinesChanged: (lines: string[]) => void;
+  commitIsland: (lines: string[]) => void;
+  undoEdit: () => void;
+  markSaved: () => void;
+  setDiskChanged: (changed: boolean) => void;
+
   setSides: (sides: DiffSidesResult) => void;
   setError: (message: string | null) => void;
   setWhitespace: (value: Whitespace) => void;
@@ -160,6 +185,24 @@ const EMPTY_SIDE_FIND: SideFindState = {
   matches: [],
   activeMatch: -1,
 };
+
+/**
+ * Which side owns a buffer: the one addressed as the file on disk, and only
+ * that one. Historical refs cannot be edited into rewritten commits, and the
+ * index side stays read-only — staging hunks is `git add -p` territory, not a
+ * text editor. Derived from the refs rather than stored, so Swap Sides cannot
+ * leave it stale.
+ */
+export function editableSide(state: {
+  leftRef: string;
+  rightRef: string;
+}): Side | null {
+  if (state.rightRef === WORKING_TREE_REF) return "right";
+  if (state.leftRef === WORKING_TREE_REF) return "left";
+  return null;
+}
+
+const UNDO_LIMIT = 100;
 
 function chunkOptionsFor(whitespace: Whitespace): ChunkOptions {
   return { ignoreWhitespace: whitespace === "trim" };
@@ -299,6 +342,12 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
   findRight: EMPTY_SIDE_FIND,
   activeFindSide: null,
 
+  island: null,
+  dirty: false,
+  savedText: null,
+  diskChanged: false,
+  undoTexts: [],
+
   setSides: (sides) =>
     set((state) => {
       const { kind, filePath, leftRef, rightRef, leftLabel, rightLabel } =
@@ -324,16 +373,120 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
             // and the derived state empties so the toolbar and stripe go
             // quiet.
             { left: "", right: "", fallback: sides };
+      // Fresh content resets the whole editing story: the baseline is what
+      // just arrived, and history over the old text would splice garbage.
+      const editable = editableSide({ leftRef, rightRef });
+      const editing = {
+        island: null,
+        dirty: false,
+        savedText:
+          kind === "text" && editable
+            ? editable === "left"
+              ? text.left
+              : text.right
+            : null,
+        diskChanged: false,
+        undoTexts: [] as string[],
+      };
       const next = { ...state, ...meta, ...text };
       return {
         ...meta,
         ...text,
+        ...editing,
         ...derive(next),
         ...deriveFind(next),
       };
     }),
 
   setError: (message) => set({ error: message, loading: false }),
+
+  openIsland: (line) =>
+    set((state) => {
+      const side = editableSide(state);
+      if (!side || state.fallback || state.loading || state.island) return {};
+      const text = side === "left" ? state.left : state.right;
+      const sideLines = splitLines(text);
+      const range = editRangeAt(state.chunks, side, line, sideLines.length);
+      const islandLines =
+        sideLines.length === 0
+          ? [""]
+          : sideLines.slice(range.start, range.start + range.count);
+      return {
+        island: { side, start: range.start, lines: islandLines },
+        // One structural undo step per island, taken at open so the whole
+        // edit — however many keystrokes — reverts as a unit.
+        undoTexts: [...state.undoTexts.slice(-(UNDO_LIMIT - 1)), text],
+      };
+    }),
+
+  islandLinesChanged: (lines) =>
+    set((state) => {
+      const { island } = state;
+      if (!island) return {};
+      return {
+        ...spliceEditable(
+          state,
+          island.side,
+          island.start,
+          island.lines,
+          lines,
+        ),
+        island: { ...island, lines },
+      };
+    }),
+
+  commitIsland: (lines) =>
+    set((state) => {
+      const { island } = state;
+      if (!island) return {};
+      const spliced = spliceEditable(
+        state,
+        island.side,
+        island.start,
+        island.lines,
+        lines,
+      );
+      const text = island.side === "left" ? spliced.left : spliced.right;
+      // A commit that changed nothing takes its undo snapshot back with it.
+      const undoTexts =
+        state.undoTexts[state.undoTexts.length - 1] === text
+          ? state.undoTexts.slice(0, -1)
+          : state.undoTexts;
+      return { ...spliced, island: null, undoTexts };
+    }),
+
+  undoEdit: () =>
+    set((state) => {
+      const side = editableSide(state);
+      // Not while an island is open: its textarea owns undo until it commits.
+      if (!side || state.island || state.undoTexts.length === 0) return {};
+      const previous = state.undoTexts[state.undoTexts.length - 1];
+      const texts =
+        side === "left"
+          ? { left: previous, right: state.right }
+          : { left: state.left, right: previous };
+      const next = { ...state, ...texts };
+      return {
+        ...texts,
+        undoTexts: state.undoTexts.slice(0, -1),
+        dirty: previous !== state.savedText,
+        ...derive(next),
+        ...deriveFind(next),
+      };
+    }),
+
+  markSaved: () =>
+    set((state) => {
+      const side = editableSide(state);
+      if (!side) return {};
+      return {
+        savedText: side === "left" ? state.left : state.right,
+        dirty: false,
+        diskChanged: false,
+      };
+    }),
+
+  setDiskChanged: (diskChanged) => set({ diskChanged }),
 
   setWhitespace: (whitespace) =>
     // Per-side match lists are ordered within their own document, so a
@@ -537,6 +690,35 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
     return sideToAxis(chunks, match.line, match.side, folds);
   },
 }));
+
+/**
+ * Replace an island's current lines with what was typed, on the editable
+ * side, and re-derive everything positional. Returns the full replacement
+ * slice of state, including the updated texts, so callers can compose it.
+ */
+function spliceEditable(
+  state: DiffStoreState,
+  side: Side,
+  start: number,
+  currentLines: readonly string[],
+  newLines: readonly string[],
+): Pick<DiffStoreState, "left" | "right" | "dirty"> &
+  ReturnType<typeof derive> &
+  ReturnType<typeof deriveFind> {
+  const text = side === "left" ? state.left : state.right;
+  const replaced = replaceLineRange(text, start, currentLines.length, newLines);
+  const texts =
+    side === "left"
+      ? { left: replaced, right: state.right }
+      : { left: state.left, right: replaced };
+  const next = { ...state, ...texts };
+  return {
+    ...texts,
+    dirty: replaced !== state.savedText,
+    ...derive(next),
+    ...deriveFind(next),
+  };
+}
 
 /**
  * One bar changed its query or an option: re-search that side only, and hand

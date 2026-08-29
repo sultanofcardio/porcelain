@@ -8,11 +8,11 @@ import {
 } from "react";
 import { bridge } from "../shared/bridge";
 import type { DiffSidesResult } from "../shared/bridge/types";
-import { useDiffStore } from "../shared/store/diff-store";
+import { editableSide, useDiffStore } from "../shared/store/diff-store";
 import { ChangeStripe, splitStripeMarks } from "./components/ChangeStripe";
 import { DiffFallback } from "./components/DiffFallback";
 import { DiffGutter } from "./components/DiffGutter";
-import { DiffPane } from "./components/DiffPane";
+import { DiffPane, type PaneIsland } from "./components/DiffPane";
 import { DiffToolbar } from "./components/DiffToolbar";
 import { FindBar } from "./components/FindBar";
 import { gutterMetrics, LINE_HEIGHT } from "./components/metrics";
@@ -21,6 +21,7 @@ import { UnifiedPane } from "./components/UnifiedPane";
 import {
   axisToSide,
   chooseLayout,
+  type Side,
   sideToAxis,
   splitLines,
 } from "./utils/diff-model";
@@ -35,6 +36,9 @@ export function DiffApp() {
   // "Show anyway" on an oversized diff. Per-diff by construction: opening
   // another diff replaces the webview's html, which remounts the app.
   const [force, setForce] = useState(false);
+  // Bumped to re-request the sides: the disk-banner's Reload, and quiet
+  // refreshes when the file changes under a clean editable diff.
+  const [reloadNonce, setReloadNonce] = useState(0);
 
   const root = document.getElementById("root");
   const filePath = root?.dataset.diffPath ?? "";
@@ -42,6 +46,8 @@ export function DiffApp() {
   const rightRef = root?.dataset.rightRef ?? "";
 
   useEffect(() => {
+    // Not an input to the request — a re-fetch trigger (disk reloads).
+    void reloadNonce;
     let cancelled = false;
     bridge
       .request("getDiffSides", { filePath, leftRef, rightRef, force })
@@ -58,7 +64,41 @@ export function DiffApp() {
     return () => {
       cancelled = true;
     };
-  }, [filePath, leftRef, rightRef, force]);
+  }, [filePath, leftRef, rightRef, force, reloadNonce]);
+
+  // The working tree can change under an open diff — a formatter, a checkout,
+  // the native editor. Clean view: refresh quietly. Unsaved edits (or an open
+  // island): never silently merge — raise the banner and let the user pick.
+  useEffect(() => {
+    return bridge.onEvent((event) => {
+      if (event !== "gitStateChanged") return;
+      const state = useDiffStore.getState();
+      if (!editableSide(state)) return;
+      if (state.dirty || state.island) state.setDiskChanged(true);
+      else setReloadNonce((nonce) => nonce + 1);
+    });
+  }, []);
+
+  const save = useCallback(async () => {
+    const state = useDiffStore.getState();
+    const side = editableSide(state);
+    if (!side || !state.dirty) return;
+    try {
+      await bridge.request("writeFileContent", {
+        filePath,
+        content: side === "left" ? state.left : state.right,
+      });
+      useDiffStore.getState().markSaved();
+    } catch (error) {
+      useDiffStore
+        .getState()
+        .setError(
+          `Save failed: ${error instanceof Error ? error.message : error}`,
+        );
+    }
+  }, [filePath]);
+  const saveRef = useRef(save);
+  saveRef.current = save;
 
   // Measured rather than derived, because the number of rows to render depends
   // on it.
@@ -125,6 +165,14 @@ export function DiffApp() {
         event.preventDefault();
         return;
       }
+      // Save works from anywhere — muscle memory does not check focus. The
+      // island never sees this path: it stops propagation of its own keys
+      // and commits on Escape/blur first.
+      if ((event.metaKey || event.ctrlKey) && event.key === "s") {
+        void saveRef.current();
+        event.preventDefault();
+        return;
+      }
       if (event.key === "Escape" && useDiffStore.getState().findOpen) {
         useDiffStore.getState().closeFind();
         return;
@@ -145,6 +193,10 @@ export function DiffApp() {
         return;
       if (event.key === "F7") {
         stepRef.current(event.shiftKey ? -1 : 1);
+        event.preventDefault();
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key === "z") {
+        useDiffStore.getState().undoEdit();
         event.preventDefault();
       }
       if (
@@ -184,6 +236,29 @@ export function DiffApp() {
   // and the unified toggle has nothing to unify there.
   const layout = chooseLayout(store.left, store.right);
   const unified = store.viewMode === "unified" && layout.mode === "split";
+
+  // Editing, where a side owns a buffer (the working tree, per the merge
+  // scope review's decision 2). Unified view stays read-only: islands live
+  // in a pane's own coordinate space, which unified rows do not have.
+  const editable = editableSide(store);
+  const { island } = store;
+  const paneIslandFor = (side: Side): PaneIsland | null =>
+    island && island.side === side
+      ? {
+          start: island.start,
+          lines: island.lines,
+          label: `Editing lines ${island.start + 1} to ${
+            island.start + Math.max(1, island.lines.length)
+          } of ${filePath} — Escape commits`,
+          onLinesChange: (lines) =>
+            useDiffStore.getState().islandLinesChanged(lines),
+          onCommit: (lines) => useDiffStore.getState().commitIsland(lines),
+        }
+      : null;
+  const activateFor = (side: Side) =>
+    editable === side && !unified && !store.fallback
+      ? (line: number) => useDiffStore.getState().openIsland(line)
+      : undefined;
 
   // The unified row list: the same chunks and folds, rendered one column.
   const rows = useMemo(
@@ -325,6 +400,26 @@ export function DiffApp() {
             />
           </div>
         ))}
+      {store.diskChanged && (
+        <div className="diff-disk-banner" role="alert">
+          <span>
+            This file changed on disk while you were editing. Reload discards
+            your unsaved edits; keep leaves the view as it is.
+          </span>
+          <button
+            type="button"
+            onClick={() => setReloadNonce((nonce) => nonce + 1)}
+          >
+            Reload from disk
+          </button>
+          <button
+            type="button"
+            onClick={() => useDiffStore.getState().setDiskChanged(false)}
+          >
+            Keep my edits
+          </button>
+        </div>
+      )}
       <RevisionHeader />
       <div className="diff-body">
         {/* Focusable so the keyboard can drive it: a focused scroll
@@ -387,6 +482,8 @@ export function DiffApp() {
                     }
                     matches={matches}
                     activeMatch={activeMatch}
+                    onActivateLine={activateFor(layout.side)}
+                    island={paneIslandFor(layout.side)}
                   />
                 </>
               ) : (
@@ -406,6 +503,8 @@ export function DiffApp() {
                     }
                     matches={matches}
                     activeMatch={activeMatch}
+                    onActivateLine={activateFor("left")}
+                    island={paneIslandFor("left")}
                   />
                   <DiffGutter
                     chunks={store.chunks}
@@ -432,6 +531,8 @@ export function DiffApp() {
                     }
                     matches={matches}
                     activeMatch={activeMatch}
+                    onActivateLine={activateFor("right")}
+                    island={paneIslandFor("right")}
                   />
                 </>
               )}
