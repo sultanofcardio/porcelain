@@ -54,7 +54,10 @@ async function importLinearHistory(
       content,
     );
   }
-  await repo.executor.withInput(["fast-import", "--quiet"], `${parts.join("\n")}\n`);
+  await repo.executor.withInput(
+    ["fast-import", "--quiet"],
+    `${parts.join("\n")}\n`,
+  );
   await repo.git("reset", "--hard", "main");
 }
 
@@ -301,9 +304,7 @@ describe("gitService.getRebaseTodoCommits limit", () => {
     // 501 commits: one past the 500-commit cap the todo can carry.
     await importLinearHistory(repo, 501);
     const service = serviceFor(repo);
-    const root = (
-      await repo.git("rev-list", "--max-parents=0", "HEAD")
-    ).trim();
+    const root = (await repo.git("rev-list", "--max-parents=0", "HEAD")).trim();
 
     await assert.rejects(
       () => service.getRebaseTodoCommits(root),
