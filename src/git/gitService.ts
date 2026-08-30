@@ -76,7 +76,9 @@ const LOG_FORMAT = [
 ].join(FMT_FIELD_SEP);
 
 import {
+  buildLinePatch,
   buildPartialPatch,
+  type LineSelection,
   type ParsedDiff,
   parseUnifiedDiff,
 } from "./commit/hunks";
@@ -1758,6 +1760,63 @@ export class GitService {
       searchCaseSensitive: false,
       maxCount: limit,
     });
+  }
+
+  /**
+   * Revert one hunk in the working tree — the gutter arrow that takes a
+   * change back. Unlike unstaging, this rewrites the file on disk, so the
+   * patch is applied in reverse to the working tree rather than the index.
+   */
+  async revertHunkAtLine(filePath: string, newLine: number): Promise<boolean> {
+    const hunks = await this.getFileHunks(filePath);
+    const target = hunks.find(
+      (hunk) =>
+        newLine >= hunk.newStart && newLine < hunk.newStart + hunk.newCount,
+    );
+    if (!target) return false;
+    const parsed = parseUnifiedDiff(
+      await this.execGit([
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "-U3",
+        "--",
+        filePath,
+      ]),
+    );
+    const patch = buildPartialPatch(parsed, [target.index]);
+    if (!patch) return false;
+    // No --cached: the working tree is what is being put back.
+    await this.executor.withInput(["apply", "--reverse", "-"], patch);
+    this.invalidateCache();
+    return true;
+  }
+
+  /**
+   * Stage an arbitrary selection of changed lines. This is what per-line
+   * inclusion checkboxes commit: excluding a removal keeps the line, so it
+   * becomes context rather than vanishing from the patch.
+   */
+  async stageLines(
+    filePath: string,
+    selection: LineSelection,
+  ): Promise<boolean> {
+    if (selection.size === 0) return false;
+    const parsed = parseUnifiedDiff(
+      await this.execGit([
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "-U3",
+        "--",
+        filePath,
+      ]),
+    );
+    const patch = buildLinePatch(parsed, selection);
+    if (!patch) return false;
+    await this.executor.withInput(["apply", "--cached", "-"], patch);
+    this.invalidateCache();
+    return true;
   }
 
   /** Undo the last commit, keeping its changes in the working tree. */

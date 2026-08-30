@@ -197,6 +197,37 @@ describe("gitService hunk staging", () => {
     assert.ok(staged.includes("line 10 edited"));
   });
 
+  it("reverts the hunk covering a line, rewriting the working tree", async () => {
+    const before = await fs.readFile(
+      path.join(repo.rootPath, "file.txt"),
+      "utf8",
+    );
+    assert.ok(before.includes("line 1 edited"));
+
+    assert.strictEqual(await service.revertHunkAtLine("file.txt", 1), true);
+
+    const after = await fs.readFile(
+      path.join(repo.rootPath, "file.txt"),
+      "utf8",
+    );
+    // The reverted edit is gone from disk; the other one is untouched.
+    assert.ok(!after.includes("line 1 edited"));
+    assert.ok(after.includes("line 1"));
+    assert.ok(after.includes("line 10 edited"));
+  });
+
+  it("leaves the file alone when no hunk covers the line", async () => {
+    const before = await fs.readFile(
+      path.join(repo.rootPath, "file.txt"),
+      "utf8",
+    );
+    assert.strictEqual(await service.revertHunkAtLine("file.txt", 5), false);
+    assert.strictEqual(
+      await fs.readFile(path.join(repo.rootPath, "file.txt"), "utf8"),
+      before,
+    );
+  });
+
   it("does nothing when no hunks are selected", async () => {
     await service.stageHunks("file.txt", []);
     assert.strictEqual((await repo.git("diff", "--cached")).trim(), "");

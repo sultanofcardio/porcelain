@@ -100,3 +100,127 @@ export function buildPartialPatch(
   }
   return `${out.join("\n")}\n`;
 }
+
+/**
+ * Which lines of which hunks are included, keyed by hunk index. A hunk absent
+ * from the map contributes nothing; a hunk present with every line selected is
+ * the same as taking the whole hunk.
+ */
+export type LineSelection = ReadonlyMap<number, ReadonlySet<number>>;
+
+/**
+ * Build a patch from a selection of individual lines.
+ *
+ * Excluding a changed line is not the same as deleting it from the patch:
+ * an excluded addition simply does not appear, but an excluded *removal* has
+ * to become a context line, because the line is still there in the result.
+ * Getting that backwards silently drops the line from the file, so the two
+ * cases are handled separately rather than filtered together.
+ */
+export function buildLinePatch(
+  parsed: ParsedDiff,
+  selection: LineSelection,
+): string | null {
+  const out: string[] = [...parsed.fileHeader];
+  let drift = 0;
+  let wroteAnything = false;
+
+  for (const hunk of parsed.hunks) {
+    const selected = selection.get(hunk.index);
+    if (!selected || selected.size === 0) {
+      // Nothing taken here: the hunk's net effect still shifts what follows.
+      drift += hunk.oldCount - hunk.newCount;
+      continue;
+    }
+
+    const body = emitSelectedHunk(hunk, selected);
+    const oldCount = body.filter(
+      (line) => line.startsWith(" ") || line.startsWith("-"),
+    ).length;
+    const newCount = body.filter(
+      (line) => line.startsWith(" ") || line.startsWith("+"),
+    ).length;
+    const changes = body.some(
+      (line) => line.startsWith("+") || line.startsWith("-"),
+    );
+    if (!changes) {
+      // Everything selected turned into context: this hunk applies nothing.
+      drift += hunk.oldCount - hunk.newCount;
+      continue;
+    }
+
+    out.push(
+      `@@ -${hunk.oldStart},${oldCount} +${hunk.newStart + drift},${newCount} @@`,
+    );
+    out.push(...body);
+    wroteAnything = true;
+    // What this hunk actually applies shifts the ones after it.
+    drift += oldCount - newCount - (hunk.oldCount - hunk.newCount);
+  }
+
+  return wroteAnything ? `${out.join("\n")}\n` : null;
+}
+
+/**
+ * One hunk's body, keeping only the selected changes.
+ *
+ * An excluded addition simply does not appear. An excluded *removal* has to
+ * become a context line, because the line is still in the file — dropping it
+ * would silently delete it. Where that context line goes matters: a run of
+ * removals followed by additions describes a replacement, and leaving the
+ * kept-back line sitting among the removals would reorder the file. So each
+ * run is rebuilt with the surviving old lines in their own order and the
+ * selected additions placed just after the last removal actually taken.
+ */
+function emitSelectedHunk(
+  hunk: DiffHunk,
+  selected: ReadonlySet<number>,
+): string[] {
+  const body: string[] = [];
+  let index = 0;
+
+  while (index < hunk.lines.length) {
+    const line = hunk.lines[index];
+    const marker = line[0];
+    if (marker !== "+" && marker !== "-") {
+      body.push(line);
+      index++;
+      continue;
+    }
+
+    // Gather the whole run of changed lines: that is the replacement unit.
+    const runStart = index;
+    while (index < hunk.lines.length) {
+      const next = hunk.lines[index][0];
+      if (next !== "+" && next !== "-") break;
+      index++;
+    }
+
+    const oldSide: string[] = [];
+    const additions: string[] = [];
+    let lastKeptRemoval = -1;
+    for (let position = runStart; position < index; position++) {
+      const current = hunk.lines[position];
+      if (current.startsWith("-")) {
+        if (selected.has(position)) {
+          oldSide.push(current);
+          lastKeptRemoval = oldSide.length;
+        } else {
+          // Survives the partial apply, so it is context on both sides.
+          oldSide.push(` ${current.slice(1)}`);
+        }
+        continue;
+      }
+      if (selected.has(position)) additions.push(current);
+    }
+
+    // Additions land after the last removal actually taken; with none taken
+    // they lead the run, so they still sit where the change belongs.
+    const at = lastKeptRemoval === -1 ? 0 : lastKeptRemoval;
+    body.push(...oldSide.slice(0, at), ...additions, ...oldSide.slice(at));
+  }
+
+  // A "\ No newline at end of file" marker belongs to whatever precedes it and
+  // is carried along by the walk above.
+  return body;
+}

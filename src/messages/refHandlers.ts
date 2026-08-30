@@ -298,6 +298,44 @@ export function registerWorkingTreeHandlers(router: MessageRouter): void {
     }));
   });
 
+  router.handle("revertHunkAtLine", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const filePath = requireString(params.filePath, "filePath");
+    const newLine = params.newLine;
+    if (typeof newLine !== "number") {
+      throw new Error("newLine must be a number");
+    }
+    return mutate(context, async () => ({
+      reverted: await context.gitService.revertHunkAtLine(filePath, newLine),
+    }));
+  });
+
+  router.handle("stageLines", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const filePath = requireString(params.filePath, "filePath");
+    const raw = params.selection;
+    if (!Array.isArray(raw)) {
+      throw new Error("selection must be an array of [hunkIndex, lines] pairs");
+    }
+    // Maps do not survive postMessage, so the wire form is pairs.
+    const selection = new Map<number, Set<number>>();
+    for (const entry of raw) {
+      if (!Array.isArray(entry) || typeof entry[0] !== "number") {
+        throw new Error("selection entries must be [hunkIndex, lines]");
+      }
+      const lines = Array.isArray(entry[1]) ? entry[1] : [];
+      selection.set(
+        entry[0],
+        new Set(
+          lines.filter((line): line is number => typeof line === "number"),
+        ),
+      );
+    }
+    return mutate(context, async () => ({
+      staged: await context.gitService.stageLines(filePath, selection),
+    }));
+  });
+
   router.handle("getCommitTemplate", async (_params, context) => {
     if (!context) return NOT_GIT_REPO;
     const [template, mergeMessage] = await Promise.all([
