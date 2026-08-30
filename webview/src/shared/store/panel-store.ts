@@ -1161,7 +1161,7 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
 
       set({
         selectedCommitHash: focusHash,
-        selectedCommitHashes: nextSelected,
+        selectedCommitHashes: orderedHashes,
         lastSelectedCommitHash: nextAnchor,
         commitFiles: [],
         selectedFilePath: null,
@@ -1412,6 +1412,8 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
       }
 
       if (generation !== navigationGeneration) return;
+
+      if (get().collapsedSequenceIds.size > 0) get().expandAllSequences();
 
       let visibleHashes = get().visibleCommits.map((commit) => commit.hash);
       while (!visibleHashes.includes(targetHash) && get().hasMore) {

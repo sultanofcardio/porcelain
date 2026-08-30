@@ -377,6 +377,13 @@ export function Toolbar({
                 }
               } catch (err) {
                 console.error("resolveLogRef failed:", err);
+                await requestFromSurface(
+                  "showErrorNotification",
+                  {
+                    message: `Could not resolve "${input}": ${err instanceof Error ? err.message : String(err)}`,
+                  },
+                  { scope: "global" },
+                ).catch(() => {});
               }
             }}
           />

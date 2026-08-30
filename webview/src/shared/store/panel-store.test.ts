@@ -2112,6 +2112,45 @@ describe("panel-store ref selection", () => {
     expect(usePanelStore.getState().selectedCommitHash).toBe(manual.hash);
     expect(usePanelStore.getState().scrollTargetHash).toBeNull();
   });
+
+  it("expands collapsed sequences to reach a hidden intermediate target", async () => {
+    const request = vi.mocked(bridge.request);
+    request.mockReset();
+    request.mockImplementation(async (command) => {
+      if (command === "getCommitRangeFiles") return [];
+      return null;
+    });
+    const head = commit("head");
+    const mid = commit("mid");
+    const tail = commit("tail");
+    usePanelStore.setState({
+      commits: [head, mid, tail],
+      visibleCommits: [head, tail],
+      collapsedSequenceIds: new Set(["seq"]),
+      collapsedIntermediates: new Map([["seq", ["mid"]]]),
+      filter: {
+        searchQuery: "",
+        branch: "",
+        author: "",
+        dateRange: "",
+        file: "",
+      },
+      hasMore: false,
+      loading: false,
+      scrollTargetHash: null,
+    });
+
+    await usePanelStore.getState().navigateToCommit("mid", "mid");
+
+    expect(usePanelStore.getState().collapsedSequenceIds.size).toBe(0);
+    expect(usePanelStore.getState().selectedCommitHash).toBe("mid");
+    expect(usePanelStore.getState().scrollTargetHash).toBe("mid");
+    expect(request).not.toHaveBeenCalledWith(
+      "showErrorNotification",
+      expect.anything(),
+      expect.anything(),
+    );
+  });
 });
 
 describe("panel-store async response ordering", () => {
@@ -2354,6 +2393,25 @@ describe("panel-store async response ordering", () => {
     expect(usePanelStore.getState().commitFiles).toEqual([
       { newPath: "newer.ts" },
     ]);
+  });
+
+  it("keeps a toggled multi-selection in visible-row order, not click order", async () => {
+    const request = vi.mocked(bridge.request);
+    request.mockImplementation(async (command) => {
+      if (command === "getCommitRangeFiles") return [];
+      return null;
+    });
+    const visible = ["newest", "middle", "oldest"];
+
+    await usePanelStore.getState().selectCommit("oldest", "single", visible);
+    await usePanelStore.getState().selectCommit("newest", "toggle", visible);
+
+    expect(usePanelStore.getState().selectedCommitHashes).toEqual([
+      "newest",
+      "oldest",
+    ]);
+    expect(usePanelStore.getState().rangeNewest).toBe("newest");
+    expect(usePanelStore.getState().rangeOldest).toBe("oldest");
   });
 });
 
