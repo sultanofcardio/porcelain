@@ -174,6 +174,21 @@
         "title": "(Porcelain) Edit Source",
         "icon": "$(go-to-file)",
         "category": "Porcelain"
+      },
+      {
+        "command": "porcelain.toggleBlame",
+        "title": "Annotate with Git Blame",
+        "category": "Porcelain"
+      },
+      {
+        "command": "porcelain.blameOptions",
+        "title": "Blame Options...",
+        "category": "Porcelain"
+      },
+      {
+        "command": "porcelain.updateProject",
+        "title": "Update Project",
+        "category": "Porcelain"
       }
     ],
     "configuration": {
@@ -263,6 +278,11 @@
           "command": "porcelain.editSource",
           "when": "isInDiffEditor && resourceScheme != file",
           "group": "git@2"
+        },
+        {
+          "command": "porcelain.toggleBlame",
+          "when": "editorTextFocus && resourceScheme == file",
+          "group": "porcelain@2"
         }
       ],
       "explorer/context": [

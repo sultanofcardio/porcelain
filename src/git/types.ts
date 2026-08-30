@@ -259,3 +259,27 @@ export interface PushOptions {
   /** Push tags along with the branch. */
   pushTags?: "none" | "all";
 }
+
+/** One blamed line: the commit that last touched it, and the text. */
+export interface BlameLine {
+  hash: string;
+  /** 1-based line number in the blamed revision. */
+  line: number;
+  content: string;
+  author: string;
+  authorEmail: string;
+  /** Unix seconds. */
+  authorTime: number;
+  summary: string;
+  /** True for a line not yet committed (git's all-zero hash). */
+  uncommitted: boolean;
+}
+
+/** Options IntelliJ exposes in the annotation gutter's menu. */
+export interface BlameOptions {
+  ignoreWhitespace?: boolean;
+  detectMovesWithinFile?: boolean;
+  detectMovesAcrossFiles?: boolean;
+  /** Blame the file as of this revision instead of the working tree. */
+  revision?: string;
+}

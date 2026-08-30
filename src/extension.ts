@@ -37,6 +37,7 @@ import {
   registerSyncHandlers,
   registerWorkingTreeHandlers,
 } from "./messages/refHandlers";
+import { BlameController } from "./views/blameController";
 import { ChangesWindowManager } from "./views/changesWindowManager";
 import { CommitViewProvider } from "./views/commitViewProvider";
 import {
@@ -500,6 +501,88 @@ export async function activate(context: vscode.ExtensionContext) {
     }
     return undefined;
   });
+
+  const blameController = new BlameController(repoRegistry);
+  context.subscriptions.push(blameController);
+  context.subscriptions.push(
+    vscode.commands.registerCommand("porcelain.toggleBlame", async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) return;
+      await blameController.toggle(editor);
+    }),
+    vscode.commands.registerCommand("porcelain.blameOptions", async () => {
+      const choice = await vscode.window.showQuickPick(
+        [
+          "Colors: by age",
+          "Colors: by author",
+          "Colors: off",
+          "Names: initials",
+          "Names: full name",
+          "Names: email",
+          "Ignore whitespace: on",
+          "Ignore whitespace: off",
+          "Detect movements: within file",
+          "Detect movements: across files",
+          "Detect movements: off",
+        ],
+        { placeHolder: "Annotation options" },
+      );
+      if (!choice) return;
+      const options: Parameters<BlameController["setOptions"]>[0] = {};
+      if (choice === "Colors: by age") options.colorMode = "age";
+      else if (choice === "Colors: by author") options.colorMode = "author";
+      else if (choice === "Colors: off") options.colorMode = "none";
+      else if (choice === "Names: initials") options.nameStyle = "initials";
+      else if (choice === "Names: full name") options.nameStyle = "full";
+      else if (choice === "Names: email") options.nameStyle = "email";
+      else if (choice === "Ignore whitespace: on")
+        options.ignoreWhitespace = true;
+      else if (choice === "Ignore whitespace: off")
+        options.ignoreWhitespace = false;
+      else if (choice === "Detect movements: within file") {
+        options.detectMovesWithinFile = true;
+        options.detectMovesAcrossFiles = false;
+      } else if (choice === "Detect movements: across files") {
+        options.detectMovesWithinFile = true;
+        options.detectMovesAcrossFiles = true;
+      } else if (choice === "Detect movements: off") {
+        options.detectMovesWithinFile = false;
+        options.detectMovesAcrossFiles = false;
+      }
+      blameController.setOptions(options);
+      await blameController.refreshAll();
+    }),
+    vscode.commands.registerCommand("porcelain.updateProject", async () => {
+      const runtime = repoRegistry.getActive();
+      if (!runtime) return;
+      await withProgress(messageRouter, runtime.descriptor.id, async () => {
+        const method = vscode.workspace
+          .getConfiguration("porcelain")
+          .get<"merge" | "rebase">("update.method", "merge");
+        try {
+          const result = await runtime.gitService.updateProject({
+            method,
+            fetchTags: vscode.workspace
+              .getConfiguration("porcelain")
+              .get<"auto" | "all" | "none">("fetch.tags", "auto"),
+          });
+          messageRouter.broadcastEvent("gitStateChanged", {
+            scope: "all",
+            repoId: runtime.descriptor.id,
+          });
+          void vscode.window.showInformationMessage(
+            result.updated
+              ? `Updated: ${result.commits.length} commit(s) via ${result.method}.`
+              : "Already up to date.",
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          void vscode.window.showErrorMessage(`Update failed: ${message}`);
+        }
+      });
+    }),
+  );
 
   messageRouter.handle("getBranches", async (_params, ctx) => {
     if (!ctx) {

@@ -10,6 +10,8 @@ import type { GitOperationResult } from "./core/operationResult";
 import { PorcelainError, PorcelainErrorCode } from "./errors";
 import { computeGraphLayout } from "./graphLayout";
 import type {
+  BlameLine,
+  BlameOptions,
   BranchInfo,
   CherryPickState,
   CommitNode,
@@ -1610,6 +1612,30 @@ export class GitService {
     this.invalidateCache();
   }
 
+  /**
+   * Blame a file: one entry per line, carrying the commit that last touched
+   * it. Parsed from porcelain format, where a commit's details appear once
+   * and later lines referring to it repeat only the hash.
+   */
+  async blameFile(
+    filePath: string,
+    options: BlameOptions = {},
+  ): Promise<BlameLine[]> {
+    const args = ["blame", "--line-porcelain"];
+    if (options.ignoreWhitespace) args.push("-w");
+    // -M finds lines moved within the file, -C across files in the commit.
+    if (options.detectMovesWithinFile) args.push("-M");
+    if (options.detectMovesAcrossFiles) args.push("-C");
+    if (options.revision) {
+      await this.validateRef(options.revision);
+      args.push(options.revision);
+    }
+    args.push("--", filePath);
+
+    const output = await this.execGit(args, MAX_BUFFER);
+    return parseBlamePorcelain(output);
+  }
+
   /** Undo the last commit, keeping its changes in the working tree. */
   async undoLastCommit(): Promise<void> {
     await this.execGit(["reset", "--soft", "HEAD~1"]);
@@ -2733,6 +2759,70 @@ function parseWorktreeCheckouts(output: string): Map<string, string> {
  * `--author` is a single argv value, so a leading "-" would be read as an
  * option. Git itself validates the "Name <email>" shape when it commits.
  */
+/**
+ * Parse `git blame --line-porcelain`. Each line begins with
+ * "<hash> <origLine> <finalLine>", then header fields, then the line content
+ * prefixed by a tab. Commit details are emitted once per commit, so details
+ * seen earlier are carried forward for later lines of the same commit.
+ */
+function parseBlamePorcelain(output: string): BlameLine[] {
+  const lines = output.split("\n");
+  const details = new Map<
+    string,
+    { author: string; authorEmail: string; authorTime: number; summary: string }
+  >();
+  const result: BlameLine[] = [];
+  let current: {
+    hash: string;
+    finalLine: number;
+    author?: string;
+    authorEmail?: string;
+    authorTime?: number;
+    summary?: string;
+  } | null = null;
+
+  for (const line of lines) {
+    const header = /^([0-9a-f]{40}) (\d+) (\d+)(?: (\d+))?$/.exec(line);
+    if (header) {
+      current = { hash: header[1], finalLine: Number(header[3]) };
+      continue;
+    }
+    if (!current) continue;
+
+    if (line.startsWith("author ")) {
+      current.author = line.slice("author ".length);
+    } else if (line.startsWith("author-mail ")) {
+      current.authorEmail = line
+        .slice("author-mail ".length)
+        .replace(/[<>]/g, "");
+    } else if (line.startsWith("author-time ")) {
+      current.authorTime = Number(line.slice("author-time ".length));
+    } else if (line.startsWith("summary ")) {
+      current.summary = line.slice("summary ".length);
+    } else if (line.startsWith("\t")) {
+      // The content line closes the entry.
+      const known = details.get(current.hash);
+      const detail = {
+        author: current.author ?? known?.author ?? "",
+        authorEmail: current.authorEmail ?? known?.authorEmail ?? "",
+        authorTime: current.authorTime ?? known?.authorTime ?? 0,
+        summary: current.summary ?? known?.summary ?? "",
+      };
+      details.set(current.hash, detail);
+      result.push({
+        hash: current.hash,
+        line: current.finalLine,
+        content: line.slice(1),
+        ...detail,
+        // An all-zero hash is git's marker for a not-yet-committed line.
+        uncommitted: /^0{40}$/.test(current.hash),
+      });
+      current = null;
+    }
+  }
+  return result;
+}
+
 function assertCommitAuthor(author: string): void {
   const trimmed = author.trim();
   if (!trimmed || trimmed.startsWith("-")) {
