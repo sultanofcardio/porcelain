@@ -2,6 +2,7 @@ import type { CommitDraftSlice, CommitSliceContext } from "./types";
 
 export function createDraftSlice({
   set,
+  get,
   coordinator,
   request,
 }: CommitSliceContext): CommitDraftSlice {
@@ -31,7 +32,7 @@ export function createDraftSlice({
       } | null;
       // Mid-merge git prepares its own message, which wins over the template.
       const seed = result?.mergeMessage ?? result?.template;
-      if (seed) set({ commitMessage: seed });
+      if (seed && !get().commitMessage) set({ commitMessage: seed });
     },
 
     setCommitMessage(message) {

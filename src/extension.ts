@@ -1579,7 +1579,11 @@ export async function activate(context: vscode.ExtensionContext) {
       if (filePaths && filePaths.length > 0) {
         await gitService.stageFiles(filePaths);
       }
-      await gitService.commit(message, amend ?? false);
+      await gitService.commit(
+        message,
+        amend ?? false,
+        (params.options as CommitOptions | undefined) ?? {},
+      );
     }
 
     messageRouter.broadcastEvent("commitStateChanged", {

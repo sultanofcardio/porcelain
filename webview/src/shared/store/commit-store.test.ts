@@ -504,3 +504,52 @@ describe("commit-store selected commit payload", () => {
     });
   });
 });
+
+describe("commit-store message template seeding", () => {
+  beforeEach(() => {
+    pruneRemovedDrafts([]);
+    vi.mocked(bridge.request).mockReset();
+    useCommitStore.setState({ commitMessage: "" });
+  });
+
+  it("seeds an empty draft from the template", async () => {
+    vi.mocked(bridge.request).mockResolvedValue({
+      template: "Template body",
+      mergeMessage: null,
+    });
+
+    await useCommitStore.getState().loadMessageTemplate();
+
+    expect(useCommitStore.getState().commitMessage).toBe("Template body");
+  });
+
+  it("prefers the merge message over the template mid-merge", async () => {
+    vi.mocked(bridge.request).mockResolvedValue({
+      template: "Template body",
+      mergeMessage: "Merge branch 'feature'",
+    });
+
+    await useCommitStore.getState().loadMessageTemplate();
+
+    expect(useCommitStore.getState().commitMessage).toBe(
+      "Merge branch 'feature'",
+    );
+  });
+
+  it("keeps text typed while the template request is in flight", async () => {
+    const templateResponse = deferred<{
+      template: string | null;
+      mergeMessage: string | null;
+    }>();
+    vi.mocked(bridge.request).mockReturnValue(templateResponse.promise);
+
+    const seeding = useCommitStore.getState().loadMessageTemplate();
+    useCommitStore.getState().setCommitMessage("user was already typing");
+    templateResponse.resolve({ template: "Template body", mergeMessage: null });
+    await seeding;
+
+    expect(useCommitStore.getState().commitMessage).toBe(
+      "user was already typing",
+    );
+  });
+});
