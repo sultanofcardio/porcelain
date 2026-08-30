@@ -96,6 +96,8 @@ export interface LogOptions {
   skip?: number;
   revision?: LogRevision;
   branch?: string; // specific branch, default --all
+  /** Multiple branches/refs; the log shows their union (like IntelliJ's branch filter). */
+  branches?: string[];
   author?: string;
   search?: string; // --grep
   /** Treat `search` as an extended regex instead of a literal string. */

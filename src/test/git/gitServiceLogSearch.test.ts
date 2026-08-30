@@ -140,6 +140,26 @@ describe("gitService log graph modes and paths", () => {
     );
   });
 
+  it("shows the union of multiple branch filters", async () => {
+    // A commit only on a second side branch (off the shared base commit)
+    // proves the union semantics.
+    await repo.git("checkout", "-b", "other", "feature~1");
+    await commitAs(repo, "Ada Lovelace", "other work");
+    await repo.git("checkout", "main");
+    service = serviceFor(repo);
+
+    const single = await service.getLog({ branches: ["feature"] });
+    assert.ok(!single.some((c) => c.subject === "other work"));
+    assert.ok(single.some((c) => c.subject === "feature work"));
+
+    const union = await service.getLog({ branches: ["feature", "other"] });
+    assert.ok(union.some((c) => c.subject === "feature work"));
+    assert.ok(union.some((c) => c.subject === "other work"));
+    // Neither side branch reaches main's exclusive commits.
+    assert.ok(!union.some((c) => c.subject === "merge feature"));
+    assert.ok(!union.some((c) => c.subject === "main work"));
+  });
+
   it("parses the committer timestamp", async () => {
     const [head] = await service.getLog({ maxCount: 1 });
     assert.ok(head.committerDate);

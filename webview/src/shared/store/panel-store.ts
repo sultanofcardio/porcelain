@@ -29,7 +29,8 @@ export interface PanelFilter {
   searchRegex: boolean;
   /** Match `searchQuery` case-sensitively. */
   searchCaseSensitive: boolean;
-  branch: string;
+  /** Refs (names or fullRefs) whose union the log shows; empty = all branches. */
+  branches: string[];
   author: string;
   dateRange: string;
   /** Custom range bounds (yyyy-mm-dd), used when `dateRange` is "custom". */
@@ -73,7 +74,7 @@ export interface LogPresentation {
 export function hasActiveLogFilter(filter: PanelFilter): boolean {
   return (
     !!filter.searchQuery ||
-    !!filter.branch ||
+    (filter.branches?.length ?? 0) > 0 ||
     !!filter.author ||
     !!filter.dateRange ||
     !!filter.file ||
@@ -356,7 +357,9 @@ function dateRangeParams(filter: PanelFilter): {
 
 function queryParams(filter: PanelFilter): Record<string, unknown> {
   return {
-    ...(filter.branch ? { branch: filter.branch } : {}),
+    ...((filter.branches?.length ?? 0) > 0
+      ? { branches: filter.branches }
+      : {}),
     ...(filter.searchQuery
       ? {
           search: filter.searchQuery,
@@ -619,7 +622,7 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
       searchQuery: "",
       searchRegex: false,
       searchCaseSensitive: false,
-      branch: "",
+      branches: [],
       author: "",
       dateRange: "",
       dateAfter: "",
@@ -684,11 +687,14 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
               selectedFilePath: currentSelection.selectedFilePath,
             }
           : null;
-      if (fetchOptions.defaultToCurrentBranch && !get().filter.branch) {
+      if (
+        fetchOptions.defaultToCurrentBranch &&
+        !get().filter.branches.length
+      ) {
         pendingDefaultBranchInitialization = true;
       }
       const shouldDefaultToCurrentBranch =
-        pendingDefaultBranchInitialization && !get().filter.branch;
+        pendingDefaultBranchInitialization && !get().filter.branches.length;
       set({ loading: true });
       const start = Date.now();
       const operation = (async () => {
@@ -734,10 +740,10 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
             if (shouldDefaultToCurrentBranch && currentRef) {
               requestedFilter = {
                 ...requestedFilter,
-                branch: currentRef.fullRef,
+                branches: [currentRef.fullRef],
               };
               set((state) => ({
-                filter: { ...state.filter, branch: currentRef.fullRef },
+                filter: { ...state.filter, branches: [currentRef.fullRef] },
               }));
               // The initialization intent is fulfilled once the checked-out ref
               // is known and reflected in state. Do not retain it while the
@@ -1215,7 +1221,7 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
 
     setFilter(partial: Partial<PanelFilter>) {
       navigationGeneration += 1;
-      if (partial.branch !== undefined) {
+      if (partial.branches !== undefined) {
         // Any explicit branch choice, including clearing the chip, supersedes
         // repository initialization and must survive ordinary refreshes.
         pendingDefaultBranchInitialization = false;
@@ -1229,7 +1235,8 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
         current.searchQuery !== next.searchQuery ||
         // Search-mode toggles only change the query while a search is active.
         (searchModeChanged && !!next.searchQuery) ||
-        current.branch !== next.branch ||
+        (current.branches ?? []).join("\n") !==
+          (next.branches ?? []).join("\n") ||
         current.author !== next.author ||
         current.dateRange !== next.dateRange ||
         (next.dateRange === "custom" &&
@@ -1391,7 +1398,7 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
             searchQuery: "",
             searchRegex: filter.searchRegex,
             searchCaseSensitive: filter.searchCaseSensitive,
-            branch: "",
+            branches: [],
             author: "",
             dateRange: "",
             dateAfter: "",
@@ -1617,7 +1624,7 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
           searchQuery: filter.searchQuery,
           searchRegex: filter.searchRegex,
           searchCaseSensitive: filter.searchCaseSensitive,
-          branch: "",
+          branches: [],
           author: filter.author,
           dateRange: filter.dateRange,
           dateAfter: filter.dateAfter,
@@ -1646,7 +1653,7 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
           searchQuery: filter.searchQuery,
           searchRegex: filter.searchRegex,
           searchCaseSensitive: filter.searchCaseSensitive,
-          branch: "",
+          branches: [],
           author: filter.author,
           dateRange: filter.dateRange,
           dateAfter: filter.dateAfter,

@@ -160,11 +160,20 @@ export class GitService {
     args: string[],
     revision: LogRevision | undefined,
     branch: string | undefined,
+    branches: string[] | undefined,
   ): Promise<void> {
     if (!revision) {
-      if (branch) {
-        await this.validateBranch(branch);
-        args.push(branch);
+      // Multiple refs are a union: `git log a b` walks everything reachable
+      // from either, which is exactly the multi-branch filter's meaning.
+      const refs = [
+        ...(branch ? [branch] : []),
+        ...(branches ?? []).filter((b) => typeof b === "string" && b.length),
+      ];
+      if (refs.length > 0) {
+        for (const ref of refs) {
+          await this.validateBranch(ref);
+        }
+        args.push(...refs);
       } else {
         args.push("--all");
       }
@@ -235,7 +244,12 @@ export class GitService {
     if (options.until) {
       args.push(`--until=${options.until}`);
     }
-    await this.appendRevision(args, options.revision, options.branch);
+    await this.appendRevision(
+      args,
+      options.revision,
+      options.branch,
+      options.branches,
+    );
     const pathspecs = [
       ...(options.file ? [options.file] : []),
       ...(options.paths ?? []).filter(

@@ -21,6 +21,7 @@ export interface LogQueryParams extends Record<string, unknown> {
   revision?: LogQueryRevision;
   currentRef?: GitRefIdentity;
   branch?: string;
+  branches?: string[];
   search?: string;
   searchRegex?: boolean;
   searchCaseSensitive?: boolean;

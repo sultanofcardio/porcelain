@@ -492,7 +492,8 @@ describe("git log store instances", () => {
     const { bridge: fakeBridge } = createFakeBridge(
       vi.fn(async (command, params) => {
         if (command === "getGraphData") {
-          return (params as { branch?: string }).branch === "branch-a"
+          return (params as { branches?: string[] }).branches?.[0] ===
+            "branch-a"
             ? older.promise
             : newer.promise;
         }
@@ -510,11 +511,11 @@ describe("git log store instances", () => {
     });
 
     instance.store.setState((state) => ({
-      filter: { ...state.filter, branch: "branch-a" },
+      filter: { ...state.filter, branches: ["branch-a"] },
     }));
     const first = instance.store.getState().fetchInitialData();
     instance.store.setState((state) => ({
-      filter: { ...state.filter, branch: "branch-b" },
+      filter: { ...state.filter, branches: ["branch-b"] },
     }));
     const second = instance.store.getState().fetchInitialData();
 
@@ -525,7 +526,7 @@ describe("git log store instances", () => {
     older.resolve(graphResult([commit("branch-a-tip")]));
     await Promise.all([first, second]);
 
-    expect(instance.store.getState().filter.branch).toBe("branch-b");
+    expect(instance.store.getState().filter.branches).toEqual(["branch-b"]);
     expect(instance.store.getState().commits.map(({ hash }) => hash)).toEqual([
       "branch-b-tip",
     ]);
@@ -1426,7 +1427,7 @@ describe("panel-store resetForRepoSwitch", () => {
     usePanelStore.setState({
       filter: {
         searchQuery: "",
-        branch: "",
+        branches: [],
         author: "",
         dateRange: "",
         file: "",
@@ -1444,7 +1445,7 @@ describe("panel-store resetForRepoSwitch", () => {
     usePanelStore.setState({
       filter: {
         searchQuery: "fix",
-        branch: "feature",
+        branches: ["feature"],
         author: "alice",
         dateRange: "7days",
         file: "src/a.ts",
@@ -1452,7 +1453,7 @@ describe("panel-store resetForRepoSwitch", () => {
     });
     usePanelStore.getState().resetForRepoSwitch();
     const { filter } = usePanelStore.getState();
-    expect(filter.branch).toBe(""); // repo-scoped → reset
+    expect(filter.branches).toEqual([]); // repo-scoped → reset
     expect(filter.file).toBe(""); // repo-scoped → reset
     // carryover (global-scope) fields preserved
     expect(filter.searchQuery).toBe("fix");
@@ -1503,7 +1504,7 @@ describe("panel-store resetForRepoSwitch", () => {
       pendingSelectionFromFilter: ["a1"],
       filter: {
         searchQuery: "keep-search",
-        branch: "feature-a",
+        branches: ["feature-a"],
         author: "keep-author",
         dateRange: "keep-date",
         file: "src/a.ts",
@@ -1538,7 +1539,7 @@ describe("panel-store resetForRepoSwitch", () => {
     expect(s.pendingSelectionFromFilter).toEqual([]);
 
     // repo-scoped filter cleared, carryover preserved
-    expect(s.filter.branch).toBe("");
+    expect(s.filter.branches).toEqual([]);
     expect(s.filter.file).toBe("");
     expect(s.filter.searchQuery).toBe("keep-search");
     expect(s.filter.author).toBe("keep-author");
@@ -1641,7 +1642,7 @@ describe("panel-store resetForRepoSwitch", () => {
       graphLayout: { lane0: {} as never },
       filter: {
         searchQuery: "keep",
-        branch: "feature-a",
+        branches: ["feature-a"],
         author: "al",
         dateRange: "7days",
         file: "src/a.ts",
@@ -1662,7 +1663,7 @@ describe("panel-store resetForRepoSwitch", () => {
     expect(s.graphLayout).toEqual({});
     // Carryover filter still preserved across the failed fetch.
     expect(s.filter.searchQuery).toBe("keep");
-    expect(s.filter.branch).toBe("");
+    expect(s.filter.branches).toEqual([]);
     expect(s.filter.file).toBe("");
   });
 
@@ -1674,7 +1675,7 @@ describe("panel-store resetForRepoSwitch", () => {
     usePanelStore.setState({
       filter: {
         searchQuery: "bug",
-        branch: "feature-a",
+        branches: ["feature-a"],
         author: "bob",
         dateRange: "30days",
         file: "src/a.ts",
@@ -1705,10 +1706,10 @@ describe("panel-store resetForRepoSwitch", () => {
     );
     expect(graphCall).toBeTruthy();
     const params = (graphCall?.[1] ?? {}) as {
-      branch?: string;
+      branches?: string[];
       file?: string;
     };
-    expect(params.branch).toBeUndefined(); // old repo's branch NOT carried
+    expect(params.branches).toBeUndefined(); // old repo's branch NOT carried
     expect(params.file).toBeUndefined(); // old repo's file NOT carried
   });
 });
@@ -1718,7 +1719,7 @@ describe("panel-store clearForNoRepo", () => {
     usePanelStore.setState({
       filter: {
         searchQuery: "",
-        branch: "",
+        branches: [],
         author: "",
         dateRange: "",
         file: "",
@@ -1750,7 +1751,7 @@ describe("panel-store clearForNoRepo", () => {
       commitFiles: [{} as never],
       filter: {
         searchQuery: "keep",
-        branch: "feature",
+        branches: ["feature"],
         author: "carol",
         dateRange: "today",
         file: "src/a.ts",
@@ -1772,7 +1773,7 @@ describe("panel-store clearForNoRepo", () => {
     expect(s.commitFiles).toEqual([]);
 
     // repo-scoped filter cleared, carryover preserved
-    expect(s.filter.branch).toBe("");
+    expect(s.filter.branches).toEqual([]);
     expect(s.filter.file).toBe("");
     expect(s.filter.searchQuery).toBe("keep");
     expect(s.filter.author).toBe("carol");
@@ -1901,7 +1902,7 @@ describe("panel-store ref selection", () => {
       visibleCommits: [{ hash: "tip" } as never],
       filter: {
         searchQuery: "",
-        branch: "",
+        branches: [],
         author: "",
         dateRange: "",
         file: "",
@@ -1948,7 +1949,7 @@ describe("panel-store ref selection", () => {
     request.mockReset();
     request.mockImplementation(async (command, params) => {
       if (command === "getGraphData") {
-        expect((params as { branch?: string }).branch).toBeUndefined();
+        expect((params as { branches?: string[] }).branches).toBeUndefined();
         return graphResult([commit("target-tip")]);
       }
       if (command === "getBranches" || command === "getTags") return [];
@@ -1960,7 +1961,7 @@ describe("panel-store ref selection", () => {
       visibleCommits: [commit("branch-a-tip")],
       filter: {
         searchQuery: "",
-        branch: "refs/heads/branch-a",
+        branches: ["refs/heads/branch-a"],
         author: "",
         dateRange: "",
         file: "",
@@ -1971,7 +1972,7 @@ describe("panel-store ref selection", () => {
 
     await usePanelStore.getState().navigateToRef(localMain, "target-tip");
 
-    expect(usePanelStore.getState().filter.branch).toBe("");
+    expect(usePanelStore.getState().filter.branches).toEqual([]);
     expect(usePanelStore.getState().selectedCommitHash).toBe("target-tip");
     expect(usePanelStore.getState().scrollTargetHash).toBe("target-tip");
     expect(request).not.toHaveBeenCalledWith(
@@ -1996,7 +1997,7 @@ describe("panel-store ref selection", () => {
       visibleCommits: [],
       filter: {
         searchQuery: "",
-        branch: "",
+        branches: [],
         author: "",
         dateRange: "",
         file: "",
@@ -2039,7 +2040,7 @@ describe("panel-store ref selection", () => {
       selectedCommitHashes: [current.hash],
       filter: {
         searchQuery: "",
-        branch: "",
+        branches: [],
         author: "",
         dateRange: "",
         file: "",
@@ -2087,7 +2088,7 @@ describe("panel-store ref selection", () => {
       selectedCommitHashes: [current.hash],
       filter: {
         searchQuery: "",
-        branch: "",
+        branches: [],
         author: "",
         dateRange: "",
         file: "",
@@ -2130,7 +2131,7 @@ describe("panel-store ref selection", () => {
       collapsedIntermediates: new Map([["seq", ["mid"]]]),
       filter: {
         searchQuery: "",
-        branch: "",
+        branches: [],
         author: "",
         dateRange: "",
         file: "",
@@ -2176,7 +2177,7 @@ describe("panel-store async response ordering", () => {
       }
       if (command === "getTags") return [];
       if (command === "getGraphData") {
-        graphBranches.push((params as { branch?: string }).branch);
+        graphBranches.push((params as { branches?: string[] }).branches?.[0]);
         return graphResult([]);
       }
       return null;
@@ -2187,7 +2188,9 @@ describe("panel-store async response ordering", () => {
       .fetchInitialData({ defaultToCurrentBranch: true });
 
     expect(graphBranches).toEqual(["refs/heads/main"]);
-    expect(usePanelStore.getState().filter.branch).toBe("refs/heads/main");
+    expect(usePanelStore.getState().filter.branches).toEqual([
+      "refs/heads/main",
+    ]);
   });
 
   it("keeps detached HEAD logs unfiltered across later refreshes", async () => {
@@ -2196,7 +2199,7 @@ describe("panel-store async response ordering", () => {
     request.mockImplementation(async (command, params) => {
       if (command === "getBranches" || command === "getTags") return [];
       if (command === "getGraphData") {
-        graphBranches.push((params as { branch?: string }).branch);
+        graphBranches.push((params as { branches?: string[] }).branches?.[0]);
         return graphResult([]);
       }
       return null;
@@ -2208,7 +2211,7 @@ describe("panel-store async response ordering", () => {
     await usePanelStore.getState().refresh();
 
     expect(graphBranches).toEqual([undefined, undefined]);
-    expect(usePanelStore.getState().filter.branch).toBe("");
+    expect(usePanelStore.getState().filter.branches).toEqual([]);
   });
 
   it("does not restore the default branch during an ordinary refresh after clearing it", async () => {
@@ -2227,7 +2230,7 @@ describe("panel-store async response ordering", () => {
       }
       if (command === "getTags") return [];
       if (command === "getGraphData") {
-        graphBranches.push((params as { branch?: string }).branch);
+        graphBranches.push((params as { branches?: string[] }).branches?.[0]);
         return graphResult([]);
       }
       return null;
@@ -2237,12 +2240,12 @@ describe("panel-store async response ordering", () => {
       .getState()
       .fetchInitialData({ defaultToCurrentBranch: true });
     usePanelStore.setState((state) => ({
-      filter: { ...state.filter, branch: "" },
+      filter: { ...state.filter, branches: [] },
     }));
     await usePanelStore.getState().fetchInitialData();
 
     expect(graphBranches).toEqual(["refs/heads/main", undefined]);
-    expect(usePanelStore.getState().filter.branch).toBe("");
+    expect(usePanelStore.getState().filter.branches).toEqual([]);
   });
 
   it("preserves pending default-branch initialization when refresh supersedes the first load", async () => {
@@ -2263,7 +2266,7 @@ describe("panel-store async response ordering", () => {
       }
       if (command === "getTags") return [];
       if (command === "getGraphData") {
-        graphBranches.push((params as { branch?: string }).branch);
+        graphBranches.push((params as { branches?: string[] }).branches?.[0]);
         return graphResult([]);
       }
       return null;
@@ -2279,7 +2282,9 @@ describe("panel-store async response ordering", () => {
     await initial;
 
     expect(graphBranches).toEqual(["refs/heads/main"]);
-    expect(usePanelStore.getState().filter.branch).toBe("refs/heads/main");
+    expect(usePanelStore.getState().filter.branches).toEqual([
+      "refs/heads/main",
+    ]);
   });
 
   it("consumes default initialization once the current branch is known", async () => {
@@ -2296,7 +2301,7 @@ describe("panel-store async response ordering", () => {
       if (command === "getBranches") return [currentBranch];
       if (command === "getTags") return [];
       if (command === "getGraphData") {
-        graphBranches.push((params as { branch?: string }).branch);
+        graphBranches.push((params as { branches?: string[] }).branches?.[0]);
         if (graphBranches.length === 1) return firstGraph.promise;
         if (graphBranches.length === 3) {
           return graphResult([commit("feature-tip")]);
@@ -2312,7 +2317,9 @@ describe("panel-store async response ordering", () => {
       .fetchInitialData({ defaultToCurrentBranch: true });
     await vi.waitFor(() => {
       expect(graphBranches).toEqual(["refs/heads/main"]);
-      expect(usePanelStore.getState().filter.branch).toBe("refs/heads/main");
+      expect(usePanelStore.getState().filter.branches).toEqual([
+        "refs/heads/main",
+      ]);
     });
     await usePanelStore.getState().refresh();
     firstGraph.resolve(graphResult([]));
@@ -2340,7 +2347,7 @@ describe("panel-store async response ordering", () => {
     const newer = deferred<ReturnType<typeof graphResult>>();
     request.mockImplementation(async (command, params) => {
       if (command === "getGraphData") {
-        return (params as { branch?: string }).branch === "branch-a"
+        return (params as { branches?: string[] }).branches?.[0] === "branch-a"
           ? older.promise
           : newer.promise;
       }
@@ -2350,11 +2357,11 @@ describe("panel-store async response ordering", () => {
     });
 
     usePanelStore.setState((state) => ({
-      filter: { ...state.filter, branch: "branch-a" },
+      filter: { ...state.filter, branches: ["branch-a"] },
     }));
     const first = usePanelStore.getState().fetchInitialData();
     usePanelStore.setState((state) => ({
-      filter: { ...state.filter, branch: "branch-b" },
+      filter: { ...state.filter, branches: ["branch-b"] },
     }));
     const second = usePanelStore.getState().fetchInitialData();
 
@@ -2365,7 +2372,7 @@ describe("panel-store async response ordering", () => {
     older.resolve(graphResult([commit("branch-a-tip")]));
     await Promise.all([first, second]);
 
-    expect(usePanelStore.getState().filter.branch).toBe("branch-b");
+    expect(usePanelStore.getState().filter.branches).toEqual(["branch-b"]);
     expect(usePanelStore.getState().commits.map((item) => item.hash)).toEqual([
       "branch-b-tip",
     ]);
@@ -2550,6 +2557,39 @@ describe("panel-store graph modes, paths, and presentation", () => {
         (c) => c[0] === "getGraphData",
       )?.[1] as Record<string, unknown>;
       expect(params.firstParent).toBeUndefined();
+    } finally {
+      instance.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("sends multiple branch filters as a branches array", async () => {
+    vi.useFakeTimers();
+    const request = stubRequest();
+    const instance = instanceWith(request);
+
+    try {
+      instance.store.getState().setFilter({
+        branches: ["refs/heads/main", "feature-a"],
+      });
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(request).toHaveBeenCalledWith(
+        "getGraphData",
+        expect.objectContaining({
+          branches: ["refs/heads/main", "feature-a"],
+        }),
+        expect.objectContaining({ repoId: "repo-a" }),
+      );
+
+      // Clearing the filter drops the param entirely.
+      request.mockClear();
+      instance.store.getState().setFilter({ branches: [] });
+      await vi.advanceTimersByTimeAsync(200);
+      const params = request.mock.calls.find(
+        (c) => c[0] === "getGraphData",
+      )?.[1] as Record<string, unknown>;
+      expect(params.branches).toBeUndefined();
     } finally {
       instance.dispose();
       vi.useRealTimers();

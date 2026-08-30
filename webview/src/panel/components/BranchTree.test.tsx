@@ -100,7 +100,7 @@ function seedTree(showTags = true) {
       searchQuery: "",
       searchRegex: false,
       searchCaseSensitive: false,
-      branch: "",
+      branches: [],
       author: "",
       dateRange: "",
       dateAfter: "",
@@ -152,7 +152,7 @@ describe("BranchTree unified refs", () => {
       fullRef: "refs/tags/v1.0.0",
     };
     expect(selectRef).toHaveBeenCalledWith(tag, "single", expect.any(Array));
-    expect(setFilter).toHaveBeenCalledWith({ branch: tag.fullRef });
+    expect(setFilter).toHaveBeenCalledWith({ branches: [tag.fullRef] });
   });
 
   it("renders one prioritized status icon for current, favorite, and ordinary refs", () => {
@@ -243,7 +243,7 @@ describe("BranchTree unified refs", () => {
       "single",
       expect.any(Array),
     );
-    expect(setFilter).toHaveBeenCalledWith({ branch: "refs/heads/main" });
+    expect(setFilter).toHaveBeenCalledWith({ branches: ["refs/heads/main"] });
   });
 
   it("offers Mark/Unmark as Favorite from a tag context menu", async () => {
@@ -497,7 +497,7 @@ describe("BranchTree unified refs", () => {
     fireEvent.doubleClick(tag);
 
     expect(setFilter).toHaveBeenCalledTimes(1);
-    expect(setFilter).toHaveBeenCalledWith({ branch: "refs/tags/v1.0.0" });
+    expect(setFilter).toHaveBeenCalledWith({ branches: ["refs/tags/v1.0.0"] });
   });
 
   it("rebuilds repeated grouped and flat presentations without duplicating branches", () => {

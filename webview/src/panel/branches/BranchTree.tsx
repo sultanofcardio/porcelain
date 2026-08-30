@@ -228,7 +228,12 @@ export function BranchTree({ onTogglePanel }: BranchTreeProps = {}) {
   const applySingleRefAction = useCallback(
     (ref: GitRefIdentity) => {
       if (singleClickAction === "filter") {
-        setFilter({ branch: filter.branch === ref.fullRef ? "" : ref.fullRef });
+        // A plain click replaces the filter with this ref (or clears it when
+        // it is already the sole filter); combining refs happens in the
+        // toolbar's multi-select dropdown.
+        const isSoleFilter =
+          filter.branches.length === 1 && filter.branches[0] === ref.fullRef;
+        setFilter({ branches: isSoleFilter ? [] : [ref.fullRef] });
         return;
       }
       const entry = [...branchEntries, ...tagEntries].find(
@@ -240,7 +245,7 @@ export function BranchTree({ onTogglePanel }: BranchTreeProps = {}) {
     },
     [
       branchEntries,
-      filter.branch,
+      filter.branches,
       navigateToRef,
       setFilter,
       singleClickAction,
@@ -481,7 +486,7 @@ export function BranchTree({ onTogglePanel }: BranchTreeProps = {}) {
         tagSnapshot={tagSnapshot}
         collapsedIds={treeState.effectiveCollapsedIds}
         selectedRefKeys={selectedRefKeys}
-        filteredRef={filter.branch}
+        filteredRefs={filter.branches}
         searchQuery={treeState.searchQuery}
         showTags={showTags}
         showCurrentBranchRow={

@@ -9,6 +9,14 @@ import type {
   TagInfo,
 } from "../../shared/types/git";
 
+/** Human-facing name for a ref that may be stored as a fullRef. */
+function displayRefName(ref: string): string {
+  if (ref.startsWith("refs/heads/")) return ref.slice("refs/heads/".length);
+  if (ref.startsWith("refs/remotes/")) return ref.slice("refs/remotes/".length);
+  if (ref.startsWith("refs/tags/")) return ref.slice("refs/tags/".length);
+  return ref;
+}
+
 export function Toolbar({
   showBranchFilter = true,
 }: {
@@ -21,7 +29,6 @@ export function Toolbar({
   const tags = useGitLogStore((s) => s.tags);
   const navigateToRef = useGitLogStore((s) => s.navigateToRef);
   const navigateToCommit = useGitLogStore((s) => s.navigateToCommit);
-  const currentBranch = useGitLogStore((s) => s.currentBranch);
   const visibleColumns = useGitLogStore((s) => s.visibleColumns);
   const toggleColumnVisibility = useGitLogStore(
     (s) => s.toggleColumnVisibility,
@@ -31,7 +38,6 @@ export function Toolbar({
   const presentation = useGitLogStore((s) => s.presentation);
   const togglePresentation = useGitLogStore((s) => s.togglePresentation);
   const requestFromSurface = useGitLogStore((s) => s.requestFromSurface);
-  const historyBranch = filter.branch || currentBranch;
 
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [showDateDropdown, setShowDateDropdown] = useState(false);
@@ -126,14 +132,27 @@ export function Toolbar({
     setFilter({ dateRange: "", dateAfter: "", dateBefore: "" });
   };
 
-  const handleSelectBranch = (branch: string) => {
-    setShowBranchDropdown(false);
-    setFilter({ branch: branch === filter.branch ? "" : branch });
+  // Toggling a branch keeps the popup open so several can be combined,
+  // matching IntelliJ's multi-value branch filter. The tree stores fullRefs
+  // while the dropdown lists short names, so match on either form.
+  const handleToggleBranch = (branch: string) => {
+    const matches = (value: string) =>
+      value === branch || displayRefName(value) === branch;
+    const next = filter.branches.some(matches)
+      ? filter.branches.filter((b) => !matches(b))
+      : [...filter.branches, branch];
+    setFilter({ branches: next });
   };
 
   const handleClearBranch = () => {
     setShowBranchDropdown(false);
-    setFilter({ branch: "" });
+    setFilter({ branches: [] });
+  };
+
+  const branchFilterLabel = () => {
+    if (filter.branches.length === 0) return undefined;
+    if (filter.branches.length === 1) return displayRefName(filter.branches[0]);
+    return `${filter.branches.length} branches`;
   };
 
   const handleClearPaths = () => {
@@ -197,8 +216,8 @@ export function Toolbar({
         <div style={{ position: "relative" }}>
           <FilterButton
             label="Branch"
-            active={!!filter.branch}
-            activeValue={historyBranch}
+            active={filter.branches.length > 0}
+            activeValue={branchFilterLabel()}
             onClick={() => {
               setShowBranchDropdown(!showBranchDropdown);
               setShowUserDropdown(false);
@@ -207,14 +226,17 @@ export function Toolbar({
             onClear={handleClearBranch}
           />
           {showBranchDropdown && (
-            <SearchableDropdown
+            <MultiSelectDropdown
               items={branchNames}
-              activeItem={filter.branch}
-              placeholder="Select branch..."
-              onSelect={handleSelectBranch}
-              onClear={filter.branch ? handleClearBranch : undefined}
+              activeItems={filter.branches}
+              placeholder="Select branches..."
+              onToggle={handleToggleBranch}
+              onClear={
+                filter.branches.length > 0 ? handleClearBranch : undefined
+              }
               clearLabel="All branches"
               onClose={() => setShowBranchDropdown(false)}
+              displayName={displayRefName}
             />
           )}
         </div>
@@ -1133,6 +1155,143 @@ function DateFilterDropdown({
         >
           Apply
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// MultiSelectDropdown — checkbox list with search; stays open while toggling
+// ---------------------------------------------------------------------------
+
+function MultiSelectDropdown({
+  items,
+  activeItems,
+  placeholder,
+  onToggle,
+  onClear,
+  clearLabel,
+  onClose,
+  displayName,
+}: {
+  items: string[];
+  activeItems: string[];
+  placeholder: string;
+  onToggle: (item: string) => void;
+  onClear?: () => void;
+  clearLabel?: string;
+  onClose: () => void;
+  displayName?: (item: string) => string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const handleMouseDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    const handleScroll = (e: Event) => {
+      if (
+        ref.current &&
+        e.target instanceof Node &&
+        !ref.current.contains(e.target)
+      ) {
+        onClose();
+      }
+    };
+    const handleBlur = () => onClose();
+    document.addEventListener("mousedown", handleMouseDown, true);
+    document.addEventListener("scroll", handleScroll, true);
+    window.addEventListener("blur", handleBlur);
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown, true);
+      document.removeEventListener("scroll", handleScroll, true);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, [onClose]);
+
+  const isActive = (item: string) =>
+    activeItems.some(
+      (active) => active === item || (displayName?.(active) ?? active) === item,
+    );
+
+  const filtered = query
+    ? items.filter((item) => item.toLowerCase().includes(query.toLowerCase()))
+    : items;
+
+  return (
+    <div
+      ref={ref}
+      style={{
+        position: "absolute",
+        top: "100%",
+        left: 0,
+        marginTop: 4,
+        zIndex: 9999,
+        background: "var(--vscode-menu-background, #1e1e1e)",
+        border: "1px solid var(--vscode-menu-border, #454545)",
+        borderRadius: 4,
+        padding: "4px 0",
+        minWidth: 220,
+        maxHeight: 300,
+        display: "flex",
+        flexDirection: "column",
+        boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
+      }}
+    >
+      <div style={{ padding: "4px 8px" }}>
+        <input
+          ref={inputRef}
+          type="text"
+          placeholder={placeholder}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") onClose();
+          }}
+          style={{
+            width: "100%",
+            padding: "4px 8px",
+            fontSize: "12px",
+            border: "1px solid var(--vscode-input-border, #3c3c3c)",
+            background: "var(--vscode-input-background, #3c3c3c)",
+            color: "var(--vscode-input-foreground, #ccc)",
+            borderRadius: 3,
+            outline: "none",
+            boxSizing: "border-box",
+          }}
+        />
+      </div>
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        {onClear && clearLabel && (
+          <DropdownItem label={clearLabel} active={false} onClick={onClear} />
+        )}
+        {filtered.map((item) => (
+          <CheckMenuItem
+            key={item}
+            label={item}
+            checked={isActive(item)}
+            onToggle={() => onToggle(item)}
+          />
+        ))}
+        {filtered.length === 0 && (
+          <div
+            style={{
+              padding: "8px 12px",
+              fontSize: "12px",
+              opacity: 0.5,
+            }}
+          >
+            No matches
+          </div>
+        )}
       </div>
     </div>
   );

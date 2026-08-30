@@ -39,7 +39,7 @@ export interface BranchTreeViewProps {
   tagSnapshot: BranchTreeSnapshot;
   collapsedIds: ReadonlySet<string>;
   selectedRefKeys: ReadonlySet<string>;
-  filteredRef: string;
+  filteredRefs: string[];
   searchQuery: string;
   showTags: boolean;
   showCurrentBranchRow: boolean;
@@ -72,7 +72,7 @@ export function BranchTreeView({
   tagSnapshot,
   collapsedIds,
   selectedRefKeys,
-  filteredRef,
+  filteredRefs,
   searchQuery,
   showTags,
   showCurrentBranchRow,
@@ -99,7 +99,7 @@ export function BranchTreeView({
     depth: 0,
     collapsedIds,
     selectedRefKeys,
-    filteredRef,
+    filteredRefs,
     onToggle,
     onRefClick,
     onRefKeyboardActivate,

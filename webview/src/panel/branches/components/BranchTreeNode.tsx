@@ -17,7 +17,7 @@ export interface BranchTreeNodeViewProps {
   depth: number;
   collapsedIds: ReadonlySet<string>;
   selectedRefKeys: ReadonlySet<string>;
-  filteredRef: string;
+  filteredRefs: string[];
   onToggle(id: string): void;
   onRefClick(event: React.MouseEvent, ref: GitRefIdentity): void;
   onRefKeyboardActivate(ref: GitRefIdentity): void;
@@ -70,7 +70,7 @@ function RefRow({
   name,
   depth,
   selectedRefKeys,
-  filteredRef,
+  filteredRefs,
   onRefClick,
   onRefKeyboardActivate,
   onRefDoubleClick,
@@ -97,7 +97,7 @@ function RefRow({
         ? "Tag"
         : "Branch";
   const isSelected = selectedRefKeys.has(refIdentityKey(ref));
-  const isFiltered = filteredRef === ref.fullRef;
+  const isFiltered = filteredRefs.includes(ref.fullRef);
 
   return (
     <div

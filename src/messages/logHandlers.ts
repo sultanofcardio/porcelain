@@ -84,7 +84,9 @@ async function handleGraphPage(
     maxCount,
     skip: command === "loadMoreLog" ? (params.skip ?? 0) : params.skip,
     revision: revision && "value" in revision ? revision.value : undefined,
-    ...(params.revision ? {} : { branch: params.branch }),
+    ...(params.revision
+      ? {}
+      : { branch: params.branch, branches: params.branches }),
     search: params.search,
     searchRegex: params.searchRegex,
     searchCaseSensitive: params.searchCaseSensitive,
