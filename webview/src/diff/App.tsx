@@ -7,7 +7,11 @@ import {
   useState,
 } from "react";
 import { bridge } from "../shared/bridge";
-import { type DiffSidesResult, WORKING_TREE_REF } from "../shared/bridge/types";
+import {
+  type CommandType,
+  type DiffSidesResult,
+  WORKING_TREE_REF,
+} from "../shared/bridge/types";
 import { editableSide, useDiffStore } from "../shared/store/diff-store";
 import { ChangeStripe, splitStripeMarks } from "./components/ChangeStripe";
 import { DiffFallback } from "./components/DiffFallback";
@@ -22,6 +26,7 @@ import { type DisplayMapping, EditablePane } from "./editor/EditablePane";
 import {
   axisToSide,
   chooseLayout,
+  type DiffChunk,
   displayLine,
   displayToSource,
   type Side,
@@ -207,6 +212,110 @@ export function DiffApp() {
     if (store.syncScroll) return;
     setIndependentLeft(leftAtDecouple.current);
   }, [store.syncScroll]);
+
+  // A working-tree diff can stage, unstage and revert individual changes. The
+  // checkbox reflects what git has staged rather than a separate notion of
+  // inclusion, so it never drifts from the index it claims to describe.
+  const workingTree = store.rightRef === WORKING_TREE_REF;
+  /**
+   * What is *not* in the index yet, addressed by right-pane row.
+   *
+   * Read from the working-tree-vs-index diff rather than the staged one: its
+   * new side is the working tree, so its line numbers are the right pane's
+   * line numbers, and they stay that way as parts of the file are staged. The
+   * staged diff's new side is the index, which drifts away from the pane the
+   * moment a change is only half taken.
+   */
+  const [pending, setPending] = useState<{
+    lines: Set<number>;
+    deletions: Set<number>;
+  }>({ lines: new Set(), deletions: new Set() });
+  const refreshStaged = useCallback(async () => {
+    if (!workingTree || !filePath) return;
+    try {
+      const hunks = (await bridge.request("getFileHunks", {
+        filePath,
+        staged: false,
+      })) as Array<{ newStart: number; lines: string[] }> | null;
+      const lines = new Set<number>();
+      const deletions = new Set<number>();
+      for (const hunk of hunks ?? []) {
+        // Hunk line numbers are 1-based; the panes address rows from 0.
+        let row = hunk.newStart - 1;
+        for (const line of hunk.lines) {
+          if (line.startsWith("\\")) continue;
+          if (line.startsWith("-")) {
+            // A removal occupies no row on the new side, so it is recorded at
+            // the row it sits in front of.
+            deletions.add(row);
+            continue;
+          }
+          if (line.startsWith("+")) lines.add(row);
+          row++;
+        }
+      }
+      setPending({ lines, deletions });
+    } catch {
+      setPending({ lines: new Set(), deletions: new Set() });
+    }
+  }, [filePath, workingTree]);
+
+  useEffect(() => {
+    void refreshStaged();
+  }, [refreshStaged]);
+
+  const changeControls = useMemo(() => {
+    if (!workingTree || !filePath) return undefined;
+    const call = async (
+      command: CommandType,
+      params: Record<string, unknown>,
+    ) => {
+      try {
+        await bridge.request(command, params);
+      } catch (error) {
+        useDiffStore
+          .getState()
+          .setError(
+            `${command} failed: ${error instanceof Error ? error.message : error}`,
+          );
+      }
+      await refreshStaged();
+    };
+    const lineIncluded = (rightLine: number) => !pending.lines.has(rightLine);
+    return {
+      isLineIncluded: lineIncluded,
+      // A change counts as included only once none of it is still pending —
+      // half of a block taken leaves its box clear, matching what a commit
+      // would actually carry.
+      isChunkIncluded: (chunk: DiffChunk) => {
+        if (pending.deletions.has(chunk.right.start)) return false;
+        for (let i = 0; i < chunk.right.count; i++) {
+          if (!lineIncluded(chunk.right.start + i)) return false;
+        }
+        return true;
+      },
+      // The change's own checkbox takes or returns the whole hunk…
+      onToggleChunk: (rightLine: number, included: boolean) => {
+        void call("stageHunkAtLine", {
+          filePath,
+          newLine: rightLine + 1,
+          unstage: included,
+        });
+      },
+      // …while the hovered line's checkbox takes just that line, so part of
+      // a block can be left behind.
+      onToggleLine: (rightLine: number) => {
+        void call("setLineStaged", {
+          filePath,
+          newLine: rightLine + 1,
+          staged: !lineIncluded(rightLine),
+        });
+      },
+      onRevert: (rightLine: number) => {
+        void call("revertHunkAtLine", { filePath, newLine: rightLine + 1 });
+      },
+    };
+  }, [filePath, refreshStaged, pending, workingTree]);
 
   const scrollLeftPane = useCallback((deltaLines: number, maxLine: number) => {
     setIndependentLeft((current) =>
@@ -650,6 +759,7 @@ export function DiffApp() {
                     leftLineCount={leftLines.length}
                     rightLineCount={rightLines.length}
                     folds={store.folds}
+                    changeControls={changeControls}
                   />
                   {wrapEditable(
                     "right",

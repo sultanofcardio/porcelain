@@ -1531,7 +1531,9 @@ export class GitService {
     if (options.reverse) args.push("--cached");
     args.push("--", filePath);
     const parsed = parseUnifiedDiff(await this.execGit(args));
-    const patch = buildPartialPatch(parsed, hunkIndices);
+    const patch = buildPartialPatch(parsed, hunkIndices, {
+      direction: options.reverse ? "reverse" : "forward",
+    });
     if (!patch) return;
     await this.executor.withInput(
       // Context is deliberately verified: the patch carries three lines of
@@ -1784,7 +1786,9 @@ export class GitService {
         filePath,
       ]),
     );
-    const patch = buildPartialPatch(parsed, [target.index]);
+    const patch = buildPartialPatch(parsed, [target.index], {
+      direction: "reverse",
+    });
     if (!patch) return false;
     // No --cached: the working tree is what is being put back.
     await this.executor.withInput(["apply", "--reverse", "-"], patch);
@@ -1815,6 +1819,66 @@ export class GitService {
     const patch = buildLinePatch(parsed, selection);
     if (!patch) return false;
     await this.executor.withInput(["apply", "--cached", "-"], patch);
+    this.invalidateCache();
+    return true;
+  }
+
+  /**
+   * Stage or unstage the single changed line at `newLine`.
+   *
+   * The mapping from a line the user pointed at to a position inside a hunk
+   * body lives here, where the hunks are, rather than in the webview — which
+   * chunks the file with its own settings and would have to agree with git to
+   * get it right.
+   */
+  async setLineStaged(
+    filePath: string,
+    newLine: number,
+    staged: boolean,
+  ): Promise<boolean> {
+    const hunks = await this.getFileHunks(filePath, !staged);
+    const target = hunks.find(
+      (hunk) =>
+        newLine >= hunk.newStart && newLine < hunk.newStart + hunk.newCount,
+    );
+    if (!target) return false;
+
+    // Walk the body counting new-side lines to find the one asked for.
+    let cursor = target.newStart;
+    let position = -1;
+    for (const [index, line] of target.lines.entries()) {
+      if (line.startsWith("-") || line.startsWith("\\")) continue;
+      if (cursor === newLine) {
+        position = index;
+        break;
+      }
+      cursor++;
+    }
+    if (position === -1) return false;
+    // Only a changed line can be taken on its own; context is already there.
+    if (!target.lines[position].startsWith("+")) return false;
+
+    const selection = new Map([[target.index, new Set([position])]]);
+    if (staged) {
+      return this.stageLines(filePath, selection);
+    }
+    const parsed = parseUnifiedDiff(
+      await this.execGit([
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "-U3",
+        "--cached",
+        "--",
+        filePath,
+      ]),
+    );
+    const patch = buildLinePatch(parsed, selection, { direction: "reverse" });
+    if (!patch) return false;
+    await this.executor.withInput(
+      ["apply", "--cached", "--reverse", "-"],
+      patch,
+    );
     this.invalidateCache();
     return true;
   }

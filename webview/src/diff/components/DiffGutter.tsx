@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import {
   axisToSide,
   connectorPath,
@@ -32,6 +33,21 @@ interface DiffGutterProps {
    * pixel ys, the same coordinate the chunk connectors are computed in:
    * `(displayRow - offset) * LINE_HEIGHT`.
    */
+  /**
+   * Per-change controls for a working-tree diff: a revert arrow and an
+   * inclusion checkbox on each change, plus a checkbox on any line the
+   * pointer is over so part of a block can be taken. Omitted, the gutter is
+   * the read-only one every other surface uses.
+   */
+  changeControls?: {
+    /** Whether every part of this change is already in the commit. */
+    isChunkIncluded(chunk: DiffChunk): boolean;
+    /** Whether one right-side line is already in the commit. */
+    isLineIncluded(rightLine: number): boolean;
+    onToggleChunk(rightLine: number, included: boolean): void;
+    onToggleLine(rightLine: number): void;
+    onRevert(rightLine: number): void;
+  };
   extraConnectors?: Array<{
     key: string;
     ay0: number;
@@ -77,9 +93,25 @@ export function DiffGutter({
   rightLineCount,
   folds = [],
   only,
+  changeControls,
   extraConnectors = [],
 }: DiffGutterProps) {
   const height = (visibleLines + 2) * LINE_HEIGHT;
+  const [hoveredLine, setHoveredLine] = useState<number | null>(null);
+
+  // The right-side lines that belong to a change: only those can be taken or
+  // left behind line by line.
+  const changedRightLines = useMemo(() => {
+    const lines = new Set<number>();
+    if (!changeControls) return lines;
+    for (const chunk of chunks) {
+      if (chunk.kind === "equal") continue;
+      for (let i = 0; i < chunk.right.count; i++) {
+        lines.add(chunk.right.start + i);
+      }
+    }
+    return lines;
+  }, [chunks, changeControls]);
 
   // Sized from the larger side's line count, so a five-digit file widens the
   // columns instead of crowding them. The connectors' bend stays confined to
@@ -178,6 +210,34 @@ export function DiffGutter({
     return rows;
   };
 
+  // One control cluster per change, anchored on the change's first row on the
+  // right — the side a working-tree diff edits.
+  const controls = changeControls
+    ? chunks.flatMap((chunk) => {
+        if (chunk.kind === "equal") return [];
+        // The host addresses changes by new-file line, so a pure deletion is
+        // still named by the right-side row it sits in front of — only where
+        // the cluster is *drawn* falls back to the left side, since the right
+        // has no row of its own there.
+        const line = chunk.right.start;
+        const onRight = chunk.right.count > 0;
+        const row = onRight
+          ? y(chunk.right.start, rightOffset, "right")
+          : y(chunk.left.start, leftOffset, "left");
+        if (row < -LINE_HEIGHT || row > height) return [];
+        return [
+          {
+            key: `control-${chunk.left.start}-${line}`,
+            line,
+            row,
+            included: changeControls.isChunkIncluded(chunk),
+            // The rows this cluster's own checkbox already speaks for.
+            covered: onRight ? chunk.right.start : -1,
+          },
+        ];
+      })
+    : [];
+
   if (only) {
     return (
       <div className="diff-gutter" style={{ width: metrics.numberWidth + 8 }}>
@@ -191,7 +251,23 @@ export function DiffGutter({
   }
 
   return (
-    <div className="diff-gutter" style={{ width: metrics.width }}>
+    <div
+      className="diff-gutter"
+      style={{ width: metrics.width }}
+      onMouseMove={
+        changeControls
+          ? (event) => {
+              const bounds = event.currentTarget.getBoundingClientRect();
+              const row = Math.floor(
+                (event.clientY - bounds.top) / LINE_HEIGHT + rightOffset,
+              );
+              // Only lines inside a change can be included or excluded.
+              setHoveredLine(changedRightLines.has(row) ? row : null);
+            }
+          : undefined
+      }
+      onMouseLeave={changeControls ? () => setHoveredLine(null) : undefined}
+    >
       <svg
         className="diff-gutter-connectors"
         width={metrics.width}
@@ -216,6 +292,51 @@ export function DiffGutter({
       >
         {numbers(rightOffset, rightLineCount, "left", "right")}
       </div>
+      {changeControls &&
+        controls.map((control) => (
+          <div
+            key={control.key}
+            className="diff-change-controls"
+            style={{ top: control.row }}
+          >
+            <button
+              type="button"
+              className="diff-change-revert"
+              aria-label={`Revert change at line ${control.line + 1}`}
+              title="Revert this change"
+              onClick={() => changeControls.onRevert(control.line)}
+            >
+              ≫
+            </button>
+            <input
+              type="checkbox"
+              className="diff-change-include"
+              aria-label={`Include change at line ${control.line + 1} in the commit`}
+              checked={control.included}
+              onChange={() =>
+                changeControls.onToggleChunk(control.line, control.included)
+              }
+            />
+          </div>
+        ))}
+      {/* The first row of a change already carries the block's own checkbox;
+          a second one stacked on top of it would be two controls for one row
+          saying different things. */}
+      {changeControls &&
+        hoveredLine !== null &&
+        !controls.some((control) => control.covered === hoveredLine) && (
+          <div
+            className="diff-line-control"
+            style={{ top: y(hoveredLine, rightOffset, "right") }}
+          >
+            <input
+              type="checkbox"
+              aria-label={`Include line ${hoveredLine + 1} in the commit`}
+              checked={changeControls.isLineIncluded(hoveredLine)}
+              onChange={() => changeControls.onToggleLine(hoveredLine)}
+            />
+          </div>
+        )}
     </div>
   );
 }

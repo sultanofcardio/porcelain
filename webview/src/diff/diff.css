@@ -924,3 +924,59 @@ button.diff-btn-primary:disabled {
   white-space: pre;
   overflow: hidden;
 }
+
+/* ── working-tree change controls ────────────────────────── */
+/* A revert arrow and an inclusion checkbox on each change, plus a checkbox on
+   whichever changed line the pointer is over, so part of a block can be left
+   behind. Only a working-tree diff shows these. */
+.diff-change-controls {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  /* Matches LINE_HEIGHT in metrics.ts, so a control sits on its row. */
+  height: 20px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  z-index: 3;
+}
+.diff-change-revert {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1;
+  border: none;
+  border-radius: 3px;
+  background: var(--vscode-editorWidget-background, #252526);
+  color: var(--vscode-foreground, #ccc);
+  cursor: pointer;
+  opacity: 0.75;
+}
+.diff-change-revert:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+}
+.diff-change-include,
+.diff-line-control input {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  accent-color: #3574f0;
+  cursor: pointer;
+}
+/* The per-line checkbox is deliberately quieter than the change's own: it is
+   an exception to the block, not the primary control. */
+.diff-line-control {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  height: 20px;
+  display: flex;
+  align-items: center;
+  z-index: 2;
+  opacity: 0.85;
+}

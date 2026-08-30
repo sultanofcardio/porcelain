@@ -336,6 +336,22 @@ export function registerWorkingTreeHandlers(router: MessageRouter): void {
     }));
   });
 
+  router.handle("setLineStaged", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const filePath = requireString(params.filePath, "filePath");
+    const newLine = params.newLine;
+    if (typeof newLine !== "number") {
+      throw new Error("newLine must be a number");
+    }
+    return mutate(context, async () => ({
+      changed: await context.gitService.setLineStaged(
+        filePath,
+        newLine,
+        params.staged === true,
+      ),
+    }));
+  });
+
   router.handle("getCommitTemplate", async (_params, context) => {
     if (!context) return NOT_GIT_REPO;
     const [template, mergeMessage] = await Promise.all([

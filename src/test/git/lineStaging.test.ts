@@ -149,6 +149,73 @@ describe("gitService.stageLines", () => {
     );
   });
 
+  it("stages and unstages one line at a time", async () => {
+    const repo = await GitTestRepo.create();
+    await repo.writeFile("f.txt", "one\ntwo\n");
+    await repo.git("add", "f.txt");
+    await repo.git("commit", "-m", "seed");
+    // Two separate additions in one hunk.
+    await repo.writeFile("f.txt", "one\nfirst\nsecond\ntwo\n");
+    const service = serviceFor(repo);
+
+    // Line 2 in the new file is "first".
+    assert.strictEqual(await service.setLineStaged("f.txt", 2, true), true);
+    assert.strictEqual(await repo.git("show", ":f.txt"), "one\nfirst\ntwo\n");
+
+    // Its neighbour is untouched until asked for.
+    assert.strictEqual(await service.setLineStaged("f.txt", 3, true), true);
+    assert.strictEqual(
+      await repo.git("show", ":f.txt"),
+      "one\nfirst\nsecond\ntwo\n",
+    );
+
+    // And a staged line can be handed back on its own.
+    assert.strictEqual(await service.setLineStaged("f.txt", 3, false), true);
+    assert.strictEqual(await repo.git("show", ":f.txt"), "one\nfirst\ntwo\n");
+  });
+
+  it("unstages a line in a later hunk while an earlier one stays staged", async () => {
+    // Two changes far enough apart to be separate hunks. Unstaging one of
+    // them skips the other, and a skipped hunk shifts the line numbers of
+    // everything after it — in the *opposite* direction for a patch that is
+    // applied in reverse, since there git reads the new side and writes the
+    // old one.
+    const repo = await GitTestRepo.create();
+    const base = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
+    await repo.writeFile("f.txt", `${base.join("\n")}\n`);
+    await repo.git("add", "f.txt");
+    await repo.git("commit", "-m", "seed");
+    const edited = [...base];
+    edited.splice(15, 0, "late");
+    edited.splice(2, 0, "early");
+    await repo.writeFile("f.txt", `${edited.join("\n")}\n`);
+    const service = serviceFor(repo);
+    assert.strictEqual((await service.getFileHunks("f.txt")).length, 2);
+
+    // "early" is new line 3, "late" is new line 17 once "early" is in.
+    assert.strictEqual(await service.setLineStaged("f.txt", 3, true), true);
+    assert.strictEqual(await service.setLineStaged("f.txt", 17, true), true);
+    assert.strictEqual(
+      await repo.git("show", ":f.txt"),
+      `${edited.join("\n")}\n`,
+    );
+
+    // Hand back only the later one.
+    assert.strictEqual(await service.setLineStaged("f.txt", 17, false), true);
+    const expected = [...base];
+    expected.splice(2, 0, "early");
+    assert.strictEqual(
+      await repo.git("show", ":f.txt"),
+      `${expected.join("\n")}\n`,
+    );
+  });
+
+  it("declines a line that is not itself a change", async () => {
+    const { service } = await seeded();
+    // "keep" is context: there is nothing to take.
+    assert.strictEqual(await service.setLineStaged("f.txt", 1, true), false);
+  });
+
   it("reports when a selection applies nothing", async () => {
     const { service } = await seeded();
     assert.strictEqual(await service.stageLines("f.txt", new Map()), false);

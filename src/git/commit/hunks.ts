@@ -78,7 +78,9 @@ export function parseUnifiedDiff(diff: string): ParsedDiff {
 export function buildPartialPatch(
   parsed: ParsedDiff,
   selectedIndices: readonly number[],
+  options: { direction?: "forward" | "reverse" } = {},
 ): string | null {
+  const direction = options.direction ?? "forward";
   const selected = new Set(selectedIndices);
   const chosen = parsed.hunks.filter((hunk) => selected.has(hunk.index));
   if (chosen.length === 0) return null;
@@ -92,9 +94,14 @@ export function buildPartialPatch(
       drift += hunk.oldCount - hunk.newCount;
       continue;
     }
-    const newStart = hunk.newStart + drift;
+    // Drift belongs to whichever side the patch writes: forward it reads the
+    // old side and writes the new one, reversed the roles swap.
+    const oldStart =
+      direction === "reverse" ? hunk.oldStart - drift : hunk.oldStart;
+    const newStart =
+      direction === "reverse" ? hunk.newStart : hunk.newStart + drift;
     out.push(
-      `@@ -${hunk.oldStart},${hunk.oldCount} +${newStart},${hunk.newCount} @@`,
+      `@@ -${oldStart},${hunk.oldCount} +${newStart},${hunk.newCount} @@`,
     );
     out.push(...hunk.lines);
   }
@@ -120,7 +127,9 @@ export type LineSelection = ReadonlyMap<number, ReadonlySet<number>>;
 export function buildLinePatch(
   parsed: ParsedDiff,
   selection: LineSelection,
+  options: { direction?: "forward" | "reverse" } = {},
 ): string | null {
+  const direction = options.direction ?? "forward";
   const out: string[] = [...parsed.fileHeader];
   let drift = 0;
   let wroteAnything = false;
@@ -133,7 +142,7 @@ export function buildLinePatch(
       continue;
     }
 
-    const body = emitSelectedHunk(hunk, selected);
+    const body = emitSelectedHunk(hunk, selected, direction);
     const oldCount = body.filter(
       (line) => line.startsWith(" ") || line.startsWith("-"),
     ).length;
@@ -149,9 +158,14 @@ export function buildLinePatch(
       continue;
     }
 
-    out.push(
-      `@@ -${hunk.oldStart},${oldCount} +${hunk.newStart + drift},${newCount} @@`,
-    );
+    // Drift belongs to whichever side the patch *writes*. Applied forward it
+    // reads the old side and writes the new one; reversed it reads the new
+    // side — which still describes the index verbatim — and writes the old.
+    const oldNum =
+      direction === "reverse" ? hunk.oldStart - drift : hunk.oldStart;
+    const newNum =
+      direction === "reverse" ? hunk.newStart : hunk.newStart + drift;
+    out.push(`@@ -${oldNum},${oldCount} +${newNum},${newCount} @@`);
     out.push(...body);
     wroteAnything = true;
     // What this hunk actually applies shifts the ones after it.
@@ -175,7 +189,20 @@ export function buildLinePatch(
 function emitSelectedHunk(
   hunk: DiffHunk,
   selected: ReadonlySet<number>,
+  direction: "forward" | "reverse",
 ): string[] {
+  // Which side already exists in the target the patch will be applied to,
+  // and so has to survive as context rather than disappear.
+  //
+  // Staging reads the working-tree diff and writes the index: the index does
+  // not have the unselected additions yet, so they are simply omitted, while
+  // an unselected removal is still present and must stay as context.
+  //
+  // Unstaging reverses a patch against the index, which *does* hold the other
+  // staged additions. Dropping them would describe an index that never
+  // existed and the patch would not apply — so there the roles swap.
+  const keepAsContext = direction === "reverse" ? "+" : "-";
+  const dropUnselected = direction === "reverse" ? "-" : "+";
   const body: string[] = [];
   let index = 0;
 
@@ -201,17 +228,19 @@ function emitSelectedHunk(
     let lastKeptRemoval = -1;
     for (let position = runStart; position < index; position++) {
       const current = hunk.lines[position];
-      if (current.startsWith("-")) {
+      if (current.startsWith(keepAsContext)) {
         if (selected.has(position)) {
           oldSide.push(current);
           lastKeptRemoval = oldSide.length;
         } else {
-          // Survives the partial apply, so it is context on both sides.
+          // Present in the target already, so it is context on both sides.
           oldSide.push(` ${current.slice(1)}`);
         }
         continue;
       }
-      if (selected.has(position)) additions.push(current);
+      if (current.startsWith(dropUnselected) && selected.has(position)) {
+        additions.push(current);
+      }
     }
 
     // Additions land after the last removal actually taken; with none taken
