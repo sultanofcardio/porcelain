@@ -21,7 +21,10 @@ import type {
   LaneSnapshot,
   LogOptions,
   LogRevision,
+  MergeOptions,
   MergeState,
+  PullOptions,
+  RebaseOptions,
   RefInfo,
   TagInfo,
 } from "./types";
@@ -67,6 +70,12 @@ const LOG_FORMAT = [
   "%D", // refs
 ].join(FMT_FIELD_SEP);
 
+import {
+  collectEditorMessages,
+  createRebaseEditorSetup,
+  type RebaseTodoEntry,
+  renderRebaseTodo,
+} from "./rebase/interactiveRebase";
 import { RefService } from "./refs/refService";
 import type { RepositoryPaths } from "./repoRegistry";
 import { NativeShelfService } from "./shelf/nativeShelfService";
@@ -114,6 +123,14 @@ export class GitService {
     maxBuffer = MAX_BUFFER,
   ): Promise<string> {
     return this.executor.text(args, { maxBuffer });
+  }
+
+  /** Run git with extra environment (the rebase editors need this). */
+  private async execGitWithEnv(
+    args: string[],
+    env: NodeJS.ProcessEnv,
+  ): Promise<string> {
+    return this.executor.text(args, { maxBuffer: MAX_BUFFER, env });
   }
 
   async checkGitAvailable(): Promise<boolean> {
@@ -711,6 +728,42 @@ export class GitService {
     return dateB < dateA ? { from: b, to: a } : { from: a, to: b };
   }
 
+  /**
+   * Order a selection of commits the way history does, oldest first, using
+   * their positions in `rev-list` rather than dates (which can lie).
+   */
+  private async sortHashesOldestFirst(
+    hashes: readonly string[],
+  ): Promise<string[]> {
+    for (const hash of hashes) {
+      await this.validateRef(hash);
+    }
+    const output = await this.execGit([
+      "rev-list",
+      "--topo-order",
+      "--max-count=1000",
+      "HEAD",
+    ]);
+    // rev-list is newest-first, so a higher index is older.
+    const position = new Map<string, number>();
+    output
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .forEach((hash, index) => position.set(hash, index));
+    const missing = hashes.find((hash) => !position.has(hash));
+    if (missing) {
+      throw new PorcelainError(
+        PorcelainErrorCode.INVALID_REF,
+        `Commit ${missing.slice(0, 8)} is not on the current branch`,
+        "Interactive rebase can only rewrite commits reachable from HEAD.",
+      );
+    }
+    return [...hashes].sort(
+      (a, b) => (position.get(b) ?? 0) - (position.get(a) ?? 0),
+    );
+  }
+
   /** Committer timestamp in seconds, or 0 when it cannot be read. */
   private async getCommitTimestamp(hash: string): Promise<number> {
     const output = await this.execGit([
@@ -1162,13 +1215,208 @@ export class GitService {
     this.invalidateCache();
   }
 
-  async merge(branchName: string): Promise<void> {
-    await this.execGit(["merge", branchName]);
+  async merge(branchName: string, options: MergeOptions = {}): Promise<void> {
+    await this.validateBranch(branchName);
+    const args = ["merge"];
+    if (options.noFf) args.push("--no-ff");
+    if (options.ffOnly) args.push("--ff-only");
+    if (options.squash) args.push("--squash");
+    if (options.noCommit) args.push("--no-commit");
+    if (options.noVerify) args.push("--no-verify");
+    if (options.allowUnrelatedHistories)
+      args.push("--allow-unrelated-histories");
+    if (options.message) args.push("-m", options.message);
+    args.push(branchName);
+    await this.execGit(args);
     this.invalidateCache();
   }
 
-  async rebase(onto: string): Promise<void> {
-    await this.execGit(["rebase", onto]);
+  async rebase(onto: string, options: RebaseOptions = {}): Promise<void> {
+    const args = ["rebase"];
+    if (options.interactive) args.push("--interactive");
+    if (options.autosquash) args.push("--autosquash");
+    if (options.updateRefs) args.push("--update-refs");
+    if (options.rebaseMerges) args.push("--rebase-merges");
+    if (options.keepEmpty) args.push("--keep-empty");
+    if (options.autostash) args.push("--autostash");
+    if (options.onto) {
+      await this.validateBranch(options.onto);
+      args.push("--onto", options.onto);
+    }
+    if (options.root) {
+      args.push("--root");
+    } else {
+      await this.validateBranch(onto);
+      args.push(onto);
+    }
+    if (options.branch) {
+      await this.validateBranch(options.branch);
+      args.push(options.branch);
+    }
+    await this.execGit(args);
+    this.invalidateCache();
+  }
+
+  /**
+   * The commits an interactive rebase would list, oldest-first — the order
+   * git writes into `git-rebase-todo` and the order the editor shows.
+   */
+  async getRebaseTodoCommits(fromHash: string): Promise<CommitNode[]> {
+    await this.validateRef(fromHash);
+    const parent = await this.resolveParentHash(fromHash);
+    const commits = parent
+      ? await this.getLog({
+          revision: { kind: "range", excludeRef: parent, includeRef: "HEAD" },
+          maxCount: 500,
+        })
+      : // A root commit has no parent to exclude: take all of HEAD.
+        await this.getLog({
+          revision: { kind: "ref", ref: "HEAD" },
+          maxCount: 500,
+        });
+    return [...commits].reverse();
+  }
+
+  /**
+   * The full hash of a commit's first parent, or null at a root commit.
+   * Revision expressions like `<hash>^` are resolved here rather than passed
+   * through argv, which the ref validators reject on purpose.
+   */
+  private async resolveParentHash(hash: string): Promise<string | null> {
+    await this.validateRef(hash);
+    try {
+      return (
+        await this.execGit(["rev-parse", "--verify", "--quiet", `${hash}^`])
+      ).trim();
+    } catch (error) {
+      if (error instanceof GitCommandError && error.exitCode === 1) return null;
+      throw error;
+    }
+  }
+
+  /**
+   * Run a planned interactive rebase. The plan is rendered into
+   * `git-rebase-todo` through GIT_SEQUENCE_EDITOR, and any reword or squash
+   * messages are served through GIT_EDITOR, so no editor ever opens.
+   *
+   * A conflict leaves the rebase in progress on purpose: the existing
+   * continue/abort/skip banner is what resolves it.
+   */
+  async runInteractiveRebase(
+    baseHash: string,
+    entries: readonly RebaseTodoEntry[],
+  ): Promise<void> {
+    await this.validateRef(baseHash);
+    if (entries.length === 0) return;
+    for (const entry of entries) {
+      await this.validateRef(entry.hash);
+    }
+    // Squash and fixup fold into the commit above them, so a plan that opens
+    // with one has nothing to fold into and git would refuse mid-run.
+    const first = entries[0];
+    if (first.action === "squash" || first.action === "fixup") {
+      throw new PorcelainError(
+        PorcelainErrorCode.INVALID_REF,
+        "The first commit in a rebase cannot be squashed or fixed up",
+        "Move a picked commit above it, or squash into the commit below instead.",
+      );
+    }
+
+    const setup = await createRebaseEditorSetup(
+      renderRebaseTodo(entries),
+      collectEditorMessages(entries),
+    );
+    const base = await this.resolveParentHash(baseHash);
+    try {
+      await this.execGitWithEnv(
+        base
+          ? ["rebase", "--interactive", base]
+          : // Rewriting from the root commit has no base to rebase onto.
+            ["rebase", "--interactive", "--root"],
+        setup.env,
+      );
+    } finally {
+      await setup.cleanup();
+      this.invalidateCache();
+    }
+  }
+
+  /** Replace a commit's message: --amend for HEAD, a reword rebase below it. */
+  async rewordCommit(hash: string, message: string): Promise<void> {
+    await this.validateRef(hash);
+    const head = (await this.execGit(["rev-parse", "HEAD"])).trim();
+    if (head === hash) {
+      await this.execGit(["commit", "--amend", "-m", message]);
+      this.invalidateCache();
+      return;
+    }
+    const commits = await this.getRebaseTodoCommits(hash);
+    const entries: RebaseTodoEntry[] = commits.map((commit) => ({
+      action: commit.hash === hash ? "reword" : "pick",
+      hash: commit.hash,
+      subject: commit.subject,
+      ...(commit.hash === hash ? { message } : {}),
+    }));
+    await this.runInteractiveRebase(hash, entries);
+  }
+
+  /** Fold a run of commits into the oldest of them, under one message. */
+  async squashCommits(
+    hashes: readonly string[],
+    message: string,
+  ): Promise<void> {
+    if (hashes.length < 2) {
+      throw new PorcelainError(
+        PorcelainErrorCode.INVALID_REF,
+        "Squashing needs at least two commits",
+      );
+    }
+    const ordered = await this.sortHashesOldestFirst(hashes);
+    const oldest = ordered[0];
+    const selected = new Set(ordered);
+    const commits = await this.getRebaseTodoCommits(oldest);
+    const entries: RebaseTodoEntry[] = commits.map((commit, index) => {
+      if (!selected.has(commit.hash)) {
+        return {
+          action: "pick" as const,
+          hash: commit.hash,
+          subject: commit.subject,
+        };
+      }
+      // The oldest selected commit keeps `pick` and carries the combined
+      // message; the rest fold into it.
+      const isAnchor = commit.hash === oldest;
+      return {
+        action: isAnchor ? ("reword" as const) : ("squash" as const),
+        hash: commit.hash,
+        subject: commit.subject,
+        ...(isAnchor || index === commits.length - 1 ? { message } : {}),
+      };
+    });
+    // Git prompts for the squash group's message, and for the anchor's
+    // reword; both are served the same combined text.
+    await this.runInteractiveRebase(oldest, entries);
+  }
+
+  /** Commit the working tree as a `fixup!`/`squash!` of an existing commit. */
+  async commitFixup(
+    hash: string,
+    kind: "fixup" | "squash",
+    filePaths?: readonly string[],
+  ): Promise<void> {
+    await this.validateRef(hash);
+    if (filePaths?.length) {
+      await this.execGit(["add", "--", ...filePaths]);
+    } else {
+      await this.execGit(["add", "-u"]);
+    }
+    await this.execGit(["commit", `--${kind}=${hash}`]);
+    this.invalidateCache();
+  }
+
+  /** Undo the last commit, keeping its changes in the working tree. */
+  async undoLastCommit(): Promise<void> {
+    await this.execGit(["reset", "--soft", "HEAD~1"]);
     this.invalidateCache();
   }
 

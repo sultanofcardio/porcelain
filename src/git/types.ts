@@ -200,3 +200,41 @@ export interface IdeaShelfEntry {
   patchPath: string;
   files: string[];
 }
+
+/** Options the Rebase dialog exposes, mirroring IntelliJ's option popup. */
+export interface RebaseOptions {
+  interactive?: boolean;
+  autosquash?: boolean;
+  updateRefs?: boolean;
+  rebaseMerges?: boolean;
+  keepEmpty?: boolean;
+  autostash?: boolean;
+  /** `--onto <new base>`. */
+  onto?: string;
+  /** Rebase from the root commit instead of an upstream. */
+  root?: boolean;
+  /** Check out this branch before rebasing it. */
+  branch?: string;
+}
+
+/** Options the Merge dialog exposes. */
+export interface MergeOptions {
+  noFf?: boolean;
+  ffOnly?: boolean;
+  squash?: boolean;
+  noCommit?: boolean;
+  noVerify?: boolean;
+  allowUnrelatedHistories?: boolean;
+  message?: string;
+}
+
+/** Options the Pull dialog exposes. */
+export interface PullOptions {
+  remote?: string;
+  branch?: string;
+  rebase?: boolean;
+  ffOnly?: boolean;
+  noFf?: boolean;
+  squash?: boolean;
+  noCommit?: boolean;
+}

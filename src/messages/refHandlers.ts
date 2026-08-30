@@ -133,3 +133,107 @@ export function registerRefHandlers(router: MessageRouter): void {
     return mutate(context, () => context.gitService.removeRemote(name));
   });
 }
+
+/**
+ * History rewriting: the interactive rebase engine and the verbs built on it.
+ * A conflict deliberately leaves the rebase in progress — the existing
+ * continue/abort/skip banner is what finishes it.
+ */
+export function registerRewriteHandlers(router: MessageRouter): void {
+  const mutate = (
+    context: RequestContext,
+    run: () => Promise<unknown>,
+  ): Promise<unknown> =>
+    withProgress(router, context.repoId, async () => {
+      const result = await run();
+      router.broadcastEvent("gitStateChanged", {
+        scope: "all",
+        repoId: context.repoId,
+      });
+      return result ?? { success: true };
+    });
+
+  router.handle("getRebaseTodoCommits", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const fromHash = requireString(params.fromHash, "fromHash");
+    return context.gitService.getRebaseTodoCommits(fromHash);
+  });
+
+  router.handle("runInteractiveRebase", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const baseHash = requireString(params.baseHash, "baseHash");
+    const entries = params.entries;
+    if (!Array.isArray(entries)) {
+      throw new Error("entries must be an array");
+    }
+    return mutate(context, () =>
+      context.gitService.runInteractiveRebase(
+        baseHash,
+        entries as Parameters<
+          typeof context.gitService.runInteractiveRebase
+        >[1],
+      ),
+    );
+  });
+
+  router.handle("rewordCommit", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const hash = requireString(params.hash, "hash");
+    const message = requireString(params.message, "message");
+    return mutate(context, () =>
+      context.gitService.rewordCommit(hash, message),
+    );
+  });
+
+  router.handle("squashCommits", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const hashes = requireStringArray(params.hashes, "hashes");
+    const message = requireString(params.message, "message");
+    return mutate(context, () =>
+      context.gitService.squashCommits(hashes, message),
+    );
+  });
+
+  router.handle("commitFixup", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const hash = requireString(params.hash, "hash");
+    const kind = params.kind === "squash" ? "squash" : "fixup";
+    const filePaths = Array.isArray(params.filePaths)
+      ? requireStringArray(params.filePaths, "filePaths")
+      : undefined;
+    return mutate(context, () =>
+      context.gitService.commitFixup(hash, kind, filePaths),
+    );
+  });
+
+  router.handle("undoLastCommit", async (_params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    return mutate(context, () => context.gitService.undoLastCommit());
+  });
+
+  router.handle("rebaseWithOptions", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const upstream = requireString(params.upstream, "upstream");
+    const options = (params.options ?? {}) as Parameters<
+      typeof context.gitService.rebase
+    >[1];
+    return mutate(context, () => context.gitService.rebase(upstream, options));
+  });
+
+  router.handle("mergeWithOptions", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const branchName = requireString(params.branchName, "branchName");
+    const options = (params.options ?? {}) as Parameters<
+      typeof context.gitService.merge
+    >[1];
+    return mutate(context, () => context.gitService.merge(branchName, options));
+  });
+
+  router.handle("pullWithOptions", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const options = (params.options ?? {}) as Parameters<
+      typeof context.gitService.pull
+    >[0];
+    return mutate(context, () => context.gitService.pull(options));
+  });
+}

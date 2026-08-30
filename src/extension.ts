@@ -31,7 +31,10 @@ import {
   ErrorCode,
   type FileVersionsResult,
 } from "./messages/protocol";
-import { registerRefHandlers } from "./messages/refHandlers";
+import {
+  registerRefHandlers,
+  registerRewriteHandlers,
+} from "./messages/refHandlers";
 import { ChangesWindowManager } from "./views/changesWindowManager";
 import { CommitViewProvider } from "./views/commitViewProvider";
 import {
@@ -421,6 +424,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   registerLogHandlers(messageRouter);
   registerRefHandlers(messageRouter);
+  registerRewriteHandlers(messageRouter);
   registerComparePanelHandlers(messageRouter, comparePanelManager);
 
   messageRouter.handle("openMergeEditor", async (params, ctx) => {
