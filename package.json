@@ -134,36 +134,6 @@
         "category": "Porcelain"
       },
       {
-        "command": "porcelain.commitPanel.refresh",
-        "title": "Refresh Changes",
-        "icon": "$(refresh)",
-        "category": "Porcelain"
-      },
-      {
-        "command": "porcelain.commitPanel.commit",
-        "title": "Commit",
-        "icon": "$(check)",
-        "category": "Porcelain"
-      },
-      {
-        "command": "porcelain.commitPanel.commitAndPush",
-        "title": "Commit and Push",
-        "icon": "$(cloud-upload)",
-        "category": "Porcelain"
-      },
-      {
-        "command": "porcelain.commitPanel.shelve",
-        "title": "Shelve Changes",
-        "icon": "$(archive)",
-        "category": "Porcelain"
-      },
-      {
-        "command": "porcelain.commitPanel.unshelve",
-        "title": "Unshelve Changes",
-        "icon": "$(package)",
-        "category": "Porcelain"
-      },
-      {
         "command": "porcelain.openPushPanel",
         "title": "Push...",
         "icon": "$(cloud-upload)",
@@ -188,6 +158,21 @@
       {
         "command": "porcelain.updateProject",
         "title": "Update Project",
+        "category": "Porcelain"
+      },
+      {
+        "command": "porcelain.manageWorktrees",
+        "title": "Worktrees...",
+        "category": "Porcelain"
+      },
+      {
+        "command": "porcelain.searchCommits",
+        "title": "Search Commits...",
+        "category": "Porcelain"
+      },
+      {
+        "command": "porcelain.operationsPopup",
+        "title": "Git Operations...",
         "category": "Porcelain"
       }
     ],
@@ -217,7 +202,7 @@
             "VS Code's built-in diff editor. Keeps find, hovers, go-to-definition and screen-reader support.",
             "Porcelain's own diff surface: paired centre gutter, curved connectors, per-side revision headers and a live difference count."
           ],
-          "default": "native",
+          "default": "porcelain",
           "markdownDescription": "Which renderer shows file diffs, including diffs against the working tree and the index. On the Porcelain surface the working-tree side is editable in place \u2014 double-click a line to edit, `Cmd+S` saves \u2014 while historical revisions and the index stay read-only; Edit Source still opens the real file. Binary and oversized files show a placeholder with a way into the built-in editor."
         },
         "porcelain.push.protectedBranches": {
@@ -253,7 +238,13 @@
       }
     },
     "menus": {
-      "view/title": [],
+      "view/title": [
+        {
+          "command": "porcelain.refreshLog",
+          "when": "view == porcelain.gitLog",
+          "group": "navigation"
+        }
+      ],
       "scm/title": [
         {
           "command": "porcelain.openConflicts",
@@ -310,6 +301,11 @@
         "key": "ctrl+shift+f7",
         "mac": "cmd+shift+f7",
         "when": "editorFocus"
+      },
+      {
+        "command": "porcelain.operationsPopup",
+        "key": "ctrl+alt+g",
+        "mac": "cmd+alt+g"
       }
     ]
   },

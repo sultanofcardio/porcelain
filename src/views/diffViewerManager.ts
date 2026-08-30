@@ -20,17 +20,17 @@ export type DiffViewer = "native" | "porcelain";
 export const VIEWER_SETTING = "diff.viewer";
 
 /**
- * Read the configured diff viewer. Still defaults to the native editor even
- * though the surface now handles working-tree diffs, shows in-viewer
- * placeholders for binary, image and oversized content, and has find,
- * keyboard navigation and a screen-reader story — flipping the default to
- * "porcelain" is a deliberate follow-up, not blocked on capability.
+ * Read the configured diff viewer, which now defaults to the Porcelain
+ * surface: it handles working-tree diffs, shows in-viewer placeholders for
+ * binary, image and oversized content, and has find, keyboard navigation and
+ * a screen-reader story. `native` remains available for anyone who prefers
+ * VS Code's own diff editor.
  */
 export function getConfiguredViewer(): DiffViewer {
   const configured = vscode.workspace
     .getConfiguration("porcelain")
     .get<string>(VIEWER_SETTING);
-  return configured === "porcelain" ? "porcelain" : "native";
+  return configured === "native" ? "native" : "porcelain";
 }
 
 /**

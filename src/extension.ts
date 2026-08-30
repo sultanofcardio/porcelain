@@ -584,6 +584,175 @@ export async function activate(context: vscode.ExtensionContext) {
     }),
   );
 
+  context.subscriptions.push(
+    vscode.commands.registerCommand("porcelain.manageWorktrees", async () => {
+      const runtime = repoRegistry.getActive();
+      if (!runtime) return;
+      const worktrees = await runtime.gitService.listWorktrees();
+      const items = worktrees.map((worktree) => ({
+        label: worktree.branch ?? "(detached)",
+        description: worktree.path,
+        detail: [
+          worktree.isMain ? "main working tree" : null,
+          worktree.locked ? "locked" : null,
+          worktree.prunable ? "prunable" : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        worktree,
+      }));
+      type WorktreeChoice = vscode.QuickPickItem & {
+        worktree?: (typeof worktrees)[number];
+      };
+      const choices: WorktreeChoice[] = [
+        ...items,
+        { label: "$(add) New worktree…" },
+        { label: "$(trash) Prune stale records" },
+      ];
+      const chosen = await vscode.window.showQuickPick(choices, {
+        placeHolder: "Worktrees",
+      });
+      if (!chosen) return;
+
+      if (chosen.label.includes("Prune")) {
+        await runtime.gitService.pruneWorktrees();
+        void vscode.window.showInformationMessage("Pruned stale worktrees.");
+        return;
+      }
+      if (chosen.label.includes("New worktree")) {
+        const location = await vscode.window.showInputBox({
+          prompt: "Path for the new worktree",
+          placeHolder: "../feature-worktree",
+        });
+        if (!location) return;
+        const branch = await vscode.window.showInputBox({
+          prompt: "Branch to create in it (blank to check out an existing one)",
+        });
+        try {
+          await runtime.gitService.addWorktree(location, {
+            ...(branch ? { newBranch: branch } : {}),
+          });
+          messageRouter.broadcastEvent("gitStateChanged", {
+            scope: "all",
+            repoId: runtime.descriptor.id,
+          });
+          const open = await vscode.window.showInformationMessage(
+            `Created worktree at ${location}.`,
+            "Open",
+          );
+          if (open === "Open") {
+            await vscode.commands.executeCommand(
+              "vscode.openFolder",
+              vscode.Uri.file(location),
+              { forceNewWindow: true },
+            );
+          }
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          void vscode.window.showErrorMessage(
+            `Could not create worktree: ${message}`,
+          );
+        }
+        return;
+      }
+
+      const worktree = chosen.worktree;
+      if (!worktree) return;
+      const action = await vscode.window.showQuickPick(
+        worktree.isMain ? ["Open"] : ["Open", "Remove"],
+        { placeHolder: worktree.path },
+      );
+      if (action === "Open") {
+        await vscode.commands.executeCommand(
+          "vscode.openFolder",
+          vscode.Uri.file(worktree.path),
+          { forceNewWindow: true },
+        );
+      } else if (action === "Remove") {
+        try {
+          await runtime.gitService.removeWorktree(worktree.path);
+          messageRouter.broadcastEvent("gitStateChanged", {
+            scope: "all",
+            repoId: runtime.descriptor.id,
+          });
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          const force = await vscode.window.showWarningMessage(
+            `Could not remove: ${message}`,
+            "Force Remove",
+          );
+          if (force === "Force Remove") {
+            await runtime.gitService.removeWorktree(worktree.path, true);
+            messageRouter.broadcastEvent("gitStateChanged", {
+              scope: "all",
+              repoId: runtime.descriptor.id,
+            });
+          }
+        }
+      }
+    }),
+
+    vscode.commands.registerCommand("porcelain.searchCommits", async () => {
+      const runtime = repoRegistry.getActive();
+      if (!runtime) return;
+      const query = await vscode.window.showInputBox({
+        prompt: "Search commits by message or hash",
+        placeHolder: "fix the parser, or a commit hash",
+      });
+      if (!query) return;
+      const commits = await runtime.gitService.searchCommits(query);
+      if (commits.length === 0) {
+        void vscode.window.showInformationMessage("No commits matched.");
+        return;
+      }
+      const picked = await vscode.window.showQuickPick(
+        commits.map((commit) => ({
+          label: commit.subject,
+          description: commit.shortHash,
+          detail: `${commit.authorName} · ${commit.authorDate.slice(0, 10)}`,
+          hash: commit.hash,
+        })),
+        { placeHolder: `${commits.length} matching commit(s)` },
+      );
+      if (!picked) return;
+      await vscode.env.clipboard.writeText(picked.hash);
+      void vscode.window.showInformationMessage(
+        `Copied ${picked.hash.slice(0, 8)} to the clipboard.`,
+      );
+    }),
+
+    vscode.commands.registerCommand("porcelain.operationsPopup", async () => {
+      // IntelliJ's Alt+` popup: the verbs you reach for most, in one list.
+      const actions: Array<{ label: string; command: string }> = [
+        { label: "$(git-commit) Commit…", command: "porcelain.commitPanel" },
+        { label: "$(repo-push) Push…", command: "porcelain.openPushPanel" },
+        { label: "$(sync) Update Project", command: "porcelain.updateProject" },
+        {
+          label: "$(search) Search Commits…",
+          command: "porcelain.searchCommits",
+        },
+        {
+          label: "$(eye) Annotate with Git Blame",
+          command: "porcelain.toggleBlame",
+        },
+        {
+          label: "$(git-merge) Resolve Conflicts…",
+          command: "porcelain.openConflicts",
+        },
+        {
+          label: "$(list-tree) Worktrees…",
+          command: "porcelain.manageWorktrees",
+        },
+      ];
+      const picked = await vscode.window.showQuickPick(actions, {
+        placeHolder: "Git operations",
+      });
+      if (picked) await vscode.commands.executeCommand(picked.command);
+    }),
+  );
+
   messageRouter.handle("getBranches", async (_params, ctx) => {
     if (!ctx) {
       return NOT_GIT_REPO;

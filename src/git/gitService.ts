@@ -31,6 +31,7 @@ import type {
   RebaseOptions,
   RefInfo,
   TagInfo,
+  WorktreeInfo,
 } from "./types";
 
 // For parsing git output (actual null byte)
@@ -1634,6 +1635,129 @@ export class GitService {
 
     const output = await this.execGit(args, MAX_BUFFER);
     return parseBlamePorcelain(output);
+  }
+
+  /** Linked worktrees, with the state the manager shows. */
+  async listWorktrees(): Promise<WorktreeInfo[]> {
+    const output = await this.execGit([
+      "worktree",
+      "list",
+      "--porcelain",
+    ]).catch(() => "");
+    const worktrees: WorktreeInfo[] = [];
+    let current: Partial<WorktreeInfo> | null = null;
+    const flush = () => {
+      if (current?.path) {
+        worktrees.push({
+          path: current.path,
+          branch: current.branch,
+          head: current.head ?? "",
+          isMain: worktrees.length === 0,
+          locked: current.locked ?? false,
+          prunable: current.prunable ?? false,
+          detached: current.detached ?? false,
+        });
+      }
+      current = null;
+    };
+    for (const line of output.split("\n")) {
+      if (line.startsWith("worktree ")) {
+        flush();
+        current = { path: line.slice("worktree ".length) };
+      } else if (!current) {
+      } else if (line.startsWith("HEAD ")) {
+        current.head = line.slice("HEAD ".length);
+      } else if (line.startsWith("branch ")) {
+        const ref = line.slice("branch ".length);
+        current.branch = ref.replace(/^refs\/heads\//, "");
+      } else if (line === "detached") {
+        current.detached = true;
+      } else if (line.startsWith("locked")) {
+        current.locked = true;
+      } else if (line.startsWith("prunable")) {
+        current.prunable = true;
+      }
+    }
+    flush();
+    return worktrees;
+  }
+
+  /** Create a linked worktree, optionally on a new branch. */
+  async addWorktree(
+    worktreePath: string,
+    options: { branch?: string; newBranch?: string } = {},
+  ): Promise<void> {
+    if (!worktreePath || worktreePath.startsWith("-")) {
+      throw new Error(`Invalid worktree path: ${worktreePath}`);
+    }
+    const args = ["worktree", "add"];
+    if (options.newBranch) {
+      await this.validateBranch(options.newBranch);
+      args.push("-b", options.newBranch);
+    }
+    args.push(worktreePath);
+    if (options.branch) {
+      await this.validateBranch(options.branch);
+      args.push(options.branch);
+    }
+    await this.execGit(args);
+    this.invalidateCache();
+  }
+
+  async removeWorktree(worktreePath: string, force = false): Promise<void> {
+    if (!worktreePath || worktreePath.startsWith("-")) {
+      throw new Error(`Invalid worktree path: ${worktreePath}`);
+    }
+    const args = ["worktree", "remove"];
+    if (force) args.push("--force");
+    args.push(worktreePath);
+    await this.execGit(args);
+    this.invalidateCache();
+  }
+
+  /** Drop the records of worktrees whose directories are gone. */
+  async pruneWorktrees(): Promise<void> {
+    await this.execGit(["worktree", "prune"]);
+    this.invalidateCache();
+  }
+
+  /** GPG signing configuration, for the settings surface. */
+  async getSigningConfig(): Promise<{
+    signCommits: boolean;
+    key: string | null;
+  }> {
+    const [sign, key] = await Promise.all([
+      this.execGit(["config", "commit.gpgsign"]).catch(() => ""),
+      this.execGit(["config", "user.signingkey"]).catch(() => ""),
+    ]);
+    return {
+      signCommits: sign.trim() === "true",
+      key: key.trim() || null,
+    };
+  }
+
+  /** Search commits by message or hash, for the quick-open surface. */
+  async searchCommits(query: string, limit = 30): Promise<CommitNode[]> {
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+    // A hash-looking query resolves directly; anything else is a message
+    // search. Both paths go through argv, never a shell.
+    if (/^[0-9a-f]{4,64}$/i.test(trimmed)) {
+      const hash = await this.resolveRevisionInput(trimmed);
+      if (hash) {
+        const found = await this.getLog({
+          revision: { kind: "ref", ref: hash },
+          maxCount: 1,
+        });
+        if (found.length > 0) return found;
+      }
+    }
+    return this.getLog({
+      search: trimmed,
+      searchRegex: false,
+      searchCaseSensitive: false,
+      maxCount: limit,
+    });
   }
 
   /** Undo the last commit, keeping its changes in the working tree. */

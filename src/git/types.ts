@@ -283,3 +283,17 @@ export interface BlameOptions {
   /** Blame the file as of this revision instead of the working tree. */
   revision?: string;
 }
+
+/** A linked worktree as the manager lists it. */
+export interface WorktreeInfo {
+  path: string;
+  /** Checked-out branch, absent when detached. */
+  branch?: string;
+  head: string;
+  /** The repository's own working tree, which cannot be removed. */
+  isMain: boolean;
+  locked: boolean;
+  /** Git considers the record removable: its directory is gone. */
+  prunable: boolean;
+  detached: boolean;
+}
