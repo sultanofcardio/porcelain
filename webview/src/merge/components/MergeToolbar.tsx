@@ -36,6 +36,15 @@ export function MergeToolbar({
   const canUndo = useMergeStore((s) => s.canUndo);
   const canRedo = useMergeStore((s) => s.canRedo);
   const composing = useMergeStore((s) => s.composition !== null);
+  const applyNonConflicting = useMergeStore((s) => s.applyNonConflicting);
+  const resolveAutomatically = useMergeStore((s) => s.resolveAutomatically);
+  const nonConflictingCount = useMergeStore((s) => s.nonConflictingCount);
+  const autoResolvableCount = useMergeStore((s) => s.autoResolvableCount);
+  // Recomputed per render off the region list, which every decision replaces.
+  const regions = useMergeStore((s) => s.regions);
+  void regions;
+  const nonConflicting = nonConflictingCount();
+  const autoResolvable = autoResolvableCount();
 
   const fullyCollapsed = collapse && expandedFolds.size === 0;
   const pending = conflictTotal - conflictResolved;
@@ -60,6 +69,29 @@ export function MergeToolbar({
           onClick={() => onStep(1)}
         >
           ↓
+        </button>
+      </Tooltip>
+      <span className="diff-sep" />
+      <Tooltip text="Apply all non-conflicting changes">
+        <button
+          type="button"
+          className="diff-btn"
+          aria-label="Apply non-conflicting changes"
+          disabled={nonConflicting === 0 || composing}
+          onClick={() => applyNonConflicting()}
+        >
+          ⇉
+        </button>
+      </Tooltip>
+      <Tooltip text="Resolve conflicts whose changes do not overlap">
+        <button
+          type="button"
+          className="diff-btn"
+          aria-label="Resolve automatically"
+          disabled={autoResolvable === 0 || composing}
+          onClick={resolveAutomatically}
+        >
+          ✨
         </button>
       </Tooltip>
       <span className="diff-sep" />

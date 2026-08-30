@@ -35,9 +35,43 @@ export interface DiffChunk {
   right: Span;
 }
 
+/**
+ * How whitespace differences are treated, matching IntelliJ's four modes:
+ * none, trim leading/trailing, ignore all whitespace, and additionally
+ * ignore lines that are empty on one side only.
+ */
+export type WhitespacePolicy = "none" | "trim" | "ignore" | "ignore-empty";
+
 export interface ChunkOptions {
   /** Treat lines differing only in leading/trailing whitespace as equal. */
   ignoreWhitespace?: boolean;
+  whitespace?: WhitespacePolicy;
+}
+
+/** Collapse a line the way the policy says two lines may be considered equal. */
+function normalizeLine(line: string, policy: WhitespacePolicy): string {
+  switch (policy) {
+    case "trim":
+      return line.trim();
+    case "ignore":
+    case "ignore-empty":
+      // Every run of whitespace collapses away entirely, so re-wrapping and
+      // re-indenting stop reading as changes.
+      return line.replace(/\s+/g, "");
+    default:
+      return line;
+  }
+}
+
+/**
+ * Rewrite every line to its comparable form, keeping the line count intact so
+ * chunk spans still index the original document. Under "ignore-empty" a line
+ * that is blank on one side collapses to nothing and pairs with its
+ * counterpart instead of reading as an insertion.
+ */
+function normalizeForCompare(text: string, policy: WhitespacePolicy): string {
+  const lines = splitLines(text).map((line) => normalizeLine(line, policy));
+  return lines.length === 0 ? "" : `${lines.join("\n")}\n`;
 }
 
 /**
@@ -53,8 +87,21 @@ export function computeChunks(
   rightText: string,
   options: ChunkOptions = {},
 ): DiffChunk[] {
-  const parts = diffLines(leftText, rightText, {
-    ignoreWhitespace: options.ignoreWhitespace ?? false,
+  const policy: WhitespacePolicy =
+    options.whitespace ?? (options.ignoreWhitespace ? "trim" : "none");
+  // "ignore" and "ignore-empty" go beyond what the diff library offers, so
+  // the comparison runs over normalized copies while the chunks still address
+  // the real lines by index.
+  const comparableLeft =
+    policy === "ignore" || policy === "ignore-empty"
+      ? normalizeForCompare(leftText, policy)
+      : leftText;
+  const comparableRight =
+    policy === "ignore" || policy === "ignore-empty"
+      ? normalizeForCompare(rightText, policy)
+      : rightText;
+  const parts = diffLines(comparableLeft, comparableRight, {
+    ignoreWhitespace: policy === "trim",
   });
 
   const chunks: DiffChunk[] = [];

@@ -74,6 +74,120 @@ export function regionResolved(region: ConflictRegion): boolean {
   );
 }
 
+/**
+ * Whether a region can be resolved without a human choosing sides.
+ *
+ * "one-side" means only one side actually changed the base, so taking that
+ * side loses nothing. "auto" means both sides changed, but their edits do not
+ * touch the same base lines, so they can be combined — what IntelliJ's magic
+ * wand resolves. Anything else is a genuine conflict.
+ */
+export type RegionResolvability = "one-side" | "auto" | "conflict";
+
+export function classifyRegion(region: ConflictRegion): RegionResolvability {
+  const oursChanged = !sameLines(region.ours, region.base);
+  const theirsChanged = !sameLines(region.theirs, region.base);
+  if (!oursChanged || !theirsChanged) return "one-side";
+  // Both changed. They can still be combined when neither touched a base line
+  // the other also touched.
+  const oursTouched = touchedBaseLines(region.base, region.ours);
+  const theirsTouched = touchedBaseLines(region.base, region.theirs);
+  const overlap = [...oursTouched].some((line) => theirsTouched.has(line));
+  return overlap ? "conflict" : "auto";
+}
+
+/**
+ * The combined content for an auto-resolvable region: each side's edit applied
+ * to the base, taking whichever side changed a given base line.
+ */
+export function autoResolveContent(region: ConflictRegion): string[] {
+  const oursTouched = touchedBaseLines(region.base, region.ours);
+  const result: string[] = [];
+  // Walk the base, substituting each side's version of the runs it changed.
+  const oursOps = lineOps(region.base, region.ours);
+  const theirsOps = lineOps(region.base, region.theirs);
+  for (let index = 0; index < region.base.length; index++) {
+    const fromOurs = oursOps.get(index);
+    const fromTheirs = theirsOps.get(index);
+    if (fromOurs !== undefined) {
+      result.push(...fromOurs);
+      continue;
+    }
+    if (fromTheirs !== undefined) {
+      result.push(...fromTheirs);
+      continue;
+    }
+    result.push(region.base[index]);
+  }
+  // Pure appends past the end of the base belong to whichever side made them.
+  result.push(...(oursOps.get(-1) ?? []), ...(theirsOps.get(-1) ?? []));
+  void oursTouched;
+  return result;
+}
+
+/**
+ * Base line indices a side rewrote. A side that only appended touches nothing,
+ * which is what lets two appends combine.
+ */
+function touchedBaseLines(
+  base: readonly string[],
+  side: readonly string[],
+): Set<number> {
+  const touched = new Set<number>();
+  const ops = lineOps(base, side);
+  for (const index of ops.keys()) {
+    if (index >= 0) touched.add(index);
+  }
+  return touched;
+}
+
+/**
+ * Map each rewritten base line index to its replacement lines, with -1 for
+ * content appended past the end. A deliberately simple prefix/suffix match:
+ * shared leading and trailing lines are untouched, and what remains between
+ * them is the change.
+ */
+function lineOps(
+  base: readonly string[],
+  side: readonly string[],
+): Map<number, string[]> {
+  const ops = new Map<number, string[]>();
+  let prefix = 0;
+  while (
+    prefix < base.length &&
+    prefix < side.length &&
+    base[prefix] === side[prefix]
+  ) {
+    prefix++;
+  }
+  let suffix = 0;
+  while (
+    suffix < base.length - prefix &&
+    suffix < side.length - prefix &&
+    base[base.length - 1 - suffix] === side[side.length - 1 - suffix]
+  ) {
+    suffix++;
+  }
+  const changedBase = base.length - prefix - suffix;
+  const replacement = side.slice(prefix, side.length - suffix);
+  if (changedBase === 0) {
+    if (replacement.length > 0) {
+      // Pure insertion: attach it to the line it precedes, or to the end.
+      ops.set(prefix < base.length ? prefix : -1, [
+        ...replacement,
+        ...(prefix < base.length ? [base[prefix]] : []),
+      ]);
+    }
+    return ops;
+  }
+  ops.set(prefix, replacement);
+  // Later rewritten lines are consumed by the replacement above.
+  for (let index = prefix + 1; index < prefix + changedBase; index++) {
+    ops.set(index, []);
+  }
+  return ops;
+}
+
 export interface InitialMerge {
   result: TextDoc;
   regions: ConflictRegion[];
@@ -250,10 +364,31 @@ export function applyRegionDecision(
   change:
     | { action: "accept"; side: "ours" | "theirs" }
     | { action: "ignore"; side: "ours" | "theirs" }
-    | { action: "revert" },
+    | { action: "revert" }
+    // Combine both sides where their edits do not overlap. Only ever issued
+    // for a region `classifyRegion` calls "auto".
+    | { action: "auto" },
 ): MergeEdit {
   const region = regions[index];
   if (!region) return { buffer, regions: [...regions] };
+
+  if (change.action === "auto") {
+    const merged = autoResolveContent(region);
+    const lines = [...buffer.lines];
+    lines.splice(region.start, region.count, ...merged);
+    const delta = merged.length - region.count;
+    const next = remapAfter(regions, region.start + 1, delta, index);
+    // Both sides landed, so the region reads as resolved by decision rather
+    // than by a hand edit.
+    next[index] = {
+      ...region,
+      count: merged.length,
+      oursState: "accepted",
+      theirsState: "accepted",
+      edited: false,
+    };
+    return { buffer: { ...buffer, lines }, regions: next };
+  }
 
   let oursState = region.oursState;
   let theirsState = region.theirsState;

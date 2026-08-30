@@ -49,7 +49,7 @@ export type DiffFallbackInfo =
 /** How much of a changed line is highlighted within the line. */
 export type Granularity = "line" | "word" | "character" | "none";
 
-export type Whitespace = "none" | "trim";
+export type Whitespace = "none" | "trim" | "ignore" | "ignore-empty";
 
 /**
  * Side-by-side or one column. Unified is a second row-builder over the same
@@ -235,7 +235,7 @@ export function editableSide(state: {
 }
 
 function chunkOptionsFor(whitespace: Whitespace): ChunkOptions {
-  return { ignoreWhitespace: whitespace === "trim" };
+  return { whitespace };
 }
 
 /** Where a buffer splice happened, for shifting line-keyed state below it. */

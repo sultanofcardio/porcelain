@@ -14,6 +14,8 @@ const VIEW: Array<{ value: ViewMode; label: string }> = [
 const WHITESPACE: Array<{ value: Whitespace; label: string }> = [
   { value: "none", label: "Do not ignore" },
   { value: "trim", label: "Ignore leading and trailing" },
+  { value: "ignore", label: "Ignore whitespaces" },
+  { value: "ignore-empty", label: "Ignore whitespaces and empty lines" },
 ];
 
 const GRANULARITY: Array<{ value: Granularity; label: string }> = [

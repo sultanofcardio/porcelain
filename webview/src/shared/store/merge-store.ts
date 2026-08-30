@@ -20,6 +20,7 @@ import {
   buildInitialResult,
   buildMergeAxis,
   type ConflictRegion,
+  classifyRegion,
   computeMergeFolds,
   flankRegionKinds,
   joinDoc,
@@ -62,6 +63,17 @@ interface MergeSnapshot {
   result: TextDoc;
   regions: ConflictRegion[];
   cursor: EditorSelection | null;
+}
+
+/** The side that changed the base, when exactly one of them did. */
+function sideThatChanged(region: ConflictRegion): "ours" | "theirs" | null {
+  const same = (a: readonly string[], b: readonly string[]) =>
+    a.length === b.length && a.every((line, index) => line === b[index]);
+  const oursChanged = !same(region.ours, region.base);
+  const theirsChanged = !same(region.theirs, region.base);
+  if (oursChanged && !theirsChanged) return "ours";
+  if (theirsChanged && !oursChanged) return "theirs";
+  return null;
 }
 
 export interface MergeStoreState {
@@ -129,9 +141,23 @@ export interface MergeStoreState {
     change:
       | { action: "accept"; side: "ours" | "theirs" }
       | { action: "ignore"; side: "ours" | "theirs" }
-      | { action: "revert" },
+      | { action: "revert" }
+      | { action: "auto" },
   ) => void;
   stepConflict: (delta: number) => void;
+  /**
+   * Take every region only one side actually changed — IntelliJ's "apply
+   * non-conflicting changes". `side` narrows it to one flank.
+   */
+  applyNonConflicting: (side?: "ours" | "theirs") => void;
+  /**
+   * Combine both sides wherever their edits do not overlap — the magic wand.
+   * Genuine conflicts are left for the user.
+   */
+  resolveAutomatically: () => void;
+  /** How many regions each bulk action would still act on. */
+  autoResolvableCount: () => number;
+  nonConflictingCount: (side?: "ours" | "theirs") => number;
   /** Axis position revealing the active conflict, or null when none. */
   activeRegionAxis: () => number | null;
 
@@ -583,6 +609,44 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
         ...deriveFind(next, splice),
       };
     }),
+
+  applyNonConflicting: (side) => {
+    const { regions, decideRegion } = get();
+    // Apply from the last region backwards: each decision splices the buffer,
+    // and later indices would otherwise shift under us.
+    for (let index = regions.length - 1; index >= 0; index--) {
+      const region = regions[index];
+      if (regionResolved(region)) continue;
+      if (classifyRegion(region) !== "one-side") continue;
+      const changedSide = sideThatChanged(region);
+      if (!changedSide) continue;
+      if (side && changedSide !== side) continue;
+      decideRegion(index, { action: "accept", side: changedSide });
+    }
+  },
+
+  resolveAutomatically: () => {
+    const { regions, decideRegion } = get();
+    for (let index = regions.length - 1; index >= 0; index--) {
+      const region = regions[index];
+      if (regionResolved(region)) continue;
+      if (classifyRegion(region) !== "auto") continue;
+      decideRegion(index, { action: "auto" });
+    }
+  },
+
+  autoResolvableCount: () =>
+    get().regions.filter(
+      (region) => !regionResolved(region) && classifyRegion(region) === "auto",
+    ).length,
+
+  nonConflictingCount: (side) =>
+    get().regions.filter((region) => {
+      if (regionResolved(region)) return false;
+      if (classifyRegion(region) !== "one-side") return false;
+      const changed = sideThatChanged(region);
+      return changed !== null && (!side || changed === side);
+    }).length,
 
   stepConflict: (delta) =>
     set((state) => {
