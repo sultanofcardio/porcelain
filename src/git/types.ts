@@ -238,3 +238,13 @@ export interface PullOptions {
   squash?: boolean;
   noCommit?: boolean;
 }
+
+/** Options the commit panel exposes alongside the message. */
+export interface CommitOptions {
+  /** Append a `Signed-off-by:` trailer. */
+  signOff?: boolean;
+  /** Skip commit hooks (`--no-verify`). */
+  noVerify?: boolean;
+  /** Override the author, as "Name <email>". */
+  author?: string;
+}

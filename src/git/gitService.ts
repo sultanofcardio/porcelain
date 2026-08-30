@@ -13,6 +13,7 @@ import type {
   BranchInfo,
   CherryPickState,
   CommitNode,
+  CommitOptions,
   CommitRequest,
   DiffFile,
   FileStatus,
@@ -70,6 +71,11 @@ const LOG_FORMAT = [
   "%D", // refs
 ].join(FMT_FIELD_SEP);
 
+import {
+  buildPartialPatch,
+  type ParsedDiff,
+  parseUnifiedDiff,
+} from "./commit/hunks";
 import {
   collectEditorMessages,
   createRebaseEditorSetup,
@@ -1449,6 +1455,135 @@ export class GitService {
     this.invalidateCache();
   }
 
+  /**
+   * The hunks of one file's diff — unstaged by default, or the staged diff
+   * when `staged` is set. These are what the gutter checkboxes address.
+   */
+  async getFileHunks(
+    filePath: string,
+    staged = false,
+  ): Promise<ParsedDiff["hunks"]> {
+    const args = ["diff", "--no-color", "--no-ext-diff", "-U3"];
+    if (staged) args.push("--cached");
+    args.push("--", filePath);
+    const diff = await this.execGit(args);
+    return parseUnifiedDiff(diff).hunks;
+  }
+
+  /**
+   * Stage only the chosen hunks of a file by handing git a patch built from
+   * them. Git recomputes the result, so nothing here has to model the index.
+   */
+  async stageHunks(
+    filePath: string,
+    hunkIndices: readonly number[],
+  ): Promise<void> {
+    await this.applyHunkPatch(filePath, hunkIndices, { reverse: false });
+  }
+
+  /** Unstage chosen hunks by applying their patch to the index in reverse. */
+  async unstageHunks(
+    filePath: string,
+    hunkIndices: readonly number[],
+  ): Promise<void> {
+    await this.applyHunkPatch(filePath, hunkIndices, { reverse: true });
+  }
+
+  private async applyHunkPatch(
+    filePath: string,
+    hunkIndices: readonly number[],
+    options: { reverse: boolean },
+  ): Promise<void> {
+    if (hunkIndices.length === 0) return;
+    const args = ["diff", "--no-color", "--no-ext-diff", "-U3"];
+    // Unstaging reads the staged diff; staging reads the working-tree diff.
+    if (options.reverse) args.push("--cached");
+    args.push("--", filePath);
+    const parsed = parseUnifiedDiff(await this.execGit(args));
+    const patch = buildPartialPatch(parsed, hunkIndices);
+    if (!patch) return;
+    await this.executor.withInput(
+      // Context is deliberately verified: the patch carries three lines of
+      // it, so git refusing to apply means the file moved under us.
+      ["apply", "--cached", ...(options.reverse ? ["--reverse"] : []), "-"],
+      patch,
+    );
+    this.invalidateCache();
+  }
+
+  /** The commit message template configured via `commit.template`, if any. */
+  async getCommitTemplate(): Promise<string | null> {
+    const configured = (
+      await this.execGit(["config", "commit.template"]).catch(() => "")
+    ).trim();
+    if (!configured) return null;
+    const resolved = configured.startsWith("~")
+      ? path.join(os.homedir(), configured.slice(1))
+      : path.isAbsolute(configured)
+        ? configured
+        : path.join(this.paths.workTreeRoot, configured);
+    return fs.readFile(resolved, "utf8");
+  }
+
+  /** The default message git prepares mid-merge (MERGE_MSG). */
+  async getMergeMessage(): Promise<string | null> {
+    const mergeMsgPath = path.join(this.paths.gitDir, "MERGE_MSG");
+    try {
+      return await fs.readFile(mergeMsgPath, "utf8");
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Add a path to the repository's .gitignore, creating the file if needed.
+   * Returns the ignore file that was written.
+   */
+  async addToGitignore(relativePath: string): Promise<string> {
+    if (!relativePath || relativePath.startsWith("-")) {
+      throw new Error(`Invalid path to ignore: ${relativePath}`);
+    }
+    const ignorePath = path.join(this.paths.workTreeRoot, ".gitignore");
+    let existing = "";
+    try {
+      existing = await fs.readFile(ignorePath, "utf8");
+    } catch {
+      // A repository without a .gitignore yet gets one.
+    }
+    const entry = relativePath.replace(/\\/g, "/");
+    const lines = existing.split("\n").map((line) => line.trim());
+    if (lines.includes(entry)) return ignorePath;
+    const separator =
+      existing.length === 0 || existing.endsWith("\n") ? "" : "\n";
+    await fs.writeFile(ignorePath, `${existing}${separator}${entry}\n`);
+    this.invalidateCache();
+    return ignorePath;
+  }
+
+  /** Stash with the options IntelliJ's Stash dialog exposes. */
+  async stashWithOptions(options: {
+    message?: string;
+    keepIndex?: boolean;
+    includeUntracked?: boolean;
+  }): Promise<void> {
+    const args = ["stash", "push"];
+    if (options.keepIndex) args.push("--keep-index");
+    if (options.includeUntracked) args.push("--include-untracked");
+    if (options.message) args.push("-m", options.message);
+    await this.execGit(args);
+    this.invalidateCache();
+  }
+
+  /** Create a branch from a stash entry, IntelliJ's "As new branch". */
+  async stashToBranch(stashRef: string, branchName: string): Promise<void> {
+    await this.validateBranch(branchName);
+    if (!/^stash@\{\d+\}$/.test(stashRef)) {
+      throw new Error(`Invalid stash reference: ${stashRef}`);
+    }
+    await this.execGit(["stash", "branch", branchName, stashRef]);
+    this.invalidateCache();
+  }
+
   /** Undo the last commit, keeping its changes in the working tree. */
   async undoLastCommit(): Promise<void> {
     await this.execGit(["reset", "--soft", "HEAD~1"]);
@@ -1987,9 +2122,19 @@ export class GitService {
     await this.execGit(["add", "-A"]);
   }
 
-  async commit(message: string, amend = false): Promise<void> {
+  async commit(
+    message: string,
+    amend = false,
+    options: CommitOptions = {},
+  ): Promise<void> {
     const args = ["commit", "-m", message];
     if (amend) args.push("--amend");
+    if (options.signOff) args.push("--signoff");
+    if (options.noVerify) args.push("--no-verify");
+    if (options.author) {
+      assertCommitAuthor(options.author);
+      args.push(`--author=${options.author}`);
+    }
     await this.execGit(args);
     this.invalidateCache();
   }
@@ -2449,6 +2594,17 @@ function parseWorktreeCheckouts(output: string): Map<string, string> {
  * Remote URLs reach git as argv values. Anything starting with "-" would be
  * read as an option, so it is rejected before the command is built.
  */
+/**
+ * `--author` is a single argv value, so a leading "-" would be read as an
+ * option. Git itself validates the "Name <email>" shape when it commits.
+ */
+function assertCommitAuthor(author: string): void {
+  const trimmed = author.trim();
+  if (!trimmed || trimmed.startsWith("-")) {
+    throw new Error(`Invalid commit author: ${author}`);
+  }
+}
+
 function assertRemoteUrl(url: string): void {
   const trimmed = url.trim();
   if (!trimmed || trimmed.startsWith("-")) {

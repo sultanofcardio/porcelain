@@ -11,6 +11,13 @@ function requireString(value: unknown, field: string): string {
   return value;
 }
 
+function requireNumberArray(value: unknown, field: string): number[] {
+  if (!Array.isArray(value) || value.some((v) => typeof v !== "number")) {
+    throw new Error(`${field} must be an array of numbers`);
+  }
+  return value as number[];
+}
+
 function requireStringArray(value: unknown, field: string): string[] {
   if (!Array.isArray(value) || value.some((v) => typeof v !== "string")) {
     throw new Error(`${field} must be an array of strings`);
@@ -235,5 +242,90 @@ export function registerRewriteHandlers(router: MessageRouter): void {
       typeof context.gitService.pullWithOptions
     >[0];
     return mutate(context, () => context.gitService.pullWithOptions(options));
+  });
+}
+
+/** Working-tree depth: per-hunk staging and the commit-time affordances. */
+export function registerWorkingTreeHandlers(router: MessageRouter): void {
+  const mutate = (
+    context: RequestContext,
+    run: () => Promise<unknown>,
+  ): Promise<unknown> =>
+    withProgress(router, context.repoId, async () => {
+      const result = await run();
+      router.broadcastEvent("gitStateChanged", {
+        scope: "all",
+        repoId: context.repoId,
+      });
+      return result ?? { success: true };
+    });
+
+  router.handle("getFileHunks", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const filePath = requireString(params.filePath, "filePath");
+    return context.gitService.getFileHunks(filePath, params.staged === true);
+  });
+
+  router.handle("stageHunks", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const filePath = requireString(params.filePath, "filePath");
+    const indices = requireNumberArray(params.hunkIndices, "hunkIndices");
+    return mutate(context, () =>
+      context.gitService.stageHunks(filePath, indices),
+    );
+  });
+
+  router.handle("unstageHunks", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const filePath = requireString(params.filePath, "filePath");
+    const indices = requireNumberArray(params.hunkIndices, "hunkIndices");
+    return mutate(context, () =>
+      context.gitService.unstageHunks(filePath, indices),
+    );
+  });
+
+  router.handle("getCommitTemplate", async (_params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const [template, mergeMessage] = await Promise.all([
+      context.gitService.getCommitTemplate().catch(() => null),
+      context.gitService.getMergeMessage().catch(() => null),
+    ]);
+    // Mid-merge, git's own prepared message wins over the template.
+    return { template, mergeMessage };
+  });
+
+  router.handle("getMergeMessage", async (_params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    return { message: await context.gitService.getMergeMessage() };
+  });
+
+  router.handle("addToGitignore", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const filePath = requireString(params.filePath, "filePath");
+    return mutate(context, async () => ({
+      ignoreFile: await context.gitService.addToGitignore(filePath),
+    }));
+  });
+
+  router.handle("stashWithOptions", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    return mutate(context, () =>
+      context.gitService.stashWithOptions({
+        ...(typeof params.message === "string"
+          ? { message: params.message }
+          : {}),
+        keepIndex: params.keepIndex === true,
+        includeUntracked: params.includeUntracked === true,
+      }),
+    );
+  });
+
+  router.handle("stashToBranch", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const stashRef = requireString(params.stashRef, "stashRef");
+    const branchName = requireString(params.branchName, "branchName");
+    return mutate(context, () =>
+      context.gitService.stashToBranch(stashRef, branchName),
+    );
   });
 }

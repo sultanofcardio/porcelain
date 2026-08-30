@@ -34,6 +34,7 @@ import {
 import {
   registerRefHandlers,
   registerRewriteHandlers,
+  registerWorkingTreeHandlers,
 } from "./messages/refHandlers";
 import { ChangesWindowManager } from "./views/changesWindowManager";
 import { CommitViewProvider } from "./views/commitViewProvider";
@@ -425,6 +426,7 @@ export async function activate(context: vscode.ExtensionContext) {
   registerLogHandlers(messageRouter);
   registerRefHandlers(messageRouter);
   registerRewriteHandlers(messageRouter);
+  registerWorkingTreeHandlers(messageRouter);
   registerComparePanelHandlers(messageRouter, comparePanelManager);
 
   messageRouter.handle("openMergeEditor", async (params, ctx) => {
