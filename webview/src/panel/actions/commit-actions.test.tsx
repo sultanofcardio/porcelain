@@ -27,6 +27,7 @@ function contextFor(
     confirm: vi.fn().mockResolvedValue(true),
     input: vi.fn().mockResolvedValue("created-name"),
     createBranch: vi.fn().mockResolvedValue(undefined),
+    openInteractiveRebase: vi.fn(),
     showInGitLog: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
@@ -48,6 +49,11 @@ describe("buildCommitActions", () => {
       "reset-hard",
       "revert",
       "drop",
+      "interactive-rebase",
+      "reword",
+      "squash-commits",
+      "fixup",
+      "undo-commit",
       "new-branch",
       "new-tag",
       "show-in-git-log",
@@ -222,5 +228,104 @@ describe("buildCommitActions", () => {
       { text: hashes.join("\n") },
       { scope: "global" },
     );
+  });
+
+  describe("buildCommitActions history rewriting", () => {
+    it("gates rewriting verbs on a branch with no operation in flight", () => {
+      for (const state of [
+        { currentBranch: "" },
+        { isRebasing: true },
+        { isMerging: true },
+        { isCherryPicking: true },
+      ]) {
+        const actions = buildCommitActions(contextFor(state));
+        for (const id of ["interactive-rebase", "reword", "fixup"]) {
+          expect(actions.find((action) => action.id === id)?.enabled).toBe(
+            false,
+          );
+        }
+      }
+    });
+
+    it("opens the interactive rebase editor rooted at the commit", async () => {
+      const openInteractiveRebase = vi.fn();
+      const actions = buildCommitActions(contextFor({ openInteractiveRebase }));
+
+      await actions
+        .find((action) => action.id === "interactive-rebase")
+        ?.execute();
+
+      expect(openInteractiveRebase).toHaveBeenCalledWith(commit.hash);
+    });
+
+    it("rewords only when the message actually changed", async () => {
+      const requestWithProgress = vi.fn().mockResolvedValue(undefined);
+      const unchanged = buildCommitActions(
+        contextFor({
+          requestWithProgress,
+          input: vi.fn().mockResolvedValue(commit.subject),
+        }),
+      );
+      await unchanged.find((action) => action.id === "reword")?.execute();
+      expect(requestWithProgress).not.toHaveBeenCalled();
+
+      const changed = buildCommitActions(
+        contextFor({
+          requestWithProgress,
+          input: vi.fn().mockResolvedValue("  a better subject  "),
+        }),
+      );
+      await changed.find((action) => action.id === "reword")?.execute();
+      expect(requestWithProgress).toHaveBeenCalledWith(
+        "rewordCommit",
+        { hash: commit.hash, message: "a better subject" },
+        { repoId: "repo-a" },
+      );
+    });
+
+    it("offers Squash only for a multi-selection and sends every hash", async () => {
+      const requestWithProgress = vi.fn().mockResolvedValue(undefined);
+      const single = buildCommitActions(contextFor()).find(
+        (action) => action.id === "squash-commits",
+      );
+      expect(single?.visible).toBe(false);
+
+      const hashes = ["cccccccc", "bbbbbbbb"];
+      const multi = buildCommitActions(
+        contextFor({
+          selectedCommitHashes: hashes,
+          requestWithProgress,
+          input: vi.fn().mockResolvedValue("combined"),
+        }),
+      ).find((action) => action.id === "squash-commits");
+
+      expect(multi?.visible).toBe(true);
+      await multi?.execute();
+      expect(requestWithProgress).toHaveBeenCalledWith(
+        "squashCommits",
+        { hashes, message: "combined" },
+        { repoId: "repo-a" },
+      );
+    });
+
+    it("undoes only the tip commit", async () => {
+      const requestWithProgress = vi.fn().mockResolvedValue(undefined);
+      const notHead = buildCommitActions(
+        contextFor({ headHash: "someone-else" }),
+      ).find((action) => action.id === "undo-commit");
+      expect(notHead?.enabled).toBe(false);
+      expect(notHead?.disabledReason).toMatch(/most recent commit/);
+
+      const atHead = buildCommitActions(
+        contextFor({ headHash: commit.hash, requestWithProgress }),
+      ).find((action) => action.id === "undo-commit");
+      expect(atHead?.enabled).toBe(true);
+      await atHead?.execute();
+      expect(requestWithProgress).toHaveBeenCalledWith(
+        "undoLastCommit",
+        {},
+        { repoId: "repo-a" },
+      );
+    });
   });
 });

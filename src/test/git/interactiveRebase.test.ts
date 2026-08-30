@@ -72,13 +72,12 @@ describe("rebase todo rendering", () => {
 describe("gitService.runInteractiveRebase", () => {
   let repo: GitTestRepo;
   let service: GitService;
-  let first: string;
   let second: string;
   let third: string;
 
   beforeEach(async () => {
     repo = await GitTestRepo.create();
-    first = await commitFile(repo, "a.txt", "a\n", "first");
+    await commitFile(repo, "a.txt", "a\n", "first");
     second = await commitFile(repo, "b.txt", "b\n", "second");
     third = await commitFile(repo, "c.txt", "c\n", "third");
     service = serviceFor(repo);

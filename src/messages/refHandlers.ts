@@ -232,8 +232,8 @@ export function registerRewriteHandlers(router: MessageRouter): void {
   router.handle("pullWithOptions", async (params, context) => {
     if (!context) return NOT_GIT_REPO;
     const options = (params.options ?? {}) as Parameters<
-      typeof context.gitService.pull
+      typeof context.gitService.pullWithOptions
     >[0];
-    return mutate(context, () => context.gitService.pull(options));
+    return mutate(context, () => context.gitService.pullWithOptions(options));
   });
 }

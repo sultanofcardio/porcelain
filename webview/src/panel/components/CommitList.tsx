@@ -14,6 +14,7 @@ import {
   type VisibleColumns,
 } from "./CommitRow";
 import { CreateBranchDialog } from "./CreateBranchDialog";
+import { InteractiveRebaseDialog } from "./InteractiveRebaseDialog";
 
 const DEFAULT_COLUMN_WIDTHS: ColumnWidths = {
   author: 100,
@@ -78,6 +79,14 @@ export function CommitList({
     hash: string;
     shortHash: string;
   } | null>(null);
+  // Interactive rebase editor, rooted at the right-clicked commit.
+  const [rebaseDialog, setRebaseDialog] = useState<{ hash: string } | null>(
+    null,
+  );
+  const requestWithProgress = useGitLogStore(
+    (state) => state.requestWithProgressFromSurface,
+  );
+  const refresh = useGitLogStore((state) => state.refresh);
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, commit: Commit) => {
@@ -410,6 +419,10 @@ export function CommitList({
             commit={contextMenu.commit}
             onClose={closeContextMenu}
             onRefreshComparison={onRefreshComparison}
+            onInteractiveRebase={(hash) => {
+              closeContextMenu();
+              setRebaseDialog({ hash });
+            }}
             onCreateBranch={(hash, _defaultName) => {
               closeContextMenu();
               const shortHash = hash.slice(0, 8);
@@ -417,6 +430,31 @@ export function CommitList({
             }}
           />
         )}
+        {rebaseDialog &&
+          createPortal(
+            <InteractiveRebaseDialog
+              ports={{
+                load: async () =>
+                  ((await request("getRebaseTodoCommits", {
+                    fromHash: rebaseDialog.hash,
+                  })) ?? []) as Commit[],
+                run: async (rows) => {
+                  await requestWithProgress("runInteractiveRebase", {
+                    baseHash: rebaseDialog.hash,
+                    entries: rows.map((row) => ({
+                      action: row.action,
+                      hash: row.hash,
+                      subject: row.subject,
+                      ...(row.message ? { message: row.message } : {}),
+                    })),
+                  });
+                  await refresh();
+                },
+              }}
+              onClose={() => setRebaseDialog(null)}
+            />,
+            document.body,
+          )}
         {createBranchDialog &&
           createPortal(
             <CreateBranchDialog

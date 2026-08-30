@@ -33,7 +33,12 @@ export interface CommitActionContext {
   input: (options: {
     prompt: string;
     placeHolder: string;
+    value?: string;
   }) => Promise<string | null>;
+  /** The commit at the tip, for verbs that only apply to HEAD. */
+  headHash?: string;
+  /** Open the interactive rebase editor rooted at this commit. */
+  openInteractiveRebase: (hash: string) => void | Promise<void>;
   createBranch: (hash: string, defaultName: string) => void | Promise<void>;
   showInGitLog: (hash: string) => void | Promise<void>;
 }
@@ -45,6 +50,7 @@ export interface CommitActionDefinition {
   icon?: ReactNode;
   visible: boolean;
   enabled: boolean;
+  disabledReason?: string;
   refresh: CommitActionRefreshScope;
   execute: () => Promise<CommitActionRefreshScope>;
 }
@@ -186,6 +192,18 @@ export function buildCommitActions(
   // their place when the selection is a clean pair.
   const multiSelected = selectedCommitHashes.length > 1;
   const singleOnly = !multiSelected;
+  // Rewriting history needs a branch to rewrite and no operation mid-flight.
+  const rewriteAllowed =
+    Boolean(context.currentBranch) &&
+    !context.isRebasing &&
+    !context.isMerging &&
+    !context.isCherryPicking;
+  const rewriteBlockedReason = !context.currentBranch
+    ? "Not on a branch"
+    : context.isRebasing || context.isMerging || context.isCherryPicking
+      ? "Another Git operation is in progress"
+      : undefined;
+  const isHead = context.headHash === commit.hash;
 
   const action = (
     definition: Omit<CommitActionDefinition, "execute">,
@@ -384,6 +402,117 @@ export function buildCommitActions(
         );
       },
       "Drop commit",
+    ),
+    separator("before-rewrite"),
+    action(
+      {
+        id: "interactive-rebase",
+        label: "Interactively Rebase from Here...",
+        visible: true,
+        enabled: singleOnly && rewriteAllowed,
+        ...(rewriteBlockedReason
+          ? { disabledReason: rewriteBlockedReason }
+          : {}),
+        refresh: "none",
+      },
+      () => context.openInteractiveRebase(commit.hash),
+      "Interactive rebase",
+    ),
+    action(
+      {
+        id: "reword",
+        label: "Edit Commit Message...",
+        visible: true,
+        enabled: singleOnly && rewriteAllowed,
+        ...(rewriteBlockedReason
+          ? { disabledReason: rewriteBlockedReason }
+          : {}),
+        refresh: mutationRefresh,
+      },
+      async () => {
+        const message = await context.input({
+          prompt: `New message for ${shortHash}`,
+          placeHolder: commit.subject,
+          value: commit.subject,
+        });
+        const next = message?.trim();
+        if (!next || next === commit.subject) return cancelled;
+        await context.requestWithProgress(
+          "rewordCommit",
+          { hash: commit.hash, message: next },
+          repoOptions,
+        );
+      },
+      "Reword",
+    ),
+    action(
+      {
+        id: "squash-commits",
+        label: `Squash ${selectedCommitHashes.length} Commits...`,
+        visible: multiSelected,
+        enabled: multiSelected && rewriteAllowed,
+        ...(rewriteBlockedReason
+          ? { disabledReason: rewriteBlockedReason }
+          : {}),
+        refresh: mutationRefresh,
+      },
+      async () => {
+        const message = await context.input({
+          prompt: "Message for the squashed commit",
+          placeHolder: commit.subject,
+          value: commit.subject,
+        });
+        const next = message?.trim();
+        if (!next) return cancelled;
+        await context.requestWithProgress(
+          "squashCommits",
+          { hashes: selectedCommitHashes, message: next },
+          repoOptions,
+        );
+      },
+      "Squash",
+    ),
+    action(
+      {
+        id: "fixup",
+        label: "Fixup...",
+        visible: true,
+        enabled: singleOnly && rewriteAllowed,
+        ...(rewriteBlockedReason
+          ? { disabledReason: rewriteBlockedReason }
+          : {}),
+        refresh: mutationRefresh,
+      },
+      () =>
+        context.requestWithProgress(
+          "commitFixup",
+          { hash: commit.hash, kind: "fixup" },
+          repoOptions,
+        ),
+      "Fixup",
+    ),
+    action(
+      {
+        id: "undo-commit",
+        label: "Undo Commit",
+        visible: true,
+        enabled: singleOnly && isHead && rewriteAllowed,
+        ...(!isHead
+          ? { disabledReason: "Only the most recent commit can be undone" }
+          : rewriteBlockedReason
+            ? { disabledReason: rewriteBlockedReason }
+            : {}),
+        refresh: mutationRefresh,
+      },
+      async () => {
+        const confirmed = await context.confirm({
+          message: `Undo commit ${shortHash} "${commit.subject}"?\n\nIts changes stay staged, ready to re-commit.`,
+          confirmLabel: "Undo Commit",
+        });
+        if (!confirmed) return cancelled;
+        await context.requestWithProgress("undoLastCommit", {}, repoOptions);
+      },
+      "Undo commit",
     ),
     separator("before-create"),
     action(

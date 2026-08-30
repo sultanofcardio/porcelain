@@ -10,6 +10,7 @@ interface CommitContextMenuProps {
   commit: Commit;
   onClose: () => void;
   onCreateBranch?: (hash: string, defaultName: string) => void;
+  onInteractiveRebase?: (hash: string) => void;
   onRefreshComparison?: () => void | Promise<void>;
 }
 
@@ -19,10 +20,12 @@ export function CommitContextMenu({
   commit,
   onClose,
   onCreateBranch,
+  onInteractiveRebase,
   onRefreshComparison,
 }: CommitContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const currentBranch = useGitLogStore((state) => state.currentBranch);
+  const commits = useGitLogStore((state) => state.commits);
   const selectedCommitHashes = useGitLogStore(
     (state) => state.selectedCommitHashes,
   );
@@ -169,6 +172,10 @@ export function CommitContextMenu({
         branchName: result.value.trim(),
         hash,
       });
+    },
+    headHash: commits[0]?.hash,
+    openInteractiveRebase: (hash) => {
+      onInteractiveRebase?.(hash);
     },
     showInGitLog: (hash) => {
       setFilter({ file: "" });

@@ -750,7 +750,9 @@ export class GitService {
       .split("\n")
       .map((line) => line.trim())
       .filter(Boolean)
-      .forEach((hash, index) => position.set(hash, index));
+      .forEach((hash, index) => {
+        position.set(hash, index);
+      });
     const missing = hashes.find((hash) => !position.has(hash));
     if (missing) {
       throw new PorcelainError(
@@ -1500,7 +1502,29 @@ export class GitService {
   async pull(branchName?: string): Promise<void> {
     const args = ["pull", "--autostash"];
     if (branchName) {
-      args.push("origin", branchName);
+      // The remote is resolved rather than assumed: not every repository
+      // calls its remote "origin".
+      args.push(await this.getDefaultRemote(), branchName);
+    }
+    await this.execGit(args);
+    this.invalidateCache();
+  }
+
+  /** Pull with the options the Pull dialog exposes. */
+  async pullWithOptions(options: PullOptions = {}): Promise<void> {
+    const args = ["pull"];
+    if (options.rebase) args.push("--rebase");
+    if (options.ffOnly) args.push("--ff-only");
+    if (options.noFf) args.push("--no-ff");
+    if (options.squash) args.push("--squash");
+    if (options.noCommit) args.push("--no-commit");
+    if (options.remote) {
+      await this.validateRemoteName(options.remote);
+      args.push(options.remote);
+      if (options.branch) {
+        await this.validateBranch(options.branch);
+        args.push(options.branch);
+      }
     }
     await this.execGit(args);
     this.invalidateCache();
