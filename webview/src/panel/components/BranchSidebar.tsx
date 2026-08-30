@@ -17,9 +17,13 @@ import { refKey } from "../utils/refUtils";
 export function BranchSidebar({
   onTogglePanel,
   onNewBranch,
+  onManageRemotes,
+  onCleanupBranches,
 }: {
   onTogglePanel?: () => void;
   onNewBranch?: () => void;
+  onManageRemotes?: () => void;
+  onCleanupBranches?: () => void;
 } = {}) {
   const selectedRefs = useGitLogStore((s) => s.selectedRefs);
   const branches = useGitLogStore((s) => s.branches);
@@ -264,7 +268,10 @@ export function BranchSidebar({
           <IconLocate />
         </button>
       </Tooltip>
-      <SettingsButton />
+      <SettingsButton
+        onManageRemotes={onManageRemotes ?? (() => {})}
+        onCleanupBranches={onCleanupBranches ?? (() => {})}
+      />
       <Tooltip
         text={branchGroupByDirectory ? "Flatten List" : "Group By Directory"}
       >
@@ -306,7 +313,13 @@ export function BranchSidebar({
 
 /* ─── Settings Button with Dropdown ──────────────────────────────── */
 
-function SettingsButton() {
+function SettingsButton({
+  onManageRemotes,
+  onCleanupBranches,
+}: {
+  onManageRemotes: () => void;
+  onCleanupBranches: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
 
@@ -323,12 +336,26 @@ function SettingsButton() {
           <IconSettings />
         </button>
       </Tooltip>
-      {open && <SettingsMenu onClose={() => setOpen(false)} />}
+      {open && (
+        <SettingsMenu
+          onClose={() => setOpen(false)}
+          onManageRemotes={onManageRemotes}
+          onCleanupBranches={onCleanupBranches}
+        />
+      )}
     </>
   );
 }
 
-function SettingsMenu({ onClose }: { onClose: () => void }) {
+function SettingsMenu({
+  onClose,
+  onManageRemotes,
+  onCleanupBranches,
+}: {
+  onClose: () => void;
+  onManageRemotes: () => void;
+  onCleanupBranches: () => void;
+}) {
   const showTags = useGitLogStore((state) => state.showTags);
   const singleClickAction = useGitLogStore((state) => state.singleClickAction);
   const setPreferences = useGitLogStore(
@@ -399,6 +426,27 @@ function SettingsMenu({ onClose }: { onClose: () => void }) {
         }}
       >
         <span>{showTags ? "✓ " : ""}Show Tags</span>
+      </button>
+      <div className="commit-context-menu-separator" />
+      <button
+        type="button"
+        className="commit-context-menu-item"
+        onClick={() => {
+          onCleanupBranches();
+          onClose();
+        }}
+      >
+        <span>Clean Up Branches...</span>
+      </button>
+      <button
+        type="button"
+        className="commit-context-menu-item"
+        onClick={() => {
+          onManageRemotes();
+          onClose();
+        }}
+      >
+        <span>Manage Remotes...</span>
       </button>
     </div>
   );

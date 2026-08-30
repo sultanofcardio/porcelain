@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useModifierClickSelection } from "../../shared/hooks/useModifierClickSelection";
 import { useGitLogStore } from "../../shared/store/git-log-store-context";
 import type { PanelStore } from "../../shared/store/panel-store";
 import { useRepoStore } from "../../shared/store/repo-store";
 import type { GitRefIdentity } from "../../shared/types/git";
 import { BranchSidebar } from "../components/BranchSidebar";
+import { CleanupBranchesDialog } from "../components/CleanupBranchesDialog";
+import { ManageRemotesDialog } from "../components/ManageRemotesDialog";
 import {
   type BranchActionUi,
   runBranchAction,
@@ -73,6 +76,9 @@ export function BranchTree({ onTogglePanel }: BranchTreeProps = {}) {
   const operations = useBranchOperations();
   const [currentBranchRowSelectedRepoId, setCurrentBranchRowSelectedRepoId] =
     useState<string | null>(null);
+  const [refDialog, setRefDialog] = useState<"remotes" | "cleanup" | null>(
+    null,
+  );
   const currentBranchRowSelected =
     activeRepoId !== null && currentBranchRowSelectedRepoId === activeRepoId;
 
@@ -526,11 +532,54 @@ export function BranchTree({ onTogglePanel }: BranchTreeProps = {}) {
     });
   }, [activeRepoId, localEntries, overlayController.openCreate]);
 
+  const remotePorts = useMemo(
+    () => ({
+      list: () => operations.getRemotes(activeRepoId ?? ""),
+      add: (name: string, url: string) =>
+        operations.addRemote(activeRepoId ?? "", name, url),
+      rename: (oldName: string, newName: string) =>
+        operations.renameRemote(activeRepoId ?? "", oldName, newName),
+      setUrl: (name: string, url: string) =>
+        operations.setRemoteUrl(activeRepoId ?? "", name, url),
+      remove: (name: string) =>
+        operations.removeRemote(activeRepoId ?? "", name),
+    }),
+    [activeRepoId, operations],
+  );
+  const cleanupPorts = useMemo(
+    () => ({
+      list: (prefix: string) =>
+        operations.mergedBranches(activeRepoId ?? "", prefix),
+      remove: (name: string, force: boolean) =>
+        operations.deleteByName(activeRepoId ?? "", name, force),
+    }),
+    [activeRepoId, operations],
+  );
+
   return (
     <div style={{ height: "100%", display: "flex" }}>
+      {refDialog === "remotes" &&
+        createPortal(
+          <ManageRemotesDialog
+            ports={remotePorts}
+            onClose={() => setRefDialog(null)}
+          />,
+          document.body,
+        )}
+      {refDialog === "cleanup" &&
+        createPortal(
+          <CleanupBranchesDialog
+            ports={cleanupPorts}
+            targetLabel={currentBranch || "HEAD"}
+            onClose={() => setRefDialog(null)}
+          />,
+          document.body,
+        )}
       <BranchSidebar
         onTogglePanel={onTogglePanel}
         onNewBranch={handleNewBranch}
+        onManageRemotes={() => setRefDialog("remotes")}
+        onCleanupBranches={() => setRefDialog("cleanup")}
       />
       <BranchTreeView
         localSnapshot={localSnapshot}

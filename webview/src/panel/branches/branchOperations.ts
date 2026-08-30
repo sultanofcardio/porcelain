@@ -33,6 +33,24 @@ export interface BranchOperations {
     remotes: string[],
   ): Promise<Array<{ remote: string; deleted: boolean; message?: string }>>;
   getRemotes(repoId: string): Promise<Array<{ name: string; url: string }>>;
+  addRemote(repoId: string, name: string, url: string): Promise<void>;
+  renameRemote(repoId: string, oldName: string, newName: string): Promise<void>;
+  setRemoteUrl(repoId: string, name: string, url: string): Promise<void>;
+  removeRemote(repoId: string, name: string): Promise<void>;
+  /** Local branches with merge status, for the cleanup dialog. */
+  mergedBranches(
+    repoId: string,
+    prefix: string,
+  ): Promise<
+    Array<{
+      name: string;
+      lastCommitDate: string;
+      upstream?: string;
+      merged: boolean;
+    }>
+  >;
+  /** Delete by name — the cleanup dialog has rows, not BranchInfo. */
+  deleteByName(repoId: string, name: string, force: boolean): Promise<void>;
   create(repoId: string, input: CreateBranchInput): Promise<void>;
   delete(repoId: string, branch: BranchInfo, force: boolean): Promise<void>;
   rename(repoId: string, oldName: string, newName: string): Promise<void>;
@@ -134,6 +152,38 @@ export function createBranchOperations(
         name: string;
         url: string;
       }>;
+    },
+    async addRemote(repoId, name, url) {
+      await requestWithProgress("addRemote", { name, url }, { repoId });
+    },
+    async renameRemote(repoId, oldName, newName) {
+      await requestWithProgress(
+        "renameRemote",
+        { oldName, newName },
+        { repoId },
+      );
+    },
+    async setRemoteUrl(repoId, name, url) {
+      await requestWithProgress("setRemoteUrl", { name, url }, { repoId });
+    },
+    async removeRemote(repoId, name) {
+      await requestWithProgress("removeRemote", { name }, { repoId });
+    },
+    async mergedBranches(repoId, prefix) {
+      return ((await request("getMergedBranches", { prefix }, { repoId })) ??
+        []) as Array<{
+        name: string;
+        lastCommitDate: string;
+        upstream?: string;
+        merged: boolean;
+      }>;
+    },
+    async deleteByName(repoId, name, force) {
+      await requestWithProgress(
+        "deleteBranch",
+        { branchName: name, isRemote: false, force },
+        { repoId },
+      );
     },
     async create(repoId, input) {
       await requestWithProgress(
