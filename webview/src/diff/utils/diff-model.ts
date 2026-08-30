@@ -398,9 +398,17 @@ export function axisToSide(
  * context above it is pushed off screen. IntelliJ holds the anchor mid-pane
  * instead, keeping context on both sides of where the new lines go.
  *
- * The lift ramps in over the first half-viewport of the stall and back out
- * over the last, so entering and leaving a gap eases rather than jumps. It is
- * reported separately from the mapping itself because only continuous
+ * The lift is a plateau, not a peak: it eases in over the half-viewport
+ * *before* the gap, holds at full lift for the gap's whole length, and eases
+ * back out over the half-viewport after it. Ramping in only once the gap has
+ * been entered is what makes the stalled side visibly travel to the top of
+ * the window and then slide back down to the middle — by then the anchor has
+ * already reached the top and the lift is undoing it. Starting the ramp
+ * early instead decelerates the side so it comes to rest mid-pane exactly as
+ * the gap begins, waits there while the other side catches up, and moves off
+ * again together.
+ *
+ * It is reported separately from the mapping itself because only continuous
  * scrolling wants it — jumping to a difference still wants the plain top.
  */
 export function stallLift(
@@ -413,22 +421,47 @@ export function stallLift(
   if (chunks.length === 0 || viewportLines <= 0 || position <= 0) return 0;
 
   const folded = foldByChunk(folds);
+  const half = viewportLines / 2;
+  const widths = chunks.map((chunk, index) =>
+    axisSpan(chunk, folded?.get(index)),
+  );
+  // A chunk this side contributes no rows to is one it stands still through.
+  const stalls = chunks.map(
+    (chunk, index) => displaySpanCount(chunk, side, folded?.get(index)) === 0,
+  );
+  // A gap narrower than half a viewport cannot use a full lift: holding the
+  // anchor further down than the gap is deep would push the side backwards
+  // past what standing still can justify.
+  const peakOf = (index: number) => Math.min(half, widths[index]);
+
   let axis = 0;
-  for (const [index, chunk] of chunks.entries()) {
-    const fold = folded?.get(index);
-    const width = axisSpan(chunk, fold);
+  for (const [index] of chunks.entries()) {
+    const width = widths[index];
     if (position < axis + width) {
-      // Only a chunk this side contributes nothing to can stall it.
-      if (displaySpanCount(chunk, side, fold) > 0) return 0;
-      const half = viewportLines / 2;
       const into = position - axis;
-      const remaining = width - into;
-      // Triangular ramp, clamped: full lift once half a viewport inside the
-      // gap, easing back to nothing as its far edge approaches. A gap shorter
-      // than a viewport never reaches full lift, which is right — there is
-      // little to centre.
-      const ramp = Math.max(0, Math.min(1, into / half, remaining / half));
-      return half * ramp;
+      if (stalls[index]) return peakOf(index);
+
+      // Not stalled here, but a neighbouring gap reaches into this chunk: the
+      // approach ramps up to the coming gap's plateau, and the departure ramps
+      // down from the one just left. A short run between two gaps takes
+      // whichever is higher, so it never dips between them.
+      let lift = 0;
+      const ramp = Math.min(half, width);
+      const next = index + 1 < chunks.length && stalls[index + 1];
+      if (next && width - into < ramp) {
+        lift = Math.max(lift, peakOf(index + 1) * (1 - (width - into) / ramp));
+      }
+      const previous = index > 0 && stalls[index - 1];
+      if (previous && into < ramp) {
+        lift = Math.max(lift, peakOf(index - 1) * (1 - into / ramp));
+      }
+      // Bracketed by gaps with no room to ramp down and back up between them,
+      // the side would bob up mid-run only to be pushed straight back. It has
+      // nowhere to go, so it stays parked at the lower of the two plateaus.
+      if (next && previous && width < ramp * 2) {
+        lift = Math.max(lift, Math.min(peakOf(index - 1), peakOf(index + 1)));
+      }
+      return lift;
     }
     axis += width;
   }

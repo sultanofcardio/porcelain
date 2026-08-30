@@ -216,3 +216,13 @@ export async function readGitContent(
   }
   throw new Error("Repository content reader is unavailable");
 }
+
+/** What each side of a working-tree diff is called in the editor's title. */
+export const DIFF_KIND_LABEL: Record<
+  WorkingTreeDiffKind["left"] | WorkingTreeDiffKind["right"],
+  string
+> = {
+  head: "HEAD",
+  index: "Index",
+  workingTree: "Working Tree",
+};

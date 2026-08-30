@@ -65,6 +65,7 @@ import { PushPanel } from "./views/pushPanel";
 import type { RollbackFileInfo } from "./views/rollbackPanel";
 import { RollbackPanel } from "./views/rollbackPanel";
 import {
+  DIFF_KIND_LABEL,
   EMPTY_CONTENT_REF,
   getWorkingTreeDiffKind,
   getWorkingTreeDiffResources,
@@ -2043,10 +2044,8 @@ export async function activate(context: vscode.ExtensionContext) {
     if (!file) {
       throw new Error(`Working tree change no longer exists: ${filePath}`);
     }
-    const resources = getWorkingTreeDiffResources(
-      file,
-      getWorkingTreeDiffKind(staged),
-    );
+    const kind = getWorkingTreeDiffKind(staged);
+    const resources = getWorkingTreeDiffResources(file, kind);
     // The panel now shows a working-tree diff; the retained commit file list
     // no longer describes it, and "next file" stepping it would silently
     // replace this diff with an unrelated commit's.
@@ -2067,9 +2066,11 @@ export async function activate(context: vscode.ExtensionContext) {
     await diffWindow.show(
       toUri(resources.left),
       toUri(resources.right),
-      staged
-        ? `${filePath} (HEAD ↔ Index)`
-        : `${filePath} (Index ↔ Working Tree)`,
+      // Named from the same kind the panes were built from. Reading it off
+      // `staged` instead labelled the Commit panel's diff "Index ↔ Working
+      // Tree" when an omitted side means HEAD ↔ Working Tree — the one case
+      // where the two disagree, and the one the panel always takes.
+      `${filePath} (${DIFF_KIND_LABEL[kind.left]} ↔ ${DIFF_KIND_LABEL[kind.right]})`,
     );
     return { success: true };
   });

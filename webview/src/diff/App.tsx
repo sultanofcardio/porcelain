@@ -283,6 +283,13 @@ export function DiffApp() {
       await refreshStaged();
     };
     const lineIncluded = (rightLine: number) => !pending.lines.has(rightLine);
+    // Chunk bounds are 0-based rows; git counts lines from one.
+    const extentOf = (chunk: DiffChunk) => ({
+      newStart: chunk.right.start + 1,
+      newCount: chunk.right.count,
+      oldStart: chunk.left.start + 1,
+      oldCount: chunk.left.count,
+    });
     return {
       isLineIncluded: lineIncluded,
       // A change counts as included only once none of it is still pending —
@@ -295,12 +302,15 @@ export function DiffApp() {
         }
         return true;
       },
-      // The change's own checkbox takes or returns the whole hunk…
-      onToggleChunk: (rightLine: number, included: boolean) => {
-        void call("stageHunkAtLine", {
+      // The change's own checkbox takes or returns exactly that block. Both
+      // sides of its extent go along: the host builds the staging patch from
+      // the index-against-disk diff and the unstaging one from HEAD-against-
+      // index, and those two share only one coordinate each with this view.
+      onToggleChunk: (chunk: DiffChunk, included: boolean) => {
+        void call("setRangeStaged", {
           filePath,
-          newLine: rightLine + 1,
-          unstage: included,
+          ...extentOf(chunk),
+          staged: !included,
         });
       },
       // …while the hovered line's checkbox takes just that line, so part of
@@ -312,8 +322,8 @@ export function DiffApp() {
           staged: !lineIncluded(rightLine),
         });
       },
-      onRevert: (rightLine: number) => {
-        void call("revertHunkAtLine", { filePath, newLine: rightLine + 1 });
+      onRevert: (chunk: DiffChunk) => {
+        void call("revertRange", { filePath, ...extentOf(chunk) });
       },
     };
   }, [filePath, refreshStaged, pending, workingTree]);

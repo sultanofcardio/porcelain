@@ -352,6 +352,49 @@ export function registerWorkingTreeHandlers(router: MessageRouter): void {
     }));
   });
 
+  /** Every field of a change's extent, so neither side has to be guessed. */
+  const requireRange = (params: Record<string, unknown>) => {
+    const read = (key: string): number => {
+      const value = params[key];
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        throw new Error(`${key} must be a number`);
+      }
+      return value;
+    };
+    return {
+      newStart: read("newStart"),
+      newCount: read("newCount"),
+      oldStart: read("oldStart"),
+      oldCount: read("oldCount"),
+    };
+  };
+
+  router.handle("revertRange", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const filePath = requireString(params.filePath, "filePath");
+    const range = requireRange(params);
+    return mutate(context, async () => ({
+      changed: await context.gitService.revertRange(
+        filePath,
+        range.newStart,
+        range.newCount,
+      ),
+    }));
+  });
+
+  router.handle("setRangeStaged", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const filePath = requireString(params.filePath, "filePath");
+    const range = requireRange(params);
+    return mutate(context, async () => ({
+      changed: await context.gitService.setRangeStaged(
+        filePath,
+        range,
+        params.staged === true,
+      ),
+    }));
+  });
+
   router.handle("getCommitTemplate", async (_params, context) => {
     if (!context) return NOT_GIT_REPO;
     const [template, mergeMessage] = await Promise.all([

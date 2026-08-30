@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import {
   buildGitContentQuery,
+  DIFF_KIND_LABEL,
   getWorkingTreeDiffKind,
   getWorkingTreeDiffResources,
   readGitContent,
@@ -27,6 +28,19 @@ describe("working tree diff model", () => {
       left: "head",
       right: "workingTree",
     });
+  });
+
+  it("names each side of a diff after the kind it was built from", () => {
+    // The editor title has to be read off the same kind the panes were, not
+    // off the staged flag: an omitted side means HEAD against the working
+    // tree, which a flag alone cannot tell from index-against-working-tree.
+    const label = (staged: boolean | undefined) => {
+      const kind = getWorkingTreeDiffKind(staged);
+      return `${DIFF_KIND_LABEL[kind.left]} \u2194 ${DIFF_KIND_LABEL[kind.right]}`;
+    };
+    assert.strictEqual(label(true), "HEAD \u2194 Index");
+    assert.strictEqual(label(false), "Index \u2194 Working Tree");
+    assert.strictEqual(label(undefined), "HEAD \u2194 Working Tree");
   });
 
   it("diffs the file on disk against the commit, skipping the index", () => {

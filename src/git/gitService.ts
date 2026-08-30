@@ -81,6 +81,7 @@ import {
   type LineSelection,
   type ParsedDiff,
   parseUnifiedDiff,
+  selectRange,
 } from "./commit/hunks";
 import {
   collectEditorMessages,
@@ -1813,6 +1814,98 @@ export class GitService {
     if (!patch) return false;
     // No --cached: the working tree is what is being put back.
     await this.executor.withInput(["apply", "--reverse", "-"], patch);
+    this.invalidateCache();
+    return true;
+  }
+
+  /**
+   * The diff a working-tree viewer draws, as a patch: HEAD against the file on
+   * disk. Staging splits the file's history into HEAD → index → disk, but the
+   * viewer shows the whole distance, so the ranges it hands back are in these
+   * coordinates.
+   */
+  private async parseHeadDiff(filePath: string): Promise<ParsedDiff> {
+    return parseUnifiedDiff(
+      await this.execGit([
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "-U3",
+        "HEAD",
+        "--",
+        filePath,
+      ]),
+    );
+  }
+
+  /**
+   * Revert one displayed change in the working tree — the gutter arrow.
+   *
+   * Addressed by new-file line range rather than by hunk. Git merges changes
+   * closer together than its context width into one hunk, so reverting "the
+   * hunk at this line" takes every other change within three lines of it as
+   * well; two edits that read as separate blocks on screen would disappear
+   * together. The range names exactly the block that was pointed at.
+   */
+  async revertRange(
+    filePath: string,
+    newStart: number,
+    newCount: number,
+  ): Promise<boolean> {
+    const parsed = await this.parseHeadDiff(filePath);
+    const selection = selectRange(parsed, "new", newStart, newCount);
+    if (selection.size === 0) return false;
+    const patch = buildLinePatch(parsed, selection, { direction: "reverse" });
+    if (!patch) return false;
+    // No --cached: the working tree is what is being put back.
+    await this.executor.withInput(["apply", "--reverse", "-"], patch);
+    this.invalidateCache();
+    return true;
+  }
+
+  /**
+   * Take one displayed change into the index, or hand it back.
+   *
+   * The two directions are addressed from opposite sides, because they are
+   * built from different diffs and only one coordinate is shared with each.
+   * Staging reads the index-against-disk diff, whose new side *is* the working
+   * tree the range came from. Unstaging reads HEAD-against-index, which has no
+   * working-tree side at all — but its old side is HEAD, which the viewer's
+   * left pane also shows, so the change is named by its old-side range there.
+   */
+  async setRangeStaged(
+    filePath: string,
+    range: {
+      newStart: number;
+      newCount: number;
+      oldStart: number;
+      oldCount: number;
+    },
+    staged: boolean,
+  ): Promise<boolean> {
+    const parsed = parseUnifiedDiff(
+      await this.execGit([
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "-U3",
+        ...(staged ? [] : ["--cached"]),
+        "--",
+        filePath,
+      ]),
+    );
+    const selection = staged
+      ? selectRange(parsed, "new", range.newStart, range.newCount)
+      : selectRange(parsed, "old", range.oldStart, range.oldCount);
+    if (selection.size === 0) return false;
+    const patch = buildLinePatch(parsed, selection, {
+      direction: staged ? "forward" : "reverse",
+    });
+    if (!patch) return false;
+    await this.executor.withInput(
+      ["apply", "--cached", ...(staged ? [] : ["--reverse"]), "-"],
+      patch,
+    );
     this.invalidateCache();
     return true;
   }

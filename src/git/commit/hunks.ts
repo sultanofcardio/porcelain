@@ -116,6 +116,50 @@ export function buildPartialPatch(
 export type LineSelection = ReadonlyMap<number, ReadonlySet<number>>;
 
 /**
+ * The changed lines of a diff that fall inside one range of one side.
+ *
+ * Git merges changes less than its context width apart into a single hunk, so
+ * a hunk is coarser than what a diff viewer draws as a block: two edits three
+ * lines apart are one hunk but two blocks on screen. Addressing an operation
+ * by hunk therefore takes neighbouring blocks with it, which is not what
+ * pointing at one of them means. Addressing it by line range does not.
+ *
+ * A removal occupies no line on the new side and an addition none on the old,
+ * so each is placed at the cursor it sits in front of on the side being
+ * counted. That is what lets a range covering no lines at all — a pure
+ * deletion, whose new-side count is zero — still select the removals that
+ * belong to it, by covering the single row they sit in front of.
+ */
+export function selectRange(
+  parsed: ParsedDiff,
+  side: "old" | "new",
+  start: number,
+  count: number,
+): LineSelection {
+  const last = start + Math.max(count, 1) - 1;
+  const selection = new Map<number, Set<number>>();
+
+  for (const hunk of parsed.hunks) {
+    let cursor = side === "old" ? hunk.oldStart : hunk.newStart;
+    const chosen = new Set<number>();
+    for (const [position, line] of hunk.lines.entries()) {
+      // The no-newline marker belongs to the line above it, never selected
+      // on its own.
+      if (line.startsWith("\\")) continue;
+      const marker = line[0];
+      const onThisSide =
+        marker === " " || (side === "old" ? marker === "-" : marker === "+");
+      if (marker !== " " && cursor >= start && cursor <= last) {
+        chosen.add(position);
+      }
+      if (onThisSide) cursor++;
+    }
+    if (chosen.size > 0) selection.set(hunk.index, chosen);
+  }
+  return selection;
+}
+
+/**
  * Build a patch from a selection of individual lines.
  *
  * Excluding a changed line is not the same as deleting it from the patch:

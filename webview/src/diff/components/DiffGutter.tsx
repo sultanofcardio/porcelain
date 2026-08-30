@@ -44,9 +44,14 @@ interface DiffGutterProps {
     isChunkIncluded(chunk: DiffChunk): boolean;
     /** Whether one right-side line is already in the commit. */
     isLineIncluded(rightLine: number): boolean;
-    onToggleChunk(rightLine: number, included: boolean): void;
+    /**
+     * The whole chunk, not a line inside it: git merges changes closer than
+     * its context width into one hunk, so a line only identifies the block
+     * ambiguously and acting on the hunk would take its neighbours too.
+     */
+    onToggleChunk(chunk: DiffChunk, included: boolean): void;
     onToggleLine(rightLine: number): void;
-    onRevert(rightLine: number): void;
+    onRevert(chunk: DiffChunk): void;
   };
   extraConnectors?: Array<{
     key: string;
@@ -216,24 +221,22 @@ export function DiffGutter({
     ? chunks.flatMap((chunk) => {
         if (chunk.kind === "equal") return [];
         const onRight = chunk.right.count > 0;
-        // The host addresses changes by new-file line, so a pure deletion is
-        // still named by the right-side row it sits in front of — only where
-        // the cluster is *drawn* falls back to the left side, since the right
-        // has no row of its own there. A trailing deletion sits in front of a
-        // row past EOF, which no hunk's new side contains; clamp it back to
-        // the last real row (-1 for a whole-file content deletion) so the host
-        // can find the hunk instead of the control silently doing nothing.
-        const line = onRight
-          ? chunk.right.start
-          : Math.min(chunk.right.start, rightLineCount - 1);
+        // Only where the cluster is *drawn* falls back to the left side: a
+        // pure deletion has no row of its own on the right. What it acts on
+        // is the chunk, whose extent covers both sides, so a deletion past
+        // the last line needs no special case — its range covers the row the
+        // removals sit in front of, even when that row is the end of file.
         const row = onRight
           ? y(chunk.right.start, rightOffset, "right")
           : y(chunk.left.start, leftOffset, "left");
         if (row < -LINE_HEIGHT || row > height) return [];
         return [
           {
-            key: `control-${chunk.left.start}-${line}`,
-            line,
+            key: `control-${chunk.left.start}-${chunk.right.start}`,
+            chunk,
+            // Labels read from the right where there is one, the left where
+            // there is not, so a deletion names a line the reader can see.
+            label: (onRight ? chunk.right.start : chunk.left.start) + 1,
             row,
             included: changeControls.isChunkIncluded(chunk),
             // The rows this cluster's own checkbox already speaks for.
@@ -314,19 +317,19 @@ export function DiffGutter({
             <button
               type="button"
               className="diff-change-revert"
-              aria-label={`Revert change at line ${control.line + 1}`}
+              aria-label={`Revert change at line ${control.label}`}
               title="Revert this change"
-              onClick={() => changeControls.onRevert(control.line)}
+              onClick={() => changeControls.onRevert(control.chunk)}
             >
               ≫
             </button>
             <input
               type="checkbox"
               className="diff-change-include"
-              aria-label={`Include change at line ${control.line + 1} in the commit`}
+              aria-label={`Include change at line ${control.label} in the commit`}
               checked={control.included}
               onChange={() =>
-                changeControls.onToggleChunk(control.line, control.included)
+                changeControls.onToggleChunk(control.chunk, control.included)
               }
             />
           </div>

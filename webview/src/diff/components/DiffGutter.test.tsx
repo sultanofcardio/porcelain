@@ -81,9 +81,9 @@ describe("DiffGutter", () => {
       overrides: Partial<Parameters<typeof DiffGutter>[0]> = {},
       included: (line: number) => boolean = () => true,
     ) => {
-      const toggledChunks: Array<[number, boolean]> = [];
+      const toggledChunks: Array<[DiffChunk, boolean]> = [];
       const toggledLines: number[] = [];
-      const reverted: number[] = [];
+      const reverted: DiffChunk[] = [];
       const view = renderGutter(lines("a", "b"), lines("a", "x", "y", "b"), {
         changeControls: {
           isLineIncluded: included,
@@ -93,10 +93,10 @@ describe("DiffGutter", () => {
             }
             return true;
           },
-          onToggleChunk: (line, wasIncluded) =>
-            toggledChunks.push([line, wasIncluded]),
+          onToggleChunk: (chunk, wasIncluded) =>
+            toggledChunks.push([chunk, wasIncluded]),
           onToggleLine: (line) => toggledLines.push(line),
-          onRevert: (line) => reverted.push(line),
+          onRevert: (chunk) => reverted.push(chunk),
         },
         ...overrides,
       });
@@ -124,10 +124,19 @@ describe("DiffGutter", () => {
 
       fireEvent.click(revert);
       fireEvent.click(include);
-      expect(reverted).toEqual([1]);
+      // The whole block is handed over, not a line inside it: git merges
+      // changes closer than its context width into one hunk, so a line alone
+      // would let the host act on a neighbouring block too.
+      expect(reverted).toEqual([
+        {
+          kind: "added",
+          left: { start: 1, count: 0 },
+          right: { start: 1, count: 2 },
+        },
+      ]);
       // The callback carries the state it is leaving, so the host is told to
       // unstage rather than stage again.
-      expect(toggledChunks).toEqual([[1, true]]);
+      expect(toggledChunks).toEqual([[reverted[0], true]]);
     });
 
     it("clears the change's box while any of it is still left out", () => {
@@ -212,21 +221,29 @@ describe("DiffGutter", () => {
       expect(toggledLines).toEqual([13]);
     });
 
-    it("addresses a deletion by the new-side row it sits in front of", () => {
-      // The host locates a change by its new-file line even when the change
-      // removed every line it had there.
-      const reverted: number[] = [];
+    it("hands over a deletion's extent on both sides", () => {
+      // A deletion has no rows of its own on the right, so its right count is
+      // zero and its right start is the row it sits in front of. Both sides
+      // travel, because the host needs whichever one the diff it builds the
+      // patch from actually has.
+      const reverted: DiffChunk[] = [];
       const view = renderGutter(lines("a", "x", "b"), lines("a", "b"), {
         changeControls: {
           isLineIncluded: () => true,
           isChunkIncluded: () => true,
           onToggleChunk: () => {},
           onToggleLine: () => {},
-          onRevert: (line) => reverted.push(line),
+          onRevert: (chunk) => reverted.push(chunk),
         },
       });
       fireEvent.click(view.getByLabelText("Revert change at line 2"));
-      expect(reverted).toEqual([1]);
+      expect(reverted).toEqual([
+        {
+          kind: "removed",
+          left: { start: 1, count: 1 },
+          right: { start: 1, count: 0 },
+        },
+      ]);
     });
 
     it("stays read-only when no controls are supplied", () => {

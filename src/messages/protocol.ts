@@ -194,6 +194,8 @@ export type CommandType =
   | "revertHunkAtLine"
   | "stageLines"
   | "setLineStaged"
+  | "revertRange"
+  | "setRangeStaged"
   | "updateProject"
   | "getIncomingOutgoing"
   | "checkProtectedBranch"
