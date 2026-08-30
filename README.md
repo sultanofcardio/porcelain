@@ -43,8 +43,9 @@ Porcelain keeps the Git habits you already know from JetBrains IDEs: a visual br
 
 - Local branches, remotes, and tags in a searchable tree
 - Favorites, ahead/behind indicators, and upstream-aware Update
-- Color-coded commit graph with resizable and hideable columns
-- Branch, author, date, and file-history filters
+- Color-coded commit graph with resizable and hideable columns, collapsible linear branches, and long-edge stubs
+- Text search with match-case and regex toggles; branch, author, date, paths, and file-history filters
+- Go to hash / branch / tag, graph modes (topological order, first parent, no merges), highlighters, and presentation toggles
 - Shared commit context actions across normal and comparison logs
 
 ### Commit, Shelf, and Stash
