@@ -34,6 +34,7 @@ import {
 import {
   registerRefHandlers,
   registerRewriteHandlers,
+  registerSyncHandlers,
   registerWorkingTreeHandlers,
 } from "./messages/refHandlers";
 import { ChangesWindowManager } from "./views/changesWindowManager";
@@ -427,6 +428,20 @@ export async function activate(context: vscode.ExtensionContext) {
   registerRefHandlers(messageRouter);
   registerRewriteHandlers(messageRouter);
   registerWorkingTreeHandlers(messageRouter);
+  registerSyncHandlers(messageRouter, {
+    protectedBranches: () =>
+      vscode.workspace
+        .getConfiguration("porcelain")
+        .get<string[]>("push.protectedBranches", []),
+    updateMethod: () =>
+      vscode.workspace
+        .getConfiguration("porcelain")
+        .get<"merge" | "rebase">("update.method", "merge"),
+    fetchTags: () =>
+      vscode.workspace
+        .getConfiguration("porcelain")
+        .get<"auto" | "all" | "none">("fetch.tags", "auto"),
+  });
   registerComparePanelHandlers(messageRouter, comparePanelManager);
 
   messageRouter.handle("openMergeEditor", async (params, ctx) => {

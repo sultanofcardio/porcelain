@@ -203,7 +203,37 @@
             "Porcelain's own diff surface: paired centre gutter, curved connectors, per-side revision headers and a live difference count."
           ],
           "default": "native",
-          "markdownDescription": "Which renderer shows file diffs, including diffs against the working tree and the index. On the Porcelain surface the working-tree side is editable in place — double-click a line to edit, `Cmd+S` saves — while historical revisions and the index stay read-only; Edit Source still opens the real file. Binary and oversized files show a placeholder with a way into the built-in editor."
+          "markdownDescription": "Which renderer shows file diffs, including diffs against the working tree and the index. On the Porcelain surface the working-tree side is editable in place \u2014 double-click a line to edit, `Cmd+S` saves \u2014 while historical revisions and the index stay read-only; Edit Source still opens the real file. Binary and oversized files show a placeholder with a way into the built-in editor."
+        },
+        "porcelain.push.protectedBranches": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "main",
+            "master"
+          ],
+          "markdownDescription": "Branches that force push is refused on. Each entry is a regular expression matched against the whole branch name, so `release/.*` protects every release branch."
+        },
+        "porcelain.update.method": {
+          "type": "string",
+          "enum": [
+            "merge",
+            "rebase"
+          ],
+          "default": "merge",
+          "description": "How Update Project brings the current branch up to date with its tracked branch."
+        },
+        "porcelain.fetch.tags": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "all",
+            "none"
+          ],
+          "default": "auto",
+          "description": "Whether fetching also brings tags: follow the git configuration (auto), always, or never."
         }
       }
     },

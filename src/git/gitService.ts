@@ -25,6 +25,7 @@ import type {
   MergeOptions,
   MergeState,
   PullOptions,
+  PushOptions,
   RebaseOptions,
   RefInfo,
   TagInfo,
@@ -1650,13 +1651,122 @@ export class GitService {
     force = false,
     remote = "origin",
     targetBranch?: string,
+    options: PushOptions = {},
   ): Promise<string> {
+    await this.validateBranch(branchName);
+    await this.validateRemoteName(remote);
+    if (targetBranch) await this.validateBranch(targetBranch);
     const args = ["push"];
+    // Safe force by default: --force-with-lease refuses when the remote moved
+    // in a way we have not seen, which plain --force would silently overwrite.
     if (force) args.push("--force-with-lease");
+    if (options.setUpstream) args.push("--set-upstream");
+    if (options.noVerify) args.push("--no-verify");
+    if (options.pushTags === "all") args.push("--tags");
     args.push(remote, `${branchName}:${targetBranch || branchName}`);
     const output = await this.execGit(args);
     this.invalidateCache();
     return output;
+  }
+
+  /**
+   * Whether a branch matches any protected pattern. Patterns are regexes, as
+   * IntelliJ's "Protected branches" list is; an unparseable pattern falls back
+   * to an exact-name match rather than throwing the push away.
+   */
+  isProtectedBranch(branchName: string, patterns: readonly string[]): boolean {
+    return patterns.some((pattern) => {
+      if (!pattern.trim()) return false;
+      try {
+        return new RegExp(`^${pattern}$`).test(branchName);
+      } catch {
+        return pattern === branchName;
+      }
+    });
+  }
+
+  /**
+   * Fetch, then bring the current branch up to date the way the user asked —
+   * merge or rebase — carrying uncommitted work across with a stash.
+   */
+  async updateProject(options: {
+    method: "merge" | "rebase";
+    fetchTags?: "auto" | "all" | "none";
+  }): Promise<{ method: string; updated: boolean; commits: CommitNode[] }> {
+    const before = (await this.execGit(["rev-parse", "HEAD"])).trim();
+    const fetchArgs = ["fetch"];
+    if (options.fetchTags === "all") fetchArgs.push("--tags");
+    if (options.fetchTags === "none") fetchArgs.push("--no-tags");
+    await this.execGit(fetchArgs);
+
+    const branch = await this.getCurrentBranch();
+    if (!branch) {
+      throw new PorcelainError(
+        PorcelainErrorCode.BRANCH_NOT_FOUND,
+        "Cannot update a detached HEAD",
+        "Check out a branch first.",
+      );
+    }
+    const upstream = (
+      await this.execGit([
+        "rev-parse",
+        "--abbrev-ref",
+        `${branch}@{upstream}`,
+      ]).catch(() => "")
+    ).trim();
+    if (!upstream) {
+      throw new PorcelainError(
+        PorcelainErrorCode.BRANCH_NO_UPSTREAM,
+        `Branch '${branch}' has no tracked branch to update from`,
+        "Set a tracked branch, then update again.",
+      );
+    }
+
+    // --autostash carries uncommitted work across the update and puts it back
+    // afterwards, which is what IntelliJ's "clean working tree using stash"
+    // does around its own update.
+    await this.execGit(
+      options.method === "rebase"
+        ? ["rebase", "--autostash", upstream]
+        : ["merge", "--autostash", upstream],
+    );
+    this.invalidateCache();
+
+    const after = (await this.execGit(["rev-parse", "HEAD"])).trim();
+    if (before === after) {
+      return { method: options.method, updated: false, commits: [] };
+    }
+    // What arrived, for the update-info view.
+    const commits = await this.getLog({
+      revision: { kind: "range", excludeRef: before, includeRef: after },
+      maxCount: 200,
+    });
+    return { method: options.method, updated: true, commits };
+  }
+
+  /**
+   * Incoming and outgoing counts per local branch, from the refs already
+   * fetched — no network access, so it is cheap enough to call on refresh.
+   */
+  async getIncomingOutgoing(): Promise<
+    Record<string, { incoming: number; outgoing: number }>
+  > {
+    const output = await this.execGit([
+      "for-each-ref",
+      `--format=${["%(refname:short)", "%(upstream:track,nobracket)"].join("%00")}`,
+      "refs/heads",
+    ]);
+    const result: Record<string, { incoming: number; outgoing: number }> = {};
+    for (const line of output.split("\n")) {
+      if (!line.trim()) continue;
+      const [name, track] = line.split(FIELD_SEP);
+      const branchName = name?.trim();
+      if (!branchName) continue;
+      const ahead = Number(track?.match(/ahead (\d+)/)?.[1] ?? 0);
+      const behind = Number(track?.match(/behind (\d+)/)?.[1] ?? 0);
+      result[branchName] = { incoming: behind, outgoing: ahead };
+    }
+    return result;
   }
 
   /**

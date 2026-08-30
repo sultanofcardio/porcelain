@@ -249,3 +249,13 @@ export interface CommitOptions {
   /** Override the author, as "Name <email>". */
   author?: string;
 }
+
+/** Options the Push dialog exposes. */
+export interface PushOptions {
+  /** Set the upstream while pushing (`-u`), for a branch without one. */
+  setUpstream?: boolean;
+  /** Skip pre-push hooks. */
+  noVerify?: boolean;
+  /** Push tags along with the branch. */
+  pushTags?: "none" | "all";
+}

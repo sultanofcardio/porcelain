@@ -343,3 +343,47 @@ export function registerWorkingTreeHandlers(router: MessageRouter): void {
     );
   });
 }
+
+/** Push and update safety: protected branches, Update Project, sync counts. */
+export function registerSyncHandlers(
+  router: MessageRouter,
+  settings: {
+    protectedBranches(): string[];
+    updateMethod(): "merge" | "rebase";
+    fetchTags(): "auto" | "all" | "none";
+  },
+): void {
+  router.handle("checkProtectedBranch", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const branchName = requireString(params.branchName, "branchName");
+    const patterns = settings.protectedBranches();
+    return {
+      protected: context.gitService.isProtectedBranch(branchName, patterns),
+      patterns,
+    };
+  });
+
+  router.handle("updateProject", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const method =
+      params.method === "rebase" || params.method === "merge"
+        ? params.method
+        : settings.updateMethod();
+    return withProgress(router, context.repoId, async () => {
+      const result = await context.gitService.updateProject({
+        method,
+        fetchTags: settings.fetchTags(),
+      });
+      router.broadcastEvent("gitStateChanged", {
+        scope: "all",
+        repoId: context.repoId,
+      });
+      return result;
+    });
+  });
+
+  router.handle("getIncomingOutgoing", async (_params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    return context.gitService.getIncomingOutgoing();
+  });
+}

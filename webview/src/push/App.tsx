@@ -434,6 +434,19 @@ export function PushApp() {
 
   const handlePush = useCallback(
     async (force = false) => {
+      if (force) {
+        // A protected branch is the one place a force push is refused
+        // outright rather than confirmed — IntelliJ's own guard.
+        const guard = (await request("checkProtectedBranch", {
+          branchName: targetBranch,
+        }).catch(() => null)) as { protected?: boolean } | null;
+        if (guard?.protected) {
+          setError(
+            `'${targetBranch}' is a protected branch, so it cannot be force pushed. Change porcelain.push.protectedBranches to allow it.`,
+          );
+          return;
+        }
+      }
       setPushing(true);
       setError(null);
       try {
