@@ -154,7 +154,13 @@ describe("MergeApp accept-both", () => {
       screen.getByRole("button", { name: "Accept ours for conflict 1" }),
     );
     const resultPane = [...container.querySelectorAll(".diff-pane")][1];
-    expect(resultPane.querySelector(".diff-anchor")).toBeNull();
+    // No anchor derived from the raw pair diff…
+    for (const kind of ["added", "removed", "modified"]) {
+      expect(resultPane.querySelector(`.diff-anchor-${kind}`)).toBeNull();
+    }
+    // …but the region's own rule does mark where a zero-height conflict
+    // lands, since nothing else in the result shows it at all.
+    expect(resultPane.querySelector(".diff-anchor-conflict")).toBeTruthy();
 
     fireEvent.click(
       screen.getByRole("button", { name: "Accept ours for conflict 1" }),

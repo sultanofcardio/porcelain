@@ -846,6 +846,29 @@ export function resultRegionKinds(
 }
 
 /**
+ * Where a conflict region sits in the result when it occupies no lines there.
+ *
+ * Both sides adding to a spot the base left empty makes a region zero rows
+ * tall in the result: `resultRegionKinds` has no row to paint, and the pair
+ * chunks the panes draw anchors from have the region filtered out. Without
+ * this the middle pane shows nothing at all where the conflict is — the
+ * connectors taper to a point and stop. IntelliJ draws a rule straight through
+ * the result at the insertion point, which is what this feeds.
+ */
+export function resultRegionAnchors(
+  regions: readonly ConflictRegion[],
+): Array<{ line: number; kind: MergeLineKind }> {
+  return regions
+    .filter((region) => region.count === 0)
+    .map((region) => ({
+      line: region.start,
+      kind: regionResolved(region)
+        ? ("resolved" as const)
+        : ("conflict" as const),
+    }));
+}
+
+/**
  * Region colour for a flank pane, keyed by that flank's own lines and driven
  * by that flank's *own* state, never the region's. An ignored flank is still
  * takeable — its accept verb stands, IntelliJ keeps it in conflict colour —

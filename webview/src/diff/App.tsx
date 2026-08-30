@@ -27,6 +27,7 @@ import {
   type Side,
   sideToAxis,
   splitLines,
+  stallLift,
 } from "./utils/diff-model";
 import { unifiedRows, unifiedStripeMarks } from "./utils/unified";
 import "./diff.css";
@@ -195,6 +196,24 @@ export function DiffApp() {
   const scrollToAxis = useCallback((position: number) => {
     const element = viewportRef.current;
     if (element) element.scrollTop = Math.max(0, position) * LINE_HEIGHT;
+  }, []);
+
+  // The left pane's own position while synchronised scrolling is off. Seeded
+  // from wherever the pane already was when sync was switched off, so
+  // decoupling never makes the view jump.
+  const [independentLeft, setIndependentLeft] = useState(0);
+  const leftAtDecouple = useRef(0);
+  useEffect(() => {
+    if (store.syncScroll) return;
+    setIndependentLeft(leftAtDecouple.current);
+  }, [store.syncScroll]);
+
+  const scrollLeftPane = useCallback((deltaLines: number, maxLine: number) => {
+    setIndependentLeft((current) =>
+      // Stops one line short of the end, the same limit the shared scroller
+      // reaches, so decoupled panes do not scroll past their content.
+      Math.max(0, Math.min(current + deltaLines, Math.max(0, maxLine))),
+    );
   }, []);
 
   const step = useCallback(
@@ -425,18 +444,24 @@ export function DiffApp() {
     [unified, rows, store.chunks, store.folds],
   );
 
-  // With synchronised scrolling off the panes decouple: the left holds still
-  // and only the right follows the axis, which is the state the connectors
-  // have to survive with a chunk visible on one side and not the other.
+  // With synchronised scrolling on, both panes are positioned from the shared
+  // axis, and a side standing still through an insertion is lifted so its
+  // anchor sits mid-pane rather than at the very top. With it off the panes
+  // decouple: the right keeps following the axis (it owns the scrollbar) and
+  // the left scrolls on its own, which is the state the connectors have to
+  // survive with a chunk visible on one side and not the other.
+  const syncedLeft =
+    axisToSide(store.chunks, axisPosition, "left", store.folds) -
+    stallLift(store.chunks, axisPosition, "left", visibleLines, store.folds);
+  // Remember where the synced left pane sits, so switching sync off hands the
+  // independent scroller the position already on screen.
+  if (store.syncScroll) leftAtDecouple.current = Math.max(0, syncedLeft);
   const leftOffset = store.syncScroll
-    ? axisToSide(store.chunks, axisPosition, "left", store.folds)
-    : axisToSide(store.chunks, 0, "left", store.folds);
-  const rightOffset = axisToSide(
-    store.chunks,
-    axisPosition,
-    "right",
-    store.folds,
-  );
+    ? Math.max(0, syncedLeft)
+    : independentLeft;
+  const rightOffset =
+    axisToSide(store.chunks, axisPosition, "right", store.folds) -
+    stallLift(store.chunks, axisPosition, "right", visibleLines, store.folds);
 
   // The shell stays mounted through loading and failure. Returning early left
   // the viewport unmounted, so the ResizeObserver had nothing to observe and
@@ -579,25 +604,43 @@ export function DiffApp() {
                 </>
               ) : (
                 <>
-                  {wrapEditable(
-                    "left",
-                    <DiffPane
-                      side="left"
-                      lines={leftLines}
-                      counterpart={rightLines}
-                      chunks={store.chunks}
-                      language={store.language}
-                      granularity={store.granularity}
-                      offset={leftOffset}
-                      visibleLines={visibleLines}
-                      folds={store.folds}
-                      onToggleFold={(fold) =>
-                        useDiffStore.getState().toggleFold(fold.left.start)
-                      }
-                      matches={matches}
-                      activeMatch={activeMatch}
-                    />,
-                  )}
+                  {/* Decoupled, the left pane owns its own wheel: the shared
+                      scrollbar drives the axis, which the right follows. */}
+                  <div
+                    className="diff-left-scroller"
+                    onWheel={
+                      store.syncScroll
+                        ? undefined
+                        : (event) => {
+                            event.preventDefault();
+                            scrollLeftPane(
+                              event.deltaY / LINE_HEIGHT,
+                              leftLines.length - 1,
+                            );
+                          }
+                    }
+                    style={{ display: "contents" }}
+                  >
+                    {wrapEditable(
+                      "left",
+                      <DiffPane
+                        side="left"
+                        lines={leftLines}
+                        counterpart={rightLines}
+                        chunks={store.chunks}
+                        language={store.language}
+                        granularity={store.granularity}
+                        offset={leftOffset}
+                        visibleLines={visibleLines}
+                        folds={store.folds}
+                        onToggleFold={(fold) =>
+                          useDiffStore.getState().toggleFold(fold.left.start)
+                        }
+                        matches={matches}
+                        activeMatch={activeMatch}
+                      />,
+                    )}
+                  </div>
                   <DiffGutter
                     chunks={store.chunks}
                     axisPosition={axisPosition}

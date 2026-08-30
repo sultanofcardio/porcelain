@@ -389,6 +389,53 @@ export function axisToSide(
 }
 
 /**
+ * How far to lift a side that is standing still, so its anchor sits in the
+ * middle of the pane instead of at the very top.
+ *
+ * Scrolling through an insertion freezes the other side: `axisToSide` returns
+ * the same display row for the whole chunk, and that row is the *top* of the
+ * pane, so everything visible is what comes after the insertion point and the
+ * context above it is pushed off screen. IntelliJ holds the anchor mid-pane
+ * instead, keeping context on both sides of where the new lines go.
+ *
+ * The lift ramps in over the first half-viewport of the stall and back out
+ * over the last, so entering and leaving a gap eases rather than jumps. It is
+ * reported separately from the mapping itself because only continuous
+ * scrolling wants it — jumping to a difference still wants the plain top.
+ */
+export function stallLift(
+  chunks: readonly DiffChunk[],
+  position: number,
+  side: Side,
+  viewportLines: number,
+  folds: readonly FoldRegion[] = [],
+): number {
+  if (chunks.length === 0 || viewportLines <= 0 || position <= 0) return 0;
+
+  const folded = foldByChunk(folds);
+  let axis = 0;
+  for (const [index, chunk] of chunks.entries()) {
+    const fold = folded?.get(index);
+    const width = axisSpan(chunk, fold);
+    if (position < axis + width) {
+      // Only a chunk this side contributes nothing to can stall it.
+      if (displaySpanCount(chunk, side, fold) > 0) return 0;
+      const half = viewportLines / 2;
+      const into = position - axis;
+      const remaining = width - into;
+      // Triangular ramp, clamped: full lift once half a viewport inside the
+      // gap, easing back to nothing as its far edge approaches. A gap shorter
+      // than a viewport never reaches full lift, which is right — there is
+      // little to centre.
+      const ramp = Math.max(0, Math.min(1, into / half, remaining / half));
+      return half * ramp;
+    }
+    axis += width;
+  }
+  return 0;
+}
+
+/**
  * The axis position that puts `line` of `side` at the top of its pane.
  *
  * Used for jumping — to a difference, a search hit, a click on the change

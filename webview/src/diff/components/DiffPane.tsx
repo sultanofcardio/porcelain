@@ -52,6 +52,13 @@ interface DiffPaneProps {
    * Omitted, anchors follow `chunks`.
    */
   anchorChunks?: DiffChunk[];
+  /**
+   * Anchors the caller derives itself, drawn alongside the chunk-derived
+   * ones. The merge result pane uses this for conflict regions that occupy
+   * no rows there — nothing in the pair chunks can express them, since the
+   * regions are filtered out of that list on purpose.
+   */
+  extraAnchors?: ReadonlyArray<{ line: number; kind: string }>;
 }
 
 /**
@@ -94,6 +101,7 @@ export function DiffPane({
   activeMatch = null,
   overrideKinds,
   anchorChunks,
+  extraAnchors,
 }: DiffPaneProps) {
   const highlighter = useShiki();
 
@@ -193,7 +201,10 @@ export function DiffPane({
   // Only the anchors near the viewport: a large file has one per insertion,
   // and the rest would be DOM for nothing. Positions are display rows, so an
   // anchor below a fold sits where its line now renders.
-  const anchors = anchorsFor(anchorChunks ?? chunks, side)
+  const anchors = [
+    ...anchorsFor(anchorChunks ?? chunks, side),
+    ...(extraAnchors ?? []),
+  ]
     .map((anchor) => ({
       ...anchor,
       row: displayLine(folds, anchor.line, side),

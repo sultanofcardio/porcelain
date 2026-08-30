@@ -43,6 +43,10 @@
 - **`Next File Diff` / `Previous File Diff` renamed** to `Next File` / `Previous File`
 
 ### Fixed
+- **Independent scrolling when synchronised scrolling is off** — the left pane was pinned to the top of the file, so only the right side ever moved. Each pane now scrolls on its own, seeded from wherever it already was so switching the toggle never makes the view jump
+- **A stalled pane holds its anchor mid-window** — scrolling through a large insertion froze the other side with the insertion point at the very top, pushing every line before it off screen. The stalled side is now lifted so its anchor sits in the middle of the pane, easing in and out at the edges of the gap, the way IntelliJ does it
+- **The merge Result pane shows zero-height conflicts** — when both sides add where the base had nothing, the region occupies no rows in the result, so neither the row colouring nor the pair-diff anchors had anything to draw and the middle pane showed nothing at all. The region now draws its own rule straight through the result, in its own colour
+
 - **Dead palette commands removed** — five `porcelain.commitPanel.*` commands were declared but never registered, so they appeared in the Command Palette and failed when invoked
 - **Refresh icon has a home** — the Git Log view's title menu was an empty contribution, leaving the declared refresh action unreachable
 

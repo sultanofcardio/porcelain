@@ -621,6 +621,14 @@ button.diff-fold-row:focus-visible {
 .diff-anchor-modified {
   background: var(--diff-modified-anchor);
 }
+/* A conflict region that occupies no rows in the result still marks where it
+   lands, the way IntelliJ runs the region's colour through the middle pane. */
+.diff-anchor-conflict {
+  background: var(--diff-conflict-edge);
+}
+.diff-anchor-resolved {
+  background: var(--diff-resolved-edge);
+}
 
 /* ── gutter ──────────────────────────────────────────────── */
 .diff-gutter {

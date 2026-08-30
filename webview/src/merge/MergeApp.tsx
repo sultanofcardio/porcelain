@@ -33,6 +33,7 @@ import {
   type RegionConnector,
   regionConnectors,
   renderableChunks,
+  resultRegionAnchors,
 } from "./utils/merge-model";
 import "../diff/diff.css";
 
@@ -237,6 +238,9 @@ export function MergeApp() {
     "right",
     "ours",
   );
+  // A conflict that occupies no rows in the result still has to be visible
+  // there: a rule through the middle pane, in the region's own colour.
+  const resultAnchors = resultRegionAnchors(store.regions);
   const renderChunksT = renderableChunks(
     store.chunksTheirs,
     store.regions,
@@ -513,6 +517,7 @@ export function MergeApp() {
                   matches={store.findPanes.result.matches}
                   activeMatch={activePane === "result" ? activeMatch : null}
                   overrideKinds={store.resultKinds}
+                  extraAnchors={resultAnchors}
                 />
               </EditablePane>
               <div className="merge-gutter">
