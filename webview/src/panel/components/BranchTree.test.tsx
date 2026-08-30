@@ -117,6 +117,13 @@ function seedTree(showTags = true) {
   });
 }
 
+/** Calls the compare action made, ignoring unrelated background requests. */
+function compareCalls() {
+  return (bridge.request as ReturnType<typeof vi.fn>).mock.calls.filter(
+    ([command]) => command === "openCompareWithCurrent",
+  );
+}
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -314,7 +321,7 @@ describe("BranchTree unified refs", () => {
       { key },
     );
 
-    await waitFor(() => expect(bridge.request).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(compareCalls()).toHaveLength(1));
     expect(bridge.request).toHaveBeenCalledWith(
       "openCompareWithCurrent",
       {
@@ -348,7 +355,7 @@ describe("BranchTree unified refs", () => {
       within(menu).getByRole("menuitem", { name: "Compare with Current" }),
     );
 
-    await waitFor(() => expect(bridge.request).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(compareCalls()).toHaveLength(1));
     expect(bridge.request).toHaveBeenCalledWith(
       "openCompareWithCurrent",
       {
@@ -709,11 +716,16 @@ describe("BranchTree unified refs", () => {
   it("shows the real create-branch error", async () => {
     seedTree(false);
     useRepoStore.setState({ activeRepoId: "repo-a" });
-    vi.mocked(bridge.request).mockRejectedValueOnce(
-      Object.assign(new Error("Repository unavailable"), {
-        code: "REPO_NOT_FOUND",
-        recovery: "Choose an available repository.",
-      }),
+    // Target the command under test: the tree also issues background
+    // requests (recent branches), which a bare `once` would swallow.
+    const createFailure = Object.assign(new Error("Repository unavailable"), {
+      code: "REPO_NOT_FOUND",
+      recovery: "Choose an available repository.",
+    });
+    vi.mocked(bridge.request).mockImplementation(async (command) =>
+      command === "createBranch"
+        ? Promise.reject(createFailure)
+        : (undefined as never),
     );
     const view = renderWithStore(<BranchTree />);
     fireEvent.contextMenu(view.getByText("feature/plain"), {

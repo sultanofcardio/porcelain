@@ -20,12 +20,28 @@ const branchMenu: readonly (BranchActionId | { separator: string })[] = [
   "delete",
   { separator: "sync" },
   "update",
+  "reset-to-remote",
   "push",
 ];
 
-const tagMenu: readonly BranchActionId[] = [
+const tagMenu: readonly (BranchActionId | { separator: string })[] = [
+  "toggle-favorite",
+  { separator: "favorite" },
+  "checkout-tag",
+  "compare-current",
+  { separator: "manage" },
+  "push-tag",
+  "delete-tag",
+  "delete-tag-remote",
+];
+
+const TAG_ACTION_IDS: readonly BranchActionId[] = [
   "toggle-favorite",
   "compare-current",
+  "checkout-tag",
+  "push-tag",
+  "delete-tag",
+  "delete-tag-remote",
 ];
 
 export function getBranchActionAvailability(
@@ -33,8 +49,19 @@ export function getBranchActionAvailability(
   context: BranchActionContext,
 ): BranchActionAvailability {
   if (context.tag) {
-    const visible = id === "toggle-favorite" || id === "compare-current";
-    return { visible, enabled: visible };
+    const visible = TAG_ACTION_IDS.includes(id);
+    if (!visible) return { visible: false, enabled: false };
+    if (id === "push-tag" || id === "delete-tag-remote") {
+      // Remote-bound tag verbs need somewhere to push to.
+      return context.hasRemotes === false
+        ? {
+            visible: true,
+            enabled: false,
+            disabledReason: "No remotes configured",
+          }
+        : { visible: true, enabled: true };
+    }
+    return { visible: true, enabled: true };
   }
 
   const branch = context.branch;
@@ -65,6 +92,19 @@ export function getBranchActionAvailability(
   if (id === "rename") {
     const visible = !current && !branch.isRemote;
     return { visible, enabled: visible };
+  }
+  if (id === "reset-to-remote") {
+    // Only the checked-out branch can be hard-reset to its upstream.
+    if (branch.isRemote || !branch.isCurrent) {
+      return { visible: false, enabled: false };
+    }
+    return branch.upstream
+      ? { visible: true, enabled: true }
+      : {
+          visible: true,
+          enabled: false,
+          disabledReason: "No upstream configured",
+        };
   }
   if (id === "update") {
     if (branch.isRemote) return { visible: false, enabled: false };
@@ -133,6 +173,16 @@ function getLabel(id: BranchActionId, context: BranchActionContext): string {
       return "Delete";
     case "update":
       return "Update";
+    case "reset-to-remote":
+      return `Reset '${branch?.name ?? context.ref.name}' to Remote...`;
+    case "checkout-tag":
+      return "Checkout Tag";
+    case "push-tag":
+      return "Push Tag...";
+    case "delete-tag":
+      return "Delete Tag";
+    case "delete-tag-remote":
+      return "Delete Tag on Remote...";
     case "push":
       return "Push...";
   }

@@ -1000,6 +1000,18 @@ export async function activate(context: vscode.ExtensionContext) {
     return { value: result ?? null };
   });
 
+  messageRouter.handle("showQuickPick", async (params) => {
+    const items = Array.isArray(params.items)
+      ? (params.items as unknown[]).filter(
+          (item): item is string => typeof item === "string",
+        )
+      : [];
+    const placeHolder = params.placeHolder as string | undefined;
+    if (items.length === 0) return { value: null };
+    const result = await vscode.window.showQuickPick(items, { placeHolder });
+    return { value: result ?? null };
+  });
+
   messageRouter.handle("showConfirmMessage", async (params) => {
     const message = params.message as string;
     const confirmLabel = (params.confirmLabel as string) || "OK";

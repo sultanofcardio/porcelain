@@ -57,6 +57,7 @@ describe("branch action availability", () => {
       "compare-current",
       "separator:sync",
       "update",
+      "reset-to-remote",
       "push",
     ]);
     expect(
@@ -170,11 +171,95 @@ describe("branch action availability", () => {
       currentBranch: "main",
     };
 
-    expect(menuShape(context)).toEqual(["toggle-favorite", "compare-current"]);
+    expect(menuShape(context)).toEqual([
+      "toggle-favorite",
+      "separator:favorite",
+      "checkout-tag",
+      "compare-current",
+      "separator:manage",
+      "push-tag",
+      "delete-tag",
+      "delete-tag-remote",
+    ]);
     expect(
-      getBranchActionItems(context).map((item) =>
-        item.kind === "action" ? item.label : "separator",
-      ),
-    ).toEqual(["Unmark as Favorite", "Compare with Current"]);
+      getBranchActionItems(context)
+        .filter((item) => item.kind === "action")
+        .map((item) => (item.kind === "action" ? item.label : "")),
+    ).toEqual([
+      "Unmark as Favorite",
+      "Checkout Tag",
+      "Compare with Current",
+      "Push Tag...",
+      "Delete Tag",
+      "Delete Tag on Remote...",
+    ]);
+  });
+
+  it("disables remote-bound tag actions when no remote is configured", () => {
+    const tag: TagInfo = {
+      name: "v1.0.0",
+      fullRef: "refs/tags/v1.0.0",
+      hash: "tag-object",
+      targetCommitHash: "release-tip",
+      isFavorite: false,
+      isAnnotated: false,
+    };
+    const context: BranchActionContext = {
+      repoId: "repo-a",
+      ref: { type: "tag", name: tag.name, fullRef: tag.fullRef },
+      tag,
+      currentBranch: "main",
+      hasRemotes: false,
+    };
+
+    for (const id of ["push-tag", "delete-tag-remote"] as const) {
+      expect(getBranchActionAvailability(id, context)).toEqual({
+        visible: true,
+        enabled: false,
+        disabledReason: "No remotes configured",
+      });
+    }
+    // Local tag verbs stay usable without a remote.
+    expect(getBranchActionAvailability("delete-tag", context).enabled).toBe(
+      true,
+    );
+  });
+
+  it("offers reset-to-remote only for the checked-out tracking branch", () => {
+    const tracking = branchContext({
+      ...localBranch,
+      name: "main",
+      fullRef: "refs/heads/main",
+      isCurrent: true,
+      upstream: "origin/main",
+    });
+    expect(getBranchActionAvailability("reset-to-remote", tracking)).toEqual({
+      visible: true,
+      enabled: true,
+    });
+
+    const noUpstream = branchContext({
+      ...localBranch,
+      name: "main",
+      fullRef: "refs/heads/main",
+      isCurrent: true,
+      upstream: undefined,
+    });
+    expect(
+      getBranchActionAvailability("reset-to-remote", noUpstream),
+    ).toMatchObject({ visible: true, enabled: false });
+
+    // Another branch cannot be hard-reset without checking it out first.
+    const other = branchContext({
+      ...localBranch,
+      name: "feature",
+      fullRef: "refs/heads/feature",
+      isCurrent: false,
+      upstream: "origin/feature",
+    });
+    expect(getBranchActionAvailability("reset-to-remote", other)).toEqual({
+      visible: false,
+      enabled: false,
+    });
   });
 });

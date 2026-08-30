@@ -7,6 +7,7 @@ import type {
 } from "./branchActionTypes";
 
 const BRANCH_NOT_FULLY_MERGED = "BRANCH_NOT_FULLY_MERGED";
+const LOCAL_CHANGES_WOULD_BE_OVERWRITTEN = "LOCAL_CHANGES_WOULD_BE_OVERWRITTEN";
 
 export interface BranchActionUi {
   confirm(message: string, confirmLabel: string): Promise<boolean>;
@@ -24,6 +25,8 @@ export interface BranchActionUi {
     currentBranch?: string,
   ): boolean;
   notifyError(title: string, error: BranchActionError): Promise<void>;
+  /** Choose one configured remote, or null when cancelled. */
+  pickRemote(repoId: string, prompt: string): Promise<string | null>;
 }
 
 export interface BranchActionPorts {
@@ -52,15 +55,50 @@ export async function runBranchAction(
       );
       return;
     }
-    case "checkout":
+    case "checkout": {
       if (!branch) return;
-      await runAndPresent(
-        () => operations.checkout(repoId, branch),
-        "Checkout failed",
-        context,
-        ui,
-      );
+      try {
+        await operations.checkout(repoId, branch);
+      } catch (error) {
+        if (!isActionCurrent(context, ui)) return;
+        const formatted = formatBranchActionError(error);
+        if (formatted.code !== LOCAL_CHANGES_WOULD_BE_OVERWRITTEN) {
+          await notifyBranchActionErrorIfCurrent(
+            "Checkout failed",
+            formatted,
+            context,
+            ui,
+          );
+          return;
+        }
+        // IntelliJ's smart checkout: offer to carry the changes across
+        // rather than making the user stash by hand.
+        const smart = await ui.confirm(
+          `Local changes would be overwritten by checking out '${branch.name}'. Stash them, check out, and restore?`,
+          "Smart Checkout",
+        );
+        if (!isActionCurrent(context, ui) || !smart) return;
+        try {
+          const result = await operations.smartCheckout(repoId, branch.name);
+          if (!result.restored && isActionCurrent(context, ui)) {
+            await ui.notifyError("Checked out with conflicts", {
+              code: "SMART_CHECKOUT_RESTORE_CONFLICT",
+              message: `Switched to '${branch.name}', but restoring your changes hit a conflict.`,
+              recovery:
+                "Your changes are kept in the stash — resolve the conflict, or unstash them later from the Shelf tab.",
+            });
+          }
+        } catch (smartError) {
+          await notifyBranchActionErrorIfCurrent(
+            "Smart checkout failed",
+            formatBranchActionError(smartError),
+            context,
+            ui,
+          );
+        }
+      }
       return;
+    }
     case "new-branch": {
       if (!branch) return;
       const defaultName = branch.isRemote
@@ -169,8 +207,23 @@ export async function runBranchAction(
           );
           return;
         }
+        // Name what force-delete would discard, the way IntelliJ's
+        // "not fully merged" dialog lists the branch's exclusive commits.
+        const unmerged = await operations
+          .unmergedCommits(repoId, branch.name)
+          .catch(() => []);
+        if (!isActionCurrent(context, ui)) return;
+        const preview = unmerged
+          .slice(0, 5)
+          .map((commit) => `  ${commit.shortHash} ${commit.subject}`)
+          .join("\n");
+        const more =
+          unmerged.length > 5 ? `\n  …and ${unmerged.length - 5} more` : "";
+        const detail = unmerged.length
+          ? `\n\nThese ${unmerged.length} commit(s) would be lost:\n${preview}${more}`
+          : "";
         const force = await ui.confirm(
-          `Branch '${branch.name}' is not fully merged. Force delete?`,
+          `Branch '${branch.name}' is not fully merged. Force delete?${detail}`,
           "Force Delete",
         );
         if (!isActionCurrent(context, ui) || !force) return;
@@ -191,6 +244,117 @@ export async function runBranchAction(
         ui,
       );
       return;
+    case "reset-to-remote": {
+      if (!branch) return;
+      const upstream = branch.upstream ?? "its upstream";
+      if (
+        !(await confirmCurrent(
+          `Reset '${branch.name}' to '${upstream}'? Local commits on this branch will be lost.`,
+          "Reset",
+          context,
+          ui,
+        ))
+      )
+        return;
+      await runAndPresent(
+        () => operations.resetToRemote(repoId, branch.name),
+        "Reset to remote failed",
+        context,
+        ui,
+      );
+      return;
+    }
+    case "checkout-tag": {
+      const tag = context.tag;
+      if (!tag) return;
+      if (
+        !(await confirmCurrent(
+          `Check out tag '${tag.name}'? This leaves HEAD detached.`,
+          "Checkout",
+          context,
+          ui,
+        ))
+      )
+        return;
+      await runAndPresent(
+        () => operations.checkoutRevision(repoId, tag.targetCommitHash),
+        "Checkout failed",
+        context,
+        ui,
+      );
+      return;
+    }
+    case "delete-tag": {
+      const tag = context.tag;
+      if (!tag) return;
+      if (
+        !(await confirmCurrent(
+          `Delete tag '${tag.name}'?`,
+          "Delete",
+          context,
+          ui,
+        ))
+      )
+        return;
+      await runAndPresent(
+        () => operations.deleteTag(repoId, tag.name),
+        "Delete tag failed",
+        context,
+        ui,
+      );
+      return;
+    }
+    case "push-tag": {
+      const tag = context.tag;
+      if (!tag) return;
+      const remote = await ui.pickRemote(repoId, `Push tag '${tag.name}' to:`);
+      if (!isActionCurrent(context, ui) || !remote) return;
+      await runAndPresent(
+        () => operations.pushTag(repoId, remote, tag.name),
+        "Push tag failed",
+        context,
+        ui,
+      );
+      return;
+    }
+    case "delete-tag-remote": {
+      const tag = context.tag;
+      if (!tag) return;
+      const remote = await ui.pickRemote(
+        repoId,
+        `Delete tag '${tag.name}' on:`,
+      );
+      if (!isActionCurrent(context, ui) || !remote) return;
+      if (
+        !(await confirmCurrent(
+          `Delete tag '${tag.name}' on '${remote}'?`,
+          "Delete",
+          context,
+          ui,
+        ))
+      )
+        return;
+      await runAndPresent(
+        async () => {
+          const results = await operations.deleteRemoteTag(repoId, tag.name, [
+            remote,
+          ]);
+          const failed = results.filter((result) => !result.deleted);
+          if (failed.length && isActionCurrent(context, ui)) {
+            await ui.notifyError("Delete tag on remote failed", {
+              code: "REMOTE_TAG_DELETE_FAILED",
+              message:
+                failed[0].message ??
+                `Could not delete '${tag.name}' on '${failed[0].remote}'.`,
+            });
+          }
+        },
+        "Delete tag on remote failed",
+        context,
+        ui,
+      );
+      return;
+    }
     case "push":
       if (!branch) return;
       ui.openPush(repoId, ref, branch.name);

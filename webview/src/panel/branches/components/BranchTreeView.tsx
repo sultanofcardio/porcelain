@@ -40,6 +40,8 @@ export interface BranchTreeViewProps {
   collapsedIds: ReadonlySet<string>;
   selectedRefKeys: ReadonlySet<string>;
   filteredRefs: string[];
+  /** Recently checked-out branches, newest first. */
+  recentSnapshot?: BranchTreeSnapshot;
   searchQuery: string;
   showTags: boolean;
   showCurrentBranchRow: boolean;
@@ -73,6 +75,7 @@ export function BranchTreeView({
   collapsedIds,
   selectedRefKeys,
   filteredRefs,
+  recentSnapshot,
   searchQuery,
   showTags,
   showCurrentBranchRow,
@@ -141,6 +144,22 @@ export function BranchTreeView({
         >
           Current Branch: {currentBranchName ?? "detached"}
         </div>
+      )}
+
+      {recentSnapshot && recentSnapshot.roots.length > 0 && (
+        <GroupSection
+          title="Recent"
+          collapsed={collapsedIds.has("section:recent")}
+          onToggle={() => onToggle("section:recent")}
+        >
+          {recentSnapshot.roots.map((node) => (
+            <BranchTreeNodeView
+              {...nodeProps}
+              key={`recent-${node.id}`}
+              node={node}
+            />
+          ))}
+        </GroupSection>
       )}
 
       <GroupSection

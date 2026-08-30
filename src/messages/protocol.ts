@@ -258,6 +258,7 @@ export type CommandType =
   | "copyToClipboard"
   | "showConfirmMessage"
   | "showInputBox"
+  | "showQuickPick"
   | "showErrorNotification"
   | "showInfoNotification"
   | "openConflictsPanel"

@@ -53,6 +53,18 @@ function createPorts(): BranchActionPorts & {
       fetch: vi.fn().mockResolvedValue(undefined),
       createPrompt: vi.fn().mockResolvedValue(undefined),
       deletePrompt: vi.fn().mockResolvedValue(undefined),
+      smartCheckout: vi.fn().mockResolvedValue({ restored: true }),
+      unmergedCommits: vi.fn().mockResolvedValue([]),
+      resetToRemote: vi.fn().mockResolvedValue(undefined),
+      checkoutRevision: vi.fn().mockResolvedValue(undefined),
+      deleteTag: vi.fn().mockResolvedValue(undefined),
+      pushTag: vi.fn().mockResolvedValue(undefined),
+      deleteRemoteTag: vi
+        .fn()
+        .mockResolvedValue([{ remote: "origin", deleted: true }]),
+      getRemotes: vi
+        .fn()
+        .mockResolvedValue([{ name: "origin", url: "git@example.com:r.git" }]),
     },
     ui: {
       confirm: vi.fn().mockResolvedValue(true),
@@ -61,6 +73,7 @@ function createPorts(): BranchActionPorts & {
       openPush: vi.fn(),
       isCurrent: vi.fn().mockReturnValue(true),
       notifyError: vi.fn().mockResolvedValue(undefined),
+      pickRemote: vi.fn().mockResolvedValue("origin"),
     },
   };
 }
@@ -375,5 +388,158 @@ describe("dialog submissions", () => {
         successPorts.ui,
       ),
     ).resolves.toBe(true);
+  });
+});
+
+describe("runBranchAction smart checkout and tag verbs", () => {
+  const tagContext: BranchActionContext = {
+    repoId: "repo-a",
+    ref: { type: "tag", name: "v1", fullRef: "refs/tags/v1" },
+    tag: {
+      name: "v1",
+      fullRef: "refs/tags/v1",
+      hash: "tag-object",
+      targetCommitHash: "tag-tip",
+      isFavorite: false,
+      isAnnotated: false,
+    },
+    currentBranch: "main",
+  };
+
+  it("offers smart checkout when local changes block the switch", async () => {
+    const ports = createPorts();
+    ports.operations.checkout = vi
+      .fn()
+      .mockRejectedValue(
+        typedError("LOCAL_CHANGES_WOULD_BE_OVERWRITTEN", "blocked"),
+      );
+
+    await runBranchAction("checkout", context, ports);
+
+    expect(ports.ui.confirm).toHaveBeenCalledWith(
+      expect.stringContaining("Stash them, check out, and restore?"),
+      "Smart Checkout",
+    );
+    expect(ports.operations.smartCheckout).toHaveBeenCalledWith(
+      "repo-a",
+      "feature",
+    );
+    expect(ports.ui.notifyError).not.toHaveBeenCalled();
+  });
+
+  it("reports a restore conflict without claiming the checkout failed", async () => {
+    const ports = createPorts();
+    ports.operations.checkout = vi
+      .fn()
+      .mockRejectedValue(
+        typedError("LOCAL_CHANGES_WOULD_BE_OVERWRITTEN", "blocked"),
+      );
+    ports.operations.smartCheckout = vi
+      .fn()
+      .mockResolvedValue({ restored: false, stashRef: "abc123" });
+
+    await runBranchAction("checkout", context, ports);
+
+    expect(ports.ui.notifyError).toHaveBeenCalledWith(
+      "Checked out with conflicts",
+      expect.objectContaining({ code: "SMART_CHECKOUT_RESTORE_CONFLICT" }),
+    );
+  });
+
+  it("does not offer smart checkout for an unrelated checkout failure", async () => {
+    const ports = createPorts();
+    ports.operations.checkout = vi
+      .fn()
+      .mockRejectedValue(typedError("SOMETHING_ELSE", "nope"));
+
+    await runBranchAction("checkout", context, ports);
+
+    expect(ports.operations.smartCheckout).not.toHaveBeenCalled();
+    expect(ports.ui.notifyError).toHaveBeenCalledWith(
+      "Checkout failed",
+      expect.objectContaining({ code: "SOMETHING_ELSE" }),
+    );
+  });
+
+  it("names the commits a force delete would discard", async () => {
+    const ports = createPorts();
+    ports.operations.delete = vi
+      .fn()
+      .mockRejectedValueOnce(
+        typedError("BRANCH_NOT_FULLY_MERGED", "not merged"),
+      )
+      .mockResolvedValue(undefined);
+    ports.operations.unmergedCommits = vi.fn().mockResolvedValue([
+      { shortHash: "aaaaaaa", subject: "first" },
+      { shortHash: "bbbbbbb", subject: "second" },
+    ]);
+
+    await runBranchAction("delete", context, ports);
+
+    const forcePrompt = (ports.ui.confirm as ReturnType<typeof vi.fn>).mock
+      .calls[1][0] as string;
+    expect(forcePrompt).toContain("2 commit(s) would be lost");
+    expect(forcePrompt).toContain("aaaaaaa first");
+    expect(ports.operations.delete).toHaveBeenLastCalledWith(
+      "repo-a",
+      branch,
+      true,
+    );
+  });
+
+  it("pushes a tag to the picked remote", async () => {
+    const ports = createPorts();
+
+    await runBranchAction("push-tag", tagContext, ports);
+
+    expect(ports.ui.pickRemote).toHaveBeenCalledWith(
+      "repo-a",
+      expect.stringContaining("v1"),
+    );
+    expect(ports.operations.pushTag).toHaveBeenCalledWith(
+      "repo-a",
+      "origin",
+      "v1",
+    );
+  });
+
+  it("does not delete a remote tag when the remote picker is cancelled", async () => {
+    const ports = createPorts();
+    ports.ui.pickRemote = vi.fn().mockResolvedValue(null);
+
+    await runBranchAction("delete-tag-remote", tagContext, ports);
+
+    expect(ports.operations.deleteRemoteTag).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a failed remote tag delete", async () => {
+    const ports = createPorts();
+    ports.operations.deleteRemoteTag = vi
+      .fn()
+      .mockResolvedValue([
+        { remote: "origin", deleted: false, message: "tag not found" },
+      ]);
+
+    await runBranchAction("delete-tag-remote", tagContext, ports);
+
+    expect(ports.ui.notifyError).toHaveBeenCalledWith(
+      "Delete tag on remote failed",
+      expect.objectContaining({ message: "tag not found" }),
+    );
+  });
+
+  it("confirms before resetting a branch to its upstream", async () => {
+    const ports = createPorts();
+
+    await runBranchAction("reset-to-remote", context, ports);
+
+    expect(ports.ui.confirm).toHaveBeenCalledWith(
+      expect.stringContaining("origin/feature"),
+      "Reset",
+    );
+    expect(ports.operations.resetToRemote).toHaveBeenCalledWith(
+      "repo-a",
+      "feature",
+    );
   });
 });

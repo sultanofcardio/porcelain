@@ -22,6 +22,7 @@ export type RepoResolver = (
 /** Commands that never touch a repo and must not require repoId. */
 const REPO_AGNOSTIC_COMMANDS = new Set<CommandType>([
   "showInputBox",
+  "showQuickPick",
   "showConfirmMessage",
   "showErrorNotification",
   "showInfoNotification",

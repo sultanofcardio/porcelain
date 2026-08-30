@@ -1,7 +1,11 @@
 import { useMemo } from "react";
 import { useGitLogStore } from "../../shared/store/git-log-store-context";
 import type { PanelStore } from "../../shared/store/panel-store";
-import type { BranchInfo, GitRefIdentity } from "../../shared/types/git";
+import type {
+  BranchInfo,
+  Commit,
+  GitRefIdentity,
+} from "../../shared/types/git";
 
 export interface CreateBranchInput {
   newBranchName: string;
@@ -12,6 +16,23 @@ export interface CreateBranchInput {
 
 export interface BranchOperations {
   checkout(repoId: string, branch: BranchInfo): Promise<void>;
+  /** Stash blocking changes, switch, and restore them. */
+  smartCheckout(
+    repoId: string,
+    branchName: string,
+  ): Promise<{ restored: boolean; stashRef?: string }>;
+  /** Commits on the branch that HEAD does not contain. */
+  unmergedCommits(repoId: string, branchName: string): Promise<Commit[]>;
+  resetToRemote(repoId: string, branchName: string): Promise<void>;
+  checkoutRevision(repoId: string, hash: string): Promise<void>;
+  deleteTag(repoId: string, tagName: string): Promise<void>;
+  pushTag(repoId: string, remote: string, tagName: string): Promise<void>;
+  deleteRemoteTag(
+    repoId: string,
+    tagName: string,
+    remotes: string[],
+  ): Promise<Array<{ remote: string; deleted: boolean; message?: string }>>;
+  getRemotes(repoId: string): Promise<Array<{ name: string; url: string }>>;
   create(repoId: string, input: CreateBranchInput): Promise<void>;
   delete(repoId: string, branch: BranchInfo, force: boolean): Promise<void>;
   rename(repoId: string, oldName: string, newName: string): Promise<void>;
@@ -66,6 +87,53 @@ export function createBranchOperations(
         { branchName: branch.name },
         { repoId },
       );
+    },
+    async smartCheckout(repoId, branchName) {
+      return (await requestWithProgress(
+        "smartCheckout",
+        { branchName },
+        { repoId },
+      )) as { restored: boolean; stashRef?: string };
+    },
+    async unmergedCommits(repoId, branchName) {
+      return ((await request(
+        "getUnmergedCommits",
+        { branchName },
+        { repoId },
+      )) ?? []) as Commit[];
+    },
+    async resetToRemote(repoId, branchName) {
+      await requestWithProgress(
+        "resetToRemoteBranch",
+        { branchName },
+        { repoId },
+      );
+    },
+    async checkoutRevision(repoId, hash) {
+      await requestWithProgress("checkoutCommit", { hash }, { repoId });
+    },
+    async deleteTag(repoId, tagName) {
+      await requestWithProgress("deleteTag", { tagName }, { repoId });
+    },
+    async pushTag(repoId, remote, tagName) {
+      await requestWithProgress("pushTag", { remote, tagName }, { repoId });
+    },
+    async deleteRemoteTag(repoId, tagName, remotes) {
+      return ((await requestWithProgress(
+        "deleteRemoteTag",
+        { tagName, remotes },
+        { repoId },
+      )) ?? []) as Array<{
+        remote: string;
+        deleted: boolean;
+        message?: string;
+      }>;
+    },
+    async getRemotes(repoId) {
+      return ((await request("getRemotes", {}, { repoId })) ?? []) as Array<{
+        name: string;
+        url: string;
+      }>;
     },
     async create(repoId, input) {
       await requestWithProgress(

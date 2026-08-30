@@ -219,6 +219,9 @@ export interface PanelStore {
   togglePresentation: (key: keyof LogPresentation) => void;
   /** The configured git identity, fetched lazily for the My Commits highlighter. */
   myIdentity: string | null;
+  /** Branch names ordered by most recent checkout, from the reflog. */
+  recentBranches: string[];
+  loadRecentBranches: () => Promise<void>;
   /** Select and scroll to a loaded, visible commit (long-edge stub jumps). */
   jumpToCommit: (hash: string) => void;
   toggleBranchGroupByDirectory: () => void;
@@ -451,6 +454,7 @@ function _clearRepoBoundDisplay() {
     branches: [] as BranchInfo[],
     tags: [] as TagInfo[],
     currentBranch: "",
+    recentBranches: [] as string[],
     graphLayout: {} as Record<string, LaneInfo>,
     laneSnapshot: null as LaneSnapshot | null,
     unavailableRef: null as GitRefIdentity | null,
@@ -635,6 +639,7 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
     },
     presentation: loadPresentation(),
     myIdentity: null,
+    recentBranches: [],
     pendingSelectionFromFilter: [],
     collapsedSequenceIds: new Set(),
     collapsedIntermediates: new Map(),
@@ -1352,6 +1357,17 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
             : tag,
         ),
       }));
+    },
+
+    async loadRecentBranches() {
+      try {
+        const recent = (await request("getRecentBranches", {})) as
+          | string[]
+          | null;
+        if (Array.isArray(recent)) set({ recentBranches: recent });
+      } catch (err) {
+        console.error("getRecentBranches failed:", err);
+      }
     },
 
     async loadBranchDashboardPreferences() {

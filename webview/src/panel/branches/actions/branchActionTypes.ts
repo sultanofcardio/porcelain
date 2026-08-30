@@ -10,11 +10,18 @@ export interface BranchActionContext {
   branch?: BranchInfo;
   tag?: TagInfo;
   currentBranch: string;
+  /** Whether the repository has any remote; gates remote-bound tag verbs. */
+  hasRemotes?: boolean;
 }
 
 export type BranchActionId =
   | "toggle-favorite"
   | "checkout"
+  | "reset-to-remote"
+  | "delete-tag"
+  | "push-tag"
+  | "delete-tag-remote"
+  | "checkout-tag"
   | "new-branch"
   | "compare-current"
   | "checkout-rebase"

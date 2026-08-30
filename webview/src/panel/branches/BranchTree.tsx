@@ -39,6 +39,9 @@ import type {
 import { useBranchOverlay } from "./state/useBranchOverlay";
 import { useBranchTreeState } from "./state/useBranchTreeState";
 
+/** IntelliJ shows a short Recent list, not the whole reflog. */
+const RECENT_BRANCH_LIMIT = 5;
+
 export interface BranchTreeProps {
   headerAction?: React.ReactNode;
   onTogglePanel?: () => void;
@@ -61,6 +64,10 @@ export function BranchTree({ onTogglePanel }: BranchTreeProps = {}) {
   const singleClickAction = useGitLogStore((state) => state.singleClickAction);
   const branchGroupByDirectory = useGitLogStore(
     (state) => state.branchGroupByDirectory,
+  );
+  const recentBranches = useGitLogStore((state) => state.recentBranches);
+  const loadRecentBranches = useGitLogStore(
+    (state) => state.loadRecentBranches,
   );
   const activeRepoId = useRepoStore((state) => state.activeRepoId);
   const operations = useBranchOperations();
@@ -94,6 +101,28 @@ export function BranchTree({ onTogglePanel }: BranchTreeProps = {}) {
     () => branchEntries.filter((entry) => entry.scope === "remote"),
     [branchEntries],
   );
+  // Remote-bound tag verbs are disabled when the repository has no remote.
+  // A remote-tracking branch is the cheapest evidence one is configured.
+  const hasRemotes = remoteEntries.length > 0;
+  useEffect(() => {
+    if (activeRepoId) void loadRecentBranches();
+  }, [activeRepoId, loadRecentBranches]);
+
+  // Recent is a view over the local branches, ordered by the reflog, so it
+  // reuses the same entries (favorites, icons, ahead/behind all come along).
+  const recentEntries = useMemo(() => {
+    const byName = new Map(
+      localEntries.map((entry) => [
+        entry.branch?.name ?? entry.ref.name,
+        entry,
+      ]),
+    );
+    return recentBranches
+      .map((name) => byName.get(name))
+      .filter((entry): entry is (typeof localEntries)[number] => Boolean(entry))
+      .slice(0, RECENT_BRANCH_LIMIT);
+  }, [localEntries, recentBranches]);
+
   const mode: BranchTreeMode = branchGroupByDirectory ? "grouped" : "flat";
   const treeRepoId = activeRepoId ?? "none";
 
@@ -112,6 +141,14 @@ export function BranchTree({ onTogglePanel }: BranchTreeProps = {}) {
         grouped: branchGroupByDirectory,
       }),
     [branchGroupByDirectory, remoteEntries, treeRepoId],
+  );
+  const recentSnapshot = useMemo(
+    () =>
+      buildBranchTreeSnapshot(recentEntries, {
+        repoId: `${treeRepoId}:recent`,
+        grouped: false,
+      }),
+    [recentEntries, treeRepoId],
   );
   const fullTagSnapshot = useMemo(
     () =>
@@ -291,6 +328,7 @@ export function BranchTree({ onTogglePanel }: BranchTreeProps = {}) {
         ...(entry.branch ? { branch: entry.branch } : {}),
         ...(entry.tag ? { tag: entry.tag } : {}),
         currentBranch,
+        hasRemotes,
       };
       const input = { x: event.clientX, y: event.clientY, context };
       if (entry.scope === "tag") overlayController.openTagMenu(input);
@@ -299,6 +337,7 @@ export function BranchTree({ onTogglePanel }: BranchTreeProps = {}) {
     [
       activeRepoId,
       currentBranch,
+      hasRemotes,
       overlayController.openBranchMenu,
       overlayController.openTagMenu,
       selectRef,
@@ -339,6 +378,18 @@ export function BranchTree({ onTogglePanel }: BranchTreeProps = {}) {
           branchName,
         });
       },
+      async pickRemote(repoId, prompt) {
+        const remotes = await operations.getRemotes(repoId);
+        if (remotes.length === 0) return null;
+        // One remote is not a choice; skip the picker.
+        if (remotes.length === 1) return remotes[0].name;
+        const result = (await requestFromSurface(
+          "showQuickPick",
+          { items: remotes.map((remote) => remote.name), placeHolder: prompt },
+          { scope: "global" },
+        )) as { value?: string | null } | undefined;
+        return result?.value ?? null;
+      },
       isCurrent(repoId, ref, capturedCurrentBranch) {
         if (
           capturedCurrentBranch !== undefined &&
@@ -356,6 +407,7 @@ export function BranchTree({ onTogglePanel }: BranchTreeProps = {}) {
       },
     }),
     [
+      operations.getRemotes,
       overlayController.openCreate,
       overlayController.openPush,
       requestFromSurface,
@@ -486,6 +538,7 @@ export function BranchTree({ onTogglePanel }: BranchTreeProps = {}) {
         tagSnapshot={tagSnapshot}
         collapsedIds={treeState.effectiveCollapsedIds}
         selectedRefKeys={selectedRefKeys}
+        recentSnapshot={recentSnapshot}
         filteredRefs={filter.branches}
         searchQuery={treeState.searchQuery}
         showTags={showTags}
