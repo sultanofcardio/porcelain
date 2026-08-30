@@ -234,6 +234,57 @@ describe("gitService hunk staging", () => {
   });
 });
 
+describe("gitService deletion-at-EOF controls", () => {
+  let repo: GitTestRepo;
+  let service: GitService;
+
+  beforeEach(async () => {
+    repo = await GitTestRepo.create();
+    await seedFile(repo);
+    service = serviceFor(repo);
+  });
+
+  it("stages a deletion of the final lines, addressed by the surviving line before it", async () => {
+    // Drop the last two lines. The change has no new-side row of its own, so
+    // the gutter names it by the last surviving line (8) — not the row past
+    // EOF, which no hunk contains.
+    await repo.writeFile("file.txt", numberedLines(8));
+
+    assert.strictEqual(await service.stageHunkAtLine("file.txt", 8), true);
+
+    const staged = await repo.git("diff", "--cached");
+    assert.ok(staged.includes("-line 9"), `deletion not staged:\n${staged}`);
+    assert.ok(staged.includes("-line 10"));
+  });
+
+  it("reverts a deletion of the final lines, restoring them to the working tree", async () => {
+    await repo.writeFile("file.txt", numberedLines(8));
+
+    assert.strictEqual(await service.revertHunkAtLine("file.txt", 8), true);
+
+    const onDisk = await fs.readFile(
+      path.join(repo.rootPath, "file.txt"),
+      "utf8",
+    );
+    // Lines 9 and 10 are back.
+    assert.strictEqual(onDisk, numberedLines());
+  });
+
+  it("stages a whole-file content deletion addressed at its boundary", async () => {
+    // Emptying the file's content emits a `+0,0` hunk with an empty new side
+    // nothing can fall inside; it is addressed at line 0.
+    await repo.writeFile("file.txt", "");
+
+    assert.strictEqual(await service.stageHunkAtLine("file.txt", 0), true);
+
+    const staged = await repo.git("diff", "--cached");
+    assert.ok(staged.includes("-line 1"), `deletion not staged:\n${staged}`);
+    assert.ok(staged.includes("-line 10"));
+    // Everything moved to the index; nothing is left unstaged.
+    assert.strictEqual((await repo.git("diff")).trim(), "");
+  });
+});
+
 describe("gitService commit-time options", () => {
   it("adds a sign-off trailer", async () => {
     const repo = await GitTestRepo.create();

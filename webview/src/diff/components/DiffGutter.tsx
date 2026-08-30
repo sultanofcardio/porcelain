@@ -215,12 +215,17 @@ export function DiffGutter({
   const controls = changeControls
     ? chunks.flatMap((chunk) => {
         if (chunk.kind === "equal") return [];
+        const onRight = chunk.right.count > 0;
         // The host addresses changes by new-file line, so a pure deletion is
         // still named by the right-side row it sits in front of — only where
         // the cluster is *drawn* falls back to the left side, since the right
-        // has no row of its own there.
-        const line = chunk.right.start;
-        const onRight = chunk.right.count > 0;
+        // has no row of its own there. A trailing deletion sits in front of a
+        // row past EOF, which no hunk's new side contains; clamp it back to
+        // the last real row (-1 for a whole-file content deletion) so the host
+        // can find the hunk instead of the control silently doing nothing.
+        const line = onRight
+          ? chunk.right.start
+          : Math.min(chunk.right.start, rightLineCount - 1);
         const row = onRight
           ? y(chunk.right.start, rightOffset, "right")
           : y(chunk.left.start, leftOffset, "left");
@@ -258,11 +263,18 @@ export function DiffGutter({
         changeControls
           ? (event) => {
               const bounds = event.currentTarget.getBoundingClientRect();
-              const row = Math.floor(
+              const displayRow = Math.floor(
                 (event.clientY - bounds.top) / LINE_HEIGHT + rightOffset,
               );
-              // Only lines inside a change can be included or excluded.
-              setHoveredLine(changedRightLines.has(row) ? row : null);
+              // The pointer offset is a display row; a fold above it shifts it
+              // off the source line. Convert to a source line once, here, so
+              // `hoveredLine` is a source line end to end (the renderer maps it
+              // back with `y`). Only lines inside a change can be toggled.
+              const source = displayToSource(folds, displayRow, "right");
+              const line = source.kind === "line" ? source.line : null;
+              setHoveredLine(
+                line !== null && changedRightLines.has(line) ? line : null,
+              );
             }
           : undefined
       }

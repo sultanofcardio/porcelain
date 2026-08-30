@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { computeChunks } from "../utils/diff-model";
+import { computeChunks, computeFolds } from "../utils/diff-model";
 import { DiffGutter } from "./DiffGutter";
 
 const lines = (...values: string[]) => `${values.join("\n")}\n`;
@@ -165,6 +165,51 @@ describe("DiffGutter", () => {
       const { view } = controlsFor();
       hover(view.container, 0);
       expect(view.container.querySelector(".diff-line-control")).toBeNull();
+    });
+
+    it("still offers the hover checkbox on a change below a collapsed fold", () => {
+      // A fold above the change makes its display row lower than its source
+      // line. The pointer offset is a display row, so it must be mapped back
+      // to the source line before it is tested against the changed lines and
+      // before it is stored — otherwise the checkbox silently never appears
+      // (or lands on an unrelated line).
+      const unchanged = Array.from({ length: 12 }, (_, i) => `u${i + 1}`);
+      const left = lines(...unchanged, "old1", "old2");
+      const right = lines(...unchanged, "new1", "new2");
+      const chunks = computeChunks(left, right);
+      const folds = computeFolds(chunks);
+      // The long unchanged run really does collapse, shifting the change up.
+      expect(folds.length).toBe(1);
+
+      const toggledLines: number[] = [];
+      const view = render(
+        <DiffGutter
+          chunks={chunks}
+          axisPosition={0}
+          visibleLines={20}
+          leftOffset={0}
+          rightOffset={0}
+          leftLineCount={left.split("\n").length}
+          rightLineCount={right.split("\n").length}
+          folds={folds}
+          changeControls={{
+            isLineIncluded: () => true,
+            isChunkIncluded: () => true,
+            onToggleChunk: () => {},
+            onToggleLine: (line) => toggledLines.push(line),
+            onRevert: () => {},
+          }}
+        />,
+      );
+
+      // Source line 14 (0-based row 13, the change's second line) renders at
+      // display row 5 because the fold hides eight rows above it.
+      const gutter = view.container.querySelector(
+        ".diff-gutter",
+      ) as HTMLElement;
+      fireEvent.mouseMove(gutter, { clientY: 5 * 20 + 1 });
+      fireEvent.click(view.getByLabelText("Include line 14 in the commit"));
+      expect(toggledLines).toEqual([13]);
     });
 
     it("addresses a deletion by the new-side row it sits in front of", () => {

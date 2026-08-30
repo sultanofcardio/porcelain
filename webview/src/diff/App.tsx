@@ -40,6 +40,7 @@ import "./diff.css";
 export function DiffApp() {
   const store = useDiffStore();
   const viewportRef = useRef<HTMLDivElement>(null);
+  const leftScrollerRef = useRef<HTMLDivElement>(null);
   const [axisPosition, setAxisPosition] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
   // "Show anyway" on an oversized diff. Per-diff by construction: opening
@@ -425,6 +426,24 @@ export function DiffApp() {
   const layout = chooseLayout(store.left, store.right);
   const unified = store.viewMode === "unified" && layout.mode === "split";
 
+  // With sync off the left pane scrolls on its own. React registers `wheel`
+  // as a passive root listener, so a synthetic onWheel's preventDefault is a
+  // no-op and the wheel would still scroll `.diff-viewport` (moving the right
+  // pane too). A native non-passive listener is the only way preventDefault
+  // holds the axis still.
+  useEffect(() => {
+    const node = leftScrollerRef.current;
+    if (!node || store.syncScroll || unified || layout.mode === "single") {
+      return;
+    }
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      scrollLeftPane(event.deltaY / LINE_HEIGHT, leftLines.length - 1);
+    };
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => node.removeEventListener("wheel", onWheel);
+  }, [store.syncScroll, unified, layout.mode, scrollLeftPane, leftLines.length]);
+
   // Editing, where a side owns a buffer (the working tree, per the merge
   // scope review's decision 2) — through the same editor core the merge
   // result pane uses: click anywhere, type anywhere. Unified view stays
@@ -714,20 +733,14 @@ export function DiffApp() {
               ) : (
                 <>
                   {/* Decoupled, the left pane owns its own wheel: the shared
-                      scrollbar drives the axis, which the right follows. */}
+                      scrollbar drives the axis, which the right follows. The
+                      wheel handler is attached natively (see the effect above)
+                      because React's synthetic wheel listener is passive, so
+                      preventDefault there is a no-op and the axis would move
+                      too. */}
                   <div
+                    ref={leftScrollerRef}
                     className="diff-left-scroller"
-                    onWheel={
-                      store.syncScroll
-                        ? undefined
-                        : (event) => {
-                            event.preventDefault();
-                            scrollLeftPane(
-                              event.deltaY / LINE_HEIGHT,
-                              leftLines.length - 1,
-                            );
-                          }
-                    }
                     style={{ display: "contents" }}
                   >
                     {wrapEditable(

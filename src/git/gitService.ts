@@ -1496,6 +1496,33 @@ export class GitService {
   }
 
   /**
+   * The hunk whose new side covers `newLine`.
+   *
+   * A change normally occupies a run of new-side lines, so the line falls
+   * inside `[newStart, newStart + newCount)`. A pure deletion with no
+   * surviving new-side lines — a whole file's content removed emits `+0,0` —
+   * has an empty span nothing can fall inside; such a hunk sits *at* its
+   * `newStart`, so it is addressed by that boundary. Without this a
+   * deletion-at-EOF would silently match no hunk and the revert/stage control
+   * would do nothing.
+   */
+  private static findHunkForNewLine(
+    hunks: ParsedDiff["hunks"],
+    newLine: number,
+  ): ParsedDiff["hunks"][number] | undefined {
+    const covering = hunks.find(
+      (hunk) =>
+        newLine >= hunk.newStart && newLine < hunk.newStart + hunk.newCount,
+    );
+    if (covering) return covering;
+    return hunks.find(
+      (hunk) =>
+        hunk.newCount === 0 &&
+        (newLine === hunk.newStart || newLine === hunk.newStart + 1),
+    );
+  }
+
+  /**
    * Stage (or unstage) the hunk covering a line, addressed by its position on
    * the new side. The UI knows line numbers; only git knows how it chunked the
    * file, so the mapping is resolved here rather than by trusting the
@@ -1507,10 +1534,7 @@ export class GitService {
     options: { unstage?: boolean } = {},
   ): Promise<boolean> {
     const hunks = await this.getFileHunks(filePath, options.unstage === true);
-    const target = hunks.find(
-      (hunk) =>
-        newLine >= hunk.newStart && newLine < hunk.newStart + hunk.newCount,
-    );
+    const target = GitService.findHunkForNewLine(hunks, newLine);
     if (!target) return false;
     if (options.unstage) {
       await this.unstageHunks(filePath, [target.index]);
@@ -1771,10 +1795,7 @@ export class GitService {
    */
   async revertHunkAtLine(filePath: string, newLine: number): Promise<boolean> {
     const hunks = await this.getFileHunks(filePath);
-    const target = hunks.find(
-      (hunk) =>
-        newLine >= hunk.newStart && newLine < hunk.newStart + hunk.newCount,
-    );
+    const target = GitService.findHunkForNewLine(hunks, newLine);
     if (!target) return false;
     const parsed = parseUnifiedDiff(
       await this.execGit([
@@ -1837,10 +1858,7 @@ export class GitService {
     staged: boolean,
   ): Promise<boolean> {
     const hunks = await this.getFileHunks(filePath, !staged);
-    const target = hunks.find(
-      (hunk) =>
-        newLine >= hunk.newStart && newLine < hunk.newStart + hunk.newCount,
-    );
+    const target = GitService.findHunkForNewLine(hunks, newLine);
     if (!target) return false;
 
     // Walk the body counting new-side lines to find the one asked for.
