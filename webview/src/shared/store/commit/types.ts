@@ -44,6 +44,17 @@ export interface CommitDraftSlice {
   amend: boolean;
   setCommitMessage: (message: string) => void;
   setAmend: (amend: boolean) => void;
+  /** Append a `Signed-off-by:` trailer to the commit. */
+  signOff: boolean;
+  setSignOff: (signOff: boolean) => void;
+  /** Skip commit hooks. */
+  noVerify: boolean;
+  setNoVerify: (noVerify: boolean) => void;
+  /** Override the commit author, as "Name <email>"; empty means the default. */
+  author: string;
+  setAuthor: (author: string) => void;
+  /** Seed an empty message from commit.template or MERGE_MSG. */
+  loadMessageTemplate: () => Promise<void>;
 }
 
 export interface CommitDataSlice {

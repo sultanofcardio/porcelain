@@ -434,6 +434,7 @@ describe("commit-store selected commit payload", () => {
           staged: true,
         },
       ],
+      options: { signOff: false, noVerify: false },
     });
     expect(useCommitStore.getState().commitMessage).toBe("");
     expect(useCommitStore.getState().amend).toBe(false);
@@ -499,6 +500,7 @@ describe("commit-store selected commit payload", () => {
           staged: true,
         },
       ],
+      options: { signOff: false, noVerify: false },
     });
   });
 });

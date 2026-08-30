@@ -181,6 +181,7 @@ export interface CommitRequest {
   message: string;
   amend: boolean;
   selections: readonly CommitSelection[];
+  options?: CommitOptions;
 }
 
 /** Shelf entry (git stash based) */

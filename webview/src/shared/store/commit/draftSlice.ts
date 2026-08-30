@@ -8,6 +8,31 @@ export function createDraftSlice({
   return {
     commitMessage: "",
     amend: false,
+    signOff: false,
+    noVerify: false,
+    author: "",
+
+    setSignOff(signOff) {
+      set({ signOff });
+    },
+
+    setNoVerify(noVerify) {
+      set({ noVerify });
+    },
+
+    setAuthor(author) {
+      set({ author });
+    },
+
+    async loadMessageTemplate() {
+      const result = (await request("getCommitTemplate").catch(() => null)) as {
+        template: string | null;
+        mergeMessage: string | null;
+      } | null;
+      // Mid-merge git prepares its own message, which wins over the template.
+      const seed = result?.mergeMessage ?? result?.template;
+      if (seed) set({ commitMessage: seed });
+    },
 
     setCommitMessage(message) {
       set({ commitMessage: message });

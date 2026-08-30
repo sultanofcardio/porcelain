@@ -40,6 +40,21 @@ export class CommitService {
         try {
           const args = ["commit", "-m", request.message];
           if (request.amend) args.push("--amend");
+          const options = request.options ?? {};
+          if (options.signOff) args.push("--signoff");
+          if (options.noVerify) args.push("--no-verify");
+          if (options.author) {
+            const author = options.author.trim();
+            // A leading "-" would be read as an option, not a value.
+            if (!author || author.startsWith("-")) {
+              throw new PorcelainError(
+                PorcelainErrorCode.COMMIT_REJECTED,
+                `Invalid commit author: ${options.author}`,
+                'Use the form "Name <email>".',
+              );
+            }
+            args.push(`--author=${author}`);
+          }
           await this.git.buffer(args);
         } catch (error) {
           if (this.isCancellation(error)) {

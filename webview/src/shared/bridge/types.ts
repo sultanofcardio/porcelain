@@ -201,6 +201,7 @@ export type CommandType =
   | "getFileHunks"
   | "stageHunks"
   | "unstageHunks"
+  | "stageHunkAtLine"
   | "getCommitTemplate"
   | "getMergeMessage"
   | "addToGitignore"

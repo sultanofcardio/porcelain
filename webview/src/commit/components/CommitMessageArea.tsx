@@ -14,7 +14,15 @@ export function CommitMessageArea() {
     commit,
     loading,
     selectedFiles,
+    signOff,
+    setSignOff,
+    noVerify,
+    setNoVerify,
+    author,
+    setAuthor,
+    loadMessageTemplate,
   } = useCommitStore();
+  const [showOptions, setShowOptions] = useState(false);
 
   const [showDropdown, setShowDropdown] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -22,6 +30,15 @@ export function CommitMessageArea() {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const historyBtnRef = useRef<HTMLSpanElement>(null);
   const historyDropdownRef = useRef<HTMLDivElement>(null);
+
+  // An empty draft is seeded from commit.template, or git's own MERGE_MSG
+  // mid-merge. A message the user already typed is never overwritten.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current || commitMessage) return;
+    seededRef.current = true;
+    void loadMessageTemplate();
+  }, [commitMessage, loadMessageTemplate]);
 
   const hasSelectedFiles = selectedFiles.size > 0;
   const canCommit =
@@ -116,6 +133,79 @@ export function CommitMessageArea() {
           />
           Amend
         </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={signOff}
+            onChange={(e) => setSignOff(e.target.checked)}
+          />
+          Sign-off
+        </label>
+        <Tooltip text="Commit options">
+          <span
+            onClick={() => setShowOptions((value) => !value)}
+            aria-label="Commit options"
+            style={{
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              borderRadius: 3,
+              padding: 2,
+              opacity: showOptions ? 1 : 0.6,
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="2" stroke="currentColor" />
+              <path
+                d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2"
+                stroke="currentColor"
+              />
+            </svg>
+          </span>
+        </Tooltip>
+        {showOptions && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+              width: "100%",
+              padding: "6px 0 2px",
+            }}
+          >
+            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <input
+                type="checkbox"
+                checked={noVerify}
+                onChange={(e) => setNoVerify(e.target.checked)}
+              />
+              Skip commit hooks
+            </label>
+            <label
+              style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}
+            >
+              <span style={{ whiteSpace: "nowrap" }}>Author</span>
+              <input
+                type="text"
+                aria-label="Commit author"
+                value={author}
+                placeholder="Name &lt;email&gt; (defaults to you)"
+                onChange={(e) => setAuthor(e.target.value)}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  padding: "2px 6px",
+                  fontSize: "12px",
+                  border: "1px solid var(--vscode-input-border, #3c3c3c)",
+                  background: "var(--vscode-input-background, #3c3c3c)",
+                  color: "var(--vscode-input-foreground, #ccc)",
+                  borderRadius: 3,
+                  outline: "none",
+                }}
+              />
+            </label>
+          </div>
+        )}
         <Tooltip text="Recent commit messages">
           <span
             ref={historyBtnRef}

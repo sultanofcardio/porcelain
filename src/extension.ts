@@ -22,7 +22,7 @@ import {
   RepoSelectionError,
   Serializer,
 } from "./git/repoSelection";
-import type { CommitSelection, DiffFile } from "./git/types";
+import type { CommitOptions, CommitSelection, DiffFile } from "./git/types";
 import { registerLogHandlers } from "./messages/logHandlers";
 import { MessageRouter } from "./messages/messageRouter";
 import {
@@ -1572,6 +1572,7 @@ export async function activate(context: vscode.ExtensionContext) {
         message,
         amend: amend ?? false,
         selections,
+        ...(params.options ? { options: params.options as CommitOptions } : {}),
       });
       requireSuccessfulGitOperation(result);
     } else {

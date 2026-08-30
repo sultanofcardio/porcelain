@@ -1489,6 +1489,31 @@ export class GitService {
     await this.applyHunkPatch(filePath, hunkIndices, { reverse: true });
   }
 
+  /**
+   * Stage (or unstage) the hunk covering a line, addressed by its position on
+   * the new side. The UI knows line numbers; only git knows how it chunked the
+   * file, so the mapping is resolved here rather than by trusting the
+   * webview's own diff to agree with git's.
+   */
+  async stageHunkAtLine(
+    filePath: string,
+    newLine: number,
+    options: { unstage?: boolean } = {},
+  ): Promise<boolean> {
+    const hunks = await this.getFileHunks(filePath, options.unstage === true);
+    const target = hunks.find(
+      (hunk) =>
+        newLine >= hunk.newStart && newLine < hunk.newStart + hunk.newCount,
+    );
+    if (!target) return false;
+    if (options.unstage) {
+      await this.unstageHunks(filePath, [target.index]);
+    } else {
+      await this.stageHunks(filePath, [target.index]);
+    }
+    return true;
+  }
+
   private async applyHunkPatch(
     filePath: string,
     hunkIndices: readonly number[],

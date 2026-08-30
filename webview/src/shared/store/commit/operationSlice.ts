@@ -78,7 +78,7 @@ export function createOperationSlice({
   };
 
   const commitWith = async (command: "commitChanges" | "commitAndPush") => {
-    const { commitMessage, amend } = get();
+    const { commitMessage, amend, signOff, noVerify, author } = get();
     if (!commitMessage.trim()) return false;
     clearOperationError();
     const selections = selectedChanges().map((file) => ({
@@ -90,10 +90,21 @@ export function createOperationSlice({
 
     try {
       await runMutationOperation(command, async () => {
-        await request(command, { message: commitMessage, amend, selections });
+        await request(command, {
+          message: commitMessage,
+          amend,
+          selections,
+          options: {
+            signOff,
+            noVerify,
+            ...(author.trim() ? { author: author.trim() } : {}),
+          },
+        });
         await get().fetchChanges();
       });
-      set({ commitMessage: "", amend: false });
+      // Sign-off and hook preferences persist across commits; the author
+      // override does not, since it is per-commit by nature.
+      set({ commitMessage: "", amend: false, author: "" });
       return true;
     } catch (error) {
       reportOperationError(

@@ -170,6 +170,33 @@ describe("gitService hunk staging", () => {
     assert.ok(onDisk.includes("line 10 edited"));
   });
 
+  it("stages the hunk covering a given line, addressed by position", async () => {
+    // Line 10 sits in the second hunk; line 1 in the first.
+    assert.strictEqual(await service.stageHunkAtLine("file.txt", 10), true);
+
+    const staged = await repo.git("diff", "--cached");
+    assert.ok(staged.includes("line 10 edited"));
+    assert.ok(!staged.includes("line 1 edited"));
+  });
+
+  it("reports when no hunk covers the line", async () => {
+    // Line 5 is untouched context, in neither hunk.
+    assert.strictEqual(await service.stageHunkAtLine("file.txt", 5), false);
+    assert.strictEqual((await repo.git("diff", "--cached")).trim(), "");
+  });
+
+  it("unstages the hunk covering a line", async () => {
+    await service.stageHunks("file.txt", [0, 1]);
+    assert.strictEqual(
+      await service.stageHunkAtLine("file.txt", 1, { unstage: true }),
+      true,
+    );
+
+    const staged = await repo.git("diff", "--cached");
+    assert.ok(!staged.includes("line 1 edited"));
+    assert.ok(staged.includes("line 10 edited"));
+  });
+
   it("does nothing when no hunks are selected", async () => {
     await service.stageHunks("file.txt", []);
     assert.strictEqual((await repo.git("diff", "--cached")).trim(), "");
