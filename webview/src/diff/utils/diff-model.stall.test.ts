@@ -203,6 +203,113 @@ describe("stallLift", () => {
     expect(stallLift(farApart, 70, "left", VIEWPORT)).toBe(0);
   });
 
+  it("starts slowing well before a gap that a short run leads into", () => {
+    // The shape that kept bouncing in practice: an edit, the two lines after
+    // it, then a large insertion. Ramping only inside the run immediately
+    // before the gap leaves two lines to decelerate in, so the side reaches
+    // the top at full speed and is snapped back to the middle. The ramp is a
+    // distance to the gap, so it reaches back through the edit and the run
+    // before it.
+    const realistic: DiffChunk[] = [
+      {
+        kind: "equal",
+        left: { start: 0, count: 12 },
+        right: { start: 0, count: 12 },
+      },
+      {
+        kind: "modified",
+        left: { start: 12, count: 1 },
+        right: { start: 12, count: 1 },
+      },
+      {
+        kind: "equal",
+        left: { start: 13, count: 2 },
+        right: { start: 13, count: 2 },
+      },
+      {
+        kind: "added",
+        left: { start: 15, count: 0 },
+        right: { start: 15, count: 40 },
+      },
+    ];
+    const plateau = VIEWPORT / 2;
+    // At the gap's edge the side is already parked.
+    expect(stallLift(realistic, 15, "left", VIEWPORT)).toBeCloseTo(plateau, 5);
+    // Ten lines out — back inside the long equal run, two chunks before the
+    // gap — the deceleration has already begun, a third of the way through a
+    // fifteen-line ramp. The old behaviour was flat zero here, which is what
+    // left the side no room and produced the snap.
+    expect(stallLift(realistic, 5, "left", VIEWPORT)).toBeCloseTo(
+      plateau / 3,
+      5,
+    );
+    // Five lines out, two thirds of the way.
+    expect(stallLift(realistic, 10, "left", VIEWPORT)).toBeCloseTo(
+      (plateau * 2) / 3,
+      5,
+    );
+    // And it only ever climbs on the way in: no dip, no reversal.
+    let previous = 0;
+    for (const position of [2, 4, 6, 8, 10, 12, 13, 14, 15]) {
+      const lift = stallLift(realistic, position, "left", VIEWPORT);
+      expect(lift).toBeGreaterThanOrEqual(previous);
+      previous = lift;
+    }
+  });
+
+  it("never moves the stalled pane backwards, which is the bounce itself", () => {
+    // What the panes actually render is `axisToSide - stallLift`. The bounce
+    // the user saw was that value rising and then falling: the side scrolled
+    // up to the top and came back down. Whatever the lift does, this must be
+    // monotonic — and it is only monotonic because the ramp exactly cancels
+    // the mapping's advance, which is what parks the anchor mid-window
+    // instead of merely slowing it.
+    const realistic: DiffChunk[] = [
+      {
+        kind: "equal",
+        left: { start: 0, count: 12 },
+        right: { start: 0, count: 12 },
+      },
+      {
+        kind: "modified",
+        left: { start: 12, count: 1 },
+        right: { start: 12, count: 1 },
+      },
+      {
+        kind: "equal",
+        left: { start: 13, count: 2 },
+        right: { start: 13, count: 2 },
+      },
+      {
+        kind: "added",
+        left: { start: 15, count: 0 },
+        right: { start: 15, count: 40 },
+      },
+      {
+        kind: "equal",
+        left: { start: 15, count: 30 },
+        right: { start: 55, count: 30 },
+      },
+    ];
+    const offsetAt = (position: number) =>
+      axisToSide(realistic, position, "left") -
+      stallLift(realistic, position, "left", VIEWPORT);
+
+    let previous = Number.NEGATIVE_INFINITY;
+    for (let position = 0; position <= 85; position += 0.25) {
+      const offset = offsetAt(position);
+      expect(offset).toBeGreaterThanOrEqual(previous - 1e-9);
+      previous = offset;
+    }
+
+    // And while it is parked, the insertion point sits at the middle of the
+    // window rather than its top: the left pane's top row is half a viewport
+    // above the line the new lines go in at.
+    for (const position of [15, 25, 40, 54]) {
+      expect(offsetAt(position)).toBeCloseTo(15 - VIEWPORT / 2, 5);
+    }
+  });
+
   it("is inert without a measured viewport", () => {
     expect(stallLift(chunks, 20, "left", 0)).toBe(0);
   });

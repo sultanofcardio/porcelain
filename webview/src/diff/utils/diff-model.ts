@@ -434,38 +434,60 @@ export function stallLift(
   // past what standing still can justify.
   const peakOf = (index: number) => Math.min(half, widths[index]);
 
+  // Where each chunk begins on the axis, so distances can be measured across
+  // however many chunks lie between here and a gap.
+  const starts: number[] = [];
   let axis = 0;
-  for (const [index] of chunks.entries()) {
-    const width = widths[index];
-    if (position < axis + width) {
-      const into = position - axis;
-      if (stalls[index]) return peakOf(index);
-
-      // Not stalled here, but a neighbouring gap reaches into this chunk: the
-      // approach ramps up to the coming gap's plateau, and the departure ramps
-      // down from the one just left. A short run between two gaps takes
-      // whichever is higher, so it never dips between them.
-      let lift = 0;
-      const ramp = Math.min(half, width);
-      const next = index + 1 < chunks.length && stalls[index + 1];
-      if (next && width - into < ramp) {
-        lift = Math.max(lift, peakOf(index + 1) * (1 - (width - into) / ramp));
-      }
-      const previous = index > 0 && stalls[index - 1];
-      if (previous && into < ramp) {
-        lift = Math.max(lift, peakOf(index - 1) * (1 - into / ramp));
-      }
-      // Bracketed by gaps with no room to ramp down and back up between them,
-      // the side would bob up mid-run only to be pushed straight back. It has
-      // nowhere to go, so it stays parked at the lower of the two plateaus.
-      if (next && previous && width < ramp * 2) {
-        lift = Math.max(lift, Math.min(peakOf(index - 1), peakOf(index + 1)));
-      }
-      return lift;
-    }
+  for (const width of widths) {
+    starts.push(axis);
     axis += width;
   }
-  return 0;
+  const current = chunks.findIndex(
+    (_, index) => position < starts[index] + widths[index],
+  );
+  if (current === -1) return 0;
+  if (stalls[current]) return peakOf(current);
+
+  // The ramp is measured in axis lines to the gap, not within one chunk. A
+  // gap is often preceded by a very short run — an insertion two lines below
+  // an edit leaves only the two lines between them — and ramping inside that
+  // run alone gives the side no room to slow down: it reaches the top at
+  // full speed and is then snapped back to the middle, which is the bounce
+  // this replaced. Scanning across chunks lets the deceleration begin as far
+  // ahead as it needs to.
+  let ahead = Number.POSITIVE_INFINITY;
+  let peakAhead = 0;
+  for (let index = current + 1; index < chunks.length; index++) {
+    if (stalls[index]) {
+      ahead = starts[index] - position;
+      peakAhead = peakOf(index);
+      break;
+    }
+  }
+  let behind = Number.POSITIVE_INFINITY;
+  let peakBehind = 0;
+  for (let index = current - 1; index >= 0; index--) {
+    if (stalls[index]) {
+      behind = position - (starts[index] + widths[index]);
+      peakBehind = peakOf(index);
+      break;
+    }
+  }
+
+  let lift = 0;
+  if (peakAhead > 0) {
+    lift = Math.max(lift, peakAhead * (1 - Math.min(ahead, half) / half));
+  }
+  if (peakBehind > 0) {
+    lift = Math.max(lift, peakBehind * (1 - Math.min(behind, half) / half));
+  }
+  // Two gaps closer together than the ramp leave nowhere to go in between:
+  // the side would bob up mid-run only to be pushed straight back down. It
+  // stays parked at the lower of the two plateaus instead.
+  if (peakAhead > 0 && peakBehind > 0 && ahead + behind < half) {
+    lift = Math.max(lift, Math.min(peakAhead, peakBehind));
+  }
+  return lift;
 }
 
 /**
