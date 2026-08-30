@@ -1748,6 +1748,12 @@ export class GitService {
       );
     }
 
+    // Resolve the fetched upstream tip before the merge/rebase runs: "what
+    // arrived" is the commits reachable from upstream but not from the
+    // pre-update HEAD. Deriving it from before..HEAD instead would count our
+    // own commits replayed by a rebase, or a locally-created merge commit.
+    const upstreamTip = (await this.execGit(["rev-parse", upstream])).trim();
+
     // --autostash carries uncommitted work across the update and puts it back
     // afterwards, which is what IntelliJ's "clean working tree using stash"
     // does around its own update.
@@ -1762,9 +1768,9 @@ export class GitService {
     if (before === after) {
       return { method: options.method, updated: false, commits: [] };
     }
-    // What arrived, for the update-info view.
+    // What arrived, for the update-info view: the upstream range only.
     const commits = await this.getLog({
-      revision: { kind: "range", excludeRef: before, includeRef: after },
+      revision: { kind: "range", excludeRef: before, includeRef: upstreamTip },
       maxCount: 200,
     });
     return { method: options.method, updated: true, commits };
@@ -2782,7 +2788,9 @@ function parseBlamePorcelain(output: string): BlameLine[] {
   } | null = null;
 
   for (const line of lines) {
-    const header = /^([0-9a-f]{40}) (\d+) (\d+)(?: (\d+))?$/.exec(line);
+    const header = /^([0-9a-f]{40}|[0-9a-f]{64}) (\d+) (\d+)(?: (\d+))?$/.exec(
+      line,
+    );
     if (header) {
       current = { hash: header[1], finalLine: Number(header[3]) };
       continue;
@@ -2815,7 +2823,7 @@ function parseBlamePorcelain(output: string): BlameLine[] {
         content: line.slice(1),
         ...detail,
         // An all-zero hash is git's marker for a not-yet-committed line.
-        uncommitted: /^0{40}$/.test(current.hash),
+        uncommitted: /^0{40}$|^0{64}$/.test(current.hash),
       });
       current = null;
     }

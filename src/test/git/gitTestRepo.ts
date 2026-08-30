@@ -10,12 +10,18 @@ export class GitTestRepo {
     this.executor = new GitExecutor(rootPath);
   }
 
-  static async create(): Promise<GitTestRepo> {
+  static async create(
+    options: { objectFormat?: "sha1" | "sha256" } = {},
+  ): Promise<GitTestRepo> {
     const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "porcelain-git-"));
     const repo = new GitTestRepo(rootPath);
     // Explicit branch name: with the runner's hermetic git config there is
     // no global init.defaultBranch to lean on.
-    await repo.git("init", "-b", "main");
+    const initArgs = ["init", "-b", "main"];
+    if (options.objectFormat) {
+      initArgs.push(`--object-format=${options.objectFormat}`);
+    }
+    await repo.git(...initArgs);
     await repo.git("config", "user.name", "Porcelain Test");
     await repo.git("config", "user.email", "porcelain@example.com");
     // Scratch repos must not inherit the developer's signing setup: a global

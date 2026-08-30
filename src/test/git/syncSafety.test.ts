@@ -121,8 +121,14 @@ describe("gitService.updateProject", () => {
     await commitFile(local, "c.txt", "mine\n", "my work");
     const service = serviceFor(local);
 
-    await service.updateProject({ method: "rebase" });
+    const result = await service.updateProject({ method: "rebase" });
 
+    // "What arrived" is the upstream range only: the local commit replayed by
+    // the rebase must not be reported as having arrived.
+    assert.deepStrictEqual(
+      result.commits.map((commit) => commit.subject),
+      ["upstream work"],
+    );
     // Rebase replays the local commit on top, so it is newest and there is
     // no merge commit.
     const log = (await local.git("log", "--format=%s"))

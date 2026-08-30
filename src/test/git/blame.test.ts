@@ -107,6 +107,36 @@ describe("gitService.blameFile", () => {
     assert.strictEqual(blame[0].author, "Ada Lovelace");
   });
 
+  it("attributes lines in a SHA-256 repository", async () => {
+    // git blame emits 64-char hashes here; the porcelain header parser must
+    // accept them or the annotation silently comes back empty.
+    const repo = await GitTestRepo.create({ objectFormat: "sha256" });
+    await repo.writeFile("file.txt", "only line\n");
+    await repo.git("add", "file.txt");
+    const hash = await commitAs(repo, "Ada Lovelace", "seed");
+
+    const blame = await serviceFor(repo).blameFile("file.txt");
+
+    assert.strictEqual(blame.length, 1);
+    assert.strictEqual(blame[0].hash.length, 64);
+    assert.strictEqual(blame[0].hash, hash);
+    assert.strictEqual(blame[0].author, "Ada Lovelace");
+    assert.strictEqual(blame[0].uncommitted, false);
+  });
+
+  it("marks an uncommitted line in a SHA-256 repository", async () => {
+    const repo = await GitTestRepo.create({ objectFormat: "sha256" });
+    await repo.writeFile("file.txt", "committed\n");
+    await repo.git("add", "file.txt");
+    await commitAs(repo, "Ada Lovelace", "seed");
+    await repo.writeFile("file.txt", "committed\nstill being written\n");
+
+    const blame = await serviceFor(repo).blameFile("file.txt");
+
+    assert.strictEqual(blame[0].uncommitted, false);
+    assert.strictEqual(blame[1].uncommitted, true);
+  });
+
   it("ignores whitespace-only changes when asked", async () => {
     const repo = await GitTestRepo.create();
     await repo.writeFile("file.txt", "value = 1\n");
