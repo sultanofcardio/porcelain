@@ -32,6 +32,32 @@ function subjects(log: string): string[] {
   return log.split("\n").filter(Boolean);
 }
 
+/**
+ * Build a linear history of `count` commits in a single fast-import pass — far
+ * cheaper than one `git commit` process each when a test needs hundreds.
+ */
+async function importLinearHistory(
+  repo: GitTestRepo,
+  count: number,
+): Promise<void> {
+  const parts: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const message = `commit ${i}`;
+    const content = `content ${i}`;
+    parts.push(
+      "commit refs/heads/main",
+      `committer Porcelain Test <porcelain@example.com> ${1000 + i} +0000`,
+      `data ${Buffer.byteLength(message)}`,
+      message,
+      `M 100644 inline file${i}.txt`,
+      `data ${Buffer.byteLength(content)}`,
+      content,
+    );
+  }
+  await repo.executor.withInput(["fast-import", "--quiet"], `${parts.join("\n")}\n`);
+  await repo.git("reset", "--hard", "main");
+}
+
 describe("rebase todo rendering", () => {
   const entries: RebaseTodoEntry[] = [
     { action: "pick", hash: "aaa", subject: "first" },
@@ -208,6 +234,85 @@ describe("gitService.squashCommits", () => {
     await assert.rejects(
       () => service.squashCommits([only], "nope"),
       /at least two commits/,
+    );
+  });
+
+  it("keeps the given message when the newest selected commit is below HEAD", async () => {
+    const repo = await GitTestRepo.create();
+    await commitFile(repo, "a.txt", "a\n", "first");
+    const second = await commitFile(repo, "b.txt", "b\n", "second");
+    const third = await commitFile(repo, "c.txt", "c\n", "third");
+    await commitFile(repo, "d.txt", "d\n", "fourth");
+    const service = serviceFor(repo);
+
+    // Newest-first, as the log delivers a selection; the newest selected
+    // (third) sits below HEAD (fourth), which is what regressed the message.
+    await service.squashCommits([third, second], "my msg");
+
+    assert.deepStrictEqual(subjects(await repo.git("log", "--format=%s")), [
+      "fourth",
+      "my msg",
+      "first",
+    ]);
+    const files = await repo.git("ls-files");
+    for (const file of ["a.txt", "b.txt", "c.txt", "d.txt"]) {
+      assert.ok(files.includes(file), `${file} was lost`);
+    }
+  });
+
+  it("folds the selected commits together across an unselected gap", async () => {
+    const repo = await GitTestRepo.create();
+    await commitFile(repo, "a.txt", "a\n", "first");
+    const second = await commitFile(repo, "b.txt", "b\n", "second");
+    await commitFile(repo, "c.txt", "c\n", "third");
+    const fourth = await commitFile(repo, "d.txt", "d\n", "fourth");
+    await commitFile(repo, "e.txt", "e\n", "fifth");
+    const service = serviceFor(repo);
+
+    // Skip "third": the two selected commits must fold into each other, not
+    // into the unselected commit that lies between them.
+    await service.squashCommits([fourth, second], "my msg");
+
+    assert.deepStrictEqual(subjects(await repo.git("log", "--format=%s")), [
+      "fifth",
+      "third",
+      "my msg",
+      "first",
+    ]);
+    // The folded commit carries both selected commits' changes; the gap commit
+    // stayed a separate commit rather than absorbing one of them.
+    const folded = (await repo.git("log", "--format=%H %s"))
+      .split("\n")
+      .find((line) => line.endsWith(" my msg"))
+      ?.split(" ")[0];
+    assert.ok(folded, "folded commit not found");
+    const changed = await repo.git("show", "--name-only", "--format=", folded);
+    assert.ok(
+      changed.includes("b.txt") && changed.includes("d.txt"),
+      `folded commit should introduce both files: ${changed}`,
+    );
+    assert.ok(!changed.includes("c.txt"), "gap commit was wrongly folded in");
+  });
+});
+
+describe("gitService.getRebaseTodoCommits limit", () => {
+  it("refuses a range larger than the cap instead of dropping history", async () => {
+    const repo = await GitTestRepo.create();
+    // 501 commits: one past the 500-commit cap the todo can carry.
+    await importLinearHistory(repo, 501);
+    const service = serviceFor(repo);
+    const root = (
+      await repo.git("rev-list", "--max-parents=0", "HEAD")
+    ).trim();
+
+    await assert.rejects(
+      () => service.getRebaseTodoCommits(root),
+      /limited to 500 commits/,
+    );
+    // History is intact — nothing was silently dropped.
+    assert.strictEqual(
+      (await repo.git("rev-list", "--count", "HEAD")).trim(),
+      "501",
     );
   });
 });

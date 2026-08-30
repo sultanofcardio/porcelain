@@ -83,6 +83,13 @@ import { PatchShelfService } from "./shelf/patchShelfService";
 import { WorkingTreeService } from "./workingTree/workingTreeService";
 
 export class GitService {
+  /**
+   * The most commits an interactive rebase todo may cover. The rendered todo
+   * replaces git's own file wholesale, so the full range must fit — a
+   * truncated todo makes git drop the omitted commits.
+   */
+  private static readonly REBASE_TODO_LIMIT = 500;
+
   readonly cache = new GitCache();
   private reachabilityCache: ReachabilityCacheEntry | null = null;
 
@@ -1266,16 +1273,27 @@ export class GitService {
   async getRebaseTodoCommits(fromHash: string): Promise<CommitNode[]> {
     await this.validateRef(fromHash);
     const parent = await this.resolveParentHash(fromHash);
+    const limit = GitService.REBASE_TODO_LIMIT;
+    // Fetch one past the cap so an over-range is detected rather than silently
+    // truncated: the rendered todo replaces git's own file wholesale, so any
+    // omitted commit is read by git as `drop` and its history is lost.
     const commits = parent
       ? await this.getLog({
           revision: { kind: "range", excludeRef: parent, includeRef: "HEAD" },
-          maxCount: 500,
+          maxCount: limit + 1,
         })
       : // A root commit has no parent to exclude: take all of HEAD.
         await this.getLog({
           revision: { kind: "ref", ref: "HEAD" },
-          maxCount: 500,
+          maxCount: limit + 1,
         });
+    if (commits.length > limit) {
+      throw new PorcelainError(
+        PorcelainErrorCode.INVALID_REF,
+        `Interactive rebase is limited to ${limit} commits`,
+        "Choose a more recent starting commit; rewriting a larger range would risk dropping history.",
+      );
+    }
     return [...commits].reverse();
   }
 
@@ -1377,26 +1395,41 @@ export class GitService {
     const oldest = ordered[0];
     const selected = new Set(ordered);
     const commits = await this.getRebaseTodoCommits(oldest);
-    const entries: RebaseTodoEntry[] = commits.map((commit, index) => {
-      if (!selected.has(commit.hash)) {
-        return {
-          action: "pick" as const,
-          hash: commit.hash,
-          subject: commit.subject,
-        };
-      }
-      // The oldest selected commit keeps `pick` and carries the combined
-      // message; the rest fold into it.
-      const isAnchor = commit.hash === oldest;
-      return {
-        action: isAnchor ? ("reword" as const) : ("squash" as const),
+    const subjectOf = new Map(
+      commits.map((commit) => [commit.hash, commit.subject]),
+    );
+    // Git folds each squash into the line directly above it, so the selection
+    // has to be laid out contiguously: the anchor reworded on top, the rest
+    // squashed in below it (in their own oldest-first order), then every
+    // unselected commit picked in its original relative order.
+    const entries: RebaseTodoEntry[] = [
+      {
+        action: "reword",
+        hash: oldest,
+        subject: subjectOf.get(oldest) ?? "",
+        message,
+      },
+    ];
+    const foldHashes = ordered.slice(1);
+    foldHashes.forEach((hash, index) => {
+      const closesRun = index === foldHashes.length - 1;
+      entries.push({
+        action: "squash",
+        hash,
+        subject: subjectOf.get(hash) ?? "",
+        // The entry that closes the fold run carries the combined message git
+        // prompts for; the anchor's reword is served the same text.
+        ...(closesRun ? { message } : {}),
+      });
+    });
+    for (const commit of commits) {
+      if (selected.has(commit.hash)) continue;
+      entries.push({
+        action: "pick",
         hash: commit.hash,
         subject: commit.subject,
-        ...(isAnchor || index === commits.length - 1 ? { message } : {}),
-      };
-    });
-    // Git prompts for the squash group's message, and for the anchor's
-    // reword; both are served the same combined text.
+      });
+    }
     await this.runInteractiveRebase(oldest, entries);
   }
 
