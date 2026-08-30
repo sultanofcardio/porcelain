@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { axisToSide, type DiffChunk, stallLift } from "./diff-model";
+import {
+  axisLength,
+  axisToSide,
+  computeFolds,
+  type DiffChunk,
+  type FoldRegion,
+  type Side,
+  stallLift,
+} from "./diff-model";
 
 /**
  * Ten equal lines, a twenty-line insertion on the right, ten equal lines.
@@ -257,58 +265,137 @@ describe("stallLift", () => {
     }
   });
 
-  it("never moves the stalled pane backwards, which is the bounce itself", () => {
-    // What the panes actually render is `axisToSide - stallLift`. The bounce
-    // the user saw was that value rising and then falling: the side scrolled
-    // up to the top and came back down. Whatever the lift does, this must be
-    // monotonic — and it is only monotonic because the ramp exactly cancels
-    // the mapping's advance, which is what parks the anchor mid-window
-    // instead of merely slowing it.
-    const realistic: DiffChunk[] = [
-      {
-        kind: "equal",
-        left: { start: 0, count: 12 },
-        right: { start: 0, count: 12 },
-      },
-      {
-        kind: "modified",
-        left: { start: 12, count: 1 },
-        right: { start: 12, count: 1 },
-      },
-      {
-        kind: "equal",
-        left: { start: 13, count: 2 },
-        right: { start: 13, count: 2 },
-      },
-      {
-        kind: "added",
-        left: { start: 15, count: 0 },
-        right: { start: 15, count: 40 },
-      },
-      {
-        kind: "equal",
-        left: { start: 15, count: 30 },
-        right: { start: 55, count: 30 },
-      },
-    ];
-    const offsetAt = (position: number) =>
-      axisToSide(realistic, position, "left") -
-      stallLift(realistic, position, "left", VIEWPORT);
-
-    let previous = Number.NEGATIVE_INFINITY;
-    for (let position = 0; position <= 85; position += 0.25) {
-      const offset = offsetAt(position);
-      expect(offset).toBeGreaterThanOrEqual(previous - 1e-9);
-      previous = offset;
-    }
-
-    // And while it is parked, the insertion point sits at the middle of the
-    // window rather than its top: the left pane's top row is half a viewport
-    // above the line the new lines go in at.
-    for (const position of [15, 25, 40, 54]) {
-      expect(offsetAt(position)).toBeCloseTo(15 - VIEWPORT / 2, 5);
-    }
+  // What the panes actually render is `axisToSide - stallLift`. The bounce the
+  // user saw was that value rising and then falling: the side scrolled up to
+  // the top and came back down. Whatever the lift does, this rendered offset
+  // must never decrease as the axis advances — for *every* chunk arrangement,
+  // not only the symmetric-edit shape the report happened to carry. The
+  // previous fix passed its own test and still bounced because the fixture
+  // only held a symmetric one-line modify; the residual lived in the shapes it
+  // never exercised. So the property is walked across a spread of them.
+  const modified = (
+    left: [number, number],
+    right: [number, number],
+  ): DiffChunk => ({
+    kind: "modified",
+    left: { start: left[0], count: left[1] },
+    right: { start: right[0], count: right[1] },
   });
+  const equal = (
+    left: [number, number],
+    right: [number, number],
+  ): DiffChunk => ({
+    kind: "equal",
+    left: { start: left[0], count: left[1] },
+    right: { start: right[0], count: right[1] },
+  });
+  const added = (leftStart: number, right: [number, number]): DiffChunk => ({
+    kind: "added",
+    left: { start: leftStart, count: 0 },
+    right: { start: right[0], count: right[1] },
+  });
+  const deleted = (left: [number, number], rightStart: number): DiffChunk => ({
+    kind: "removed",
+    left: { start: left[0], count: left[1] },
+    right: { start: rightStart, count: 0 },
+  });
+
+  // An asymmetric replacement — three lines becoming ten — sitting right
+  // before a wide insertion. Through it the stalled left side advances slower
+  // than the axis, so a lift ramped at one-per-axis-line overshoots and drags
+  // the rendered offset backwards: the reintroduced bounce this pins.
+  const asymmetric: DiffChunk[] = [
+    equal([0, 20], [0, 20]),
+    modified([20, 3], [20, 10]),
+    added(23, [30, 40]),
+    equal([23, 30], [70, 30]),
+  ];
+
+  // A deletion instead of an insertion: now the right side is the one that
+  // stands still, so the whole mechanism has to work mirror-imaged.
+  const deletionGap: DiffChunk[] = [
+    equal([0, 20], [0, 20]),
+    deleted([20, 40], 20),
+    equal([60, 30], [20, 30]),
+  ];
+
+  // A long unchanged run ahead of the gap, collapsed to a fold, with a stretch
+  // of real rows between the fold and the gap so the insertion still sits well
+  // below the window top. The axis shrinks under the fold, so the lift has to
+  // be threaded through the fold-aware mapping rather than the raw line count.
+  const foldable: DiffChunk[] = [
+    equal([0, 60], [0, 60]),
+    modified([60, 20], [60, 20]),
+    added(80, [80, 40]),
+    equal([80, 20], [120, 20]),
+  ];
+
+  const arrangements: Array<{
+    name: string;
+    chunks: DiffChunk[];
+    side: Side;
+    folds?: FoldRegion[];
+    parked?: { positions: number[]; offset: number };
+  }> = [
+    {
+      name: "symmetric edit before a wide insertion",
+      chunks: [
+        equal([0, 12], [0, 12]),
+        modified([12, 1], [12, 1]),
+        equal([13, 2], [13, 2]),
+        added(15, [15, 40]),
+        equal([15, 30], [55, 30]),
+      ],
+      side: "left",
+      parked: { positions: [15, 25, 40, 54], offset: 15 - VIEWPORT / 2 },
+    },
+    {
+      name: "asymmetric replacement before a wide insertion",
+      chunks: asymmetric,
+      side: "left",
+      // The gap begins at left line 23; parked half a viewport above it.
+      parked: { positions: [30, 40, 60, 69], offset: 23 - VIEWPORT / 2 },
+    },
+    {
+      name: "deletion gap, right side stalled",
+      chunks: deletionGap,
+      side: "right",
+      // The gap begins at right line 20; parked half a viewport above it.
+      parked: { positions: [20, 35, 55, 59], offset: 20 - VIEWPORT / 2 },
+    },
+    {
+      name: "folded run ahead of the gap",
+      chunks: foldable,
+      side: "left",
+      folds: computeFolds(foldable),
+    },
+  ];
+
+  for (const arrangement of arrangements) {
+    it(`never moves the stalled pane backwards: ${arrangement.name}`, () => {
+      const { chunks: shape, side, folds = [] } = arrangement;
+      const offsetAt = (position: number) =>
+        axisToSide(shape, position, side, folds) -
+        stallLift(shape, position, side, VIEWPORT, folds);
+
+      const end = axisLength(shape, folds);
+      let previous = Number.NEGATIVE_INFINITY;
+      for (let position = 0; position <= end; position += 0.25) {
+        const offset = offsetAt(position);
+        expect(offset).toBeGreaterThanOrEqual(previous - 1e-9);
+        previous = offset;
+      }
+
+      // While parked, the insertion point sits at the middle of the window:
+      // the stalled pane's top row is half a viewport above the line the new
+      // lines go in at.
+      if (arrangement.parked) {
+        for (const position of arrangement.parked.positions) {
+          expect(offsetAt(position)).toBeCloseTo(arrangement.parked.offset, 5);
+        }
+      }
+    });
+  }
 
   it("is inert without a measured viewport", () => {
     expect(stallLift(chunks, 20, "left", 0)).toBe(0);

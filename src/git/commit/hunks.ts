@@ -141,6 +141,14 @@ export function selectRange(
 
   for (const hunk of parsed.hunks) {
     let cursor = side === "old" ? hunk.oldStart : hunk.newStart;
+    // A hunk that contributes nothing on the counted side — a wholly emptied
+    // file emits `@@ -1,N +0,0 @@`, whose new side is empty — anchors every one
+    // of its changes at that side's start (0 for `+0,0`), one below the
+    // boundary the caller addresses it by (new line 1). Match its changes when
+    // the row just past that anchor is in range too, so the deletion is still
+    // reachable; otherwise the range never covers cursor 0 and the control
+    // silently does nothing.
+    const emptyOnSide = (side === "old" ? hunk.oldCount : hunk.newCount) === 0;
     const chosen = new Set<number>();
     for (const [position, line] of hunk.lines.entries()) {
       // The no-newline marker belongs to the line above it, never selected
@@ -149,7 +157,10 @@ export function selectRange(
       const marker = line[0];
       const onThisSide =
         marker === " " || (side === "old" ? marker === "-" : marker === "+");
-      if (marker !== " " && cursor >= start && cursor <= last) {
+      const inRange =
+        (cursor >= start && cursor <= last) ||
+        (emptyOnSide && cursor + 1 >= start && cursor + 1 <= last);
+      if (marker !== " " && inRange) {
         chosen.add(position);
       }
       if (onThisSide) cursor++;

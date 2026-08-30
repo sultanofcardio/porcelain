@@ -448,19 +448,24 @@ export function stallLift(
   if (current === -1) return 0;
   if (stalls[current]) return peakOf(current);
 
-  // The ramp is measured in axis lines to the gap, not within one chunk. A
-  // gap is often preceded by a very short run — an insertion two lines below
-  // an edit leaves only the two lines between them — and ramping inside that
-  // run alone gives the side no room to slow down: it reaches the top at
-  // full speed and is then snapped back to the middle, which is the bounce
-  // this replaced. Scanning across chunks lets the deceleration begin as far
-  // ahead as it needs to.
+  // The stalled side is parked at the gap's start on this side minus the
+  // peak, and the lift is whatever it takes to hold the rendered offset there
+  // — never letting it climb above that line. Deriving the lift from the
+  // mapping this way, rather than ramping it independently over a fixed axis
+  // distance, is what keeps the offset flat however the approach is carved
+  // up: through an asymmetric chunk the side advances slower than the axis, so
+  // an axis-space ramp would outrun the mapping and drag the offset backwards
+  // — the bounce, in a narrower shape. Scanning across chunks to the gap lets
+  // the deceleration begin as far ahead as the geometry demands, even when a
+  // very short run is all that separates the edit from the insertion.
   let ahead = Number.POSITIVE_INFINITY;
   let peakAhead = 0;
+  let parkedAhead = 0;
   for (let index = current + 1; index < chunks.length; index++) {
     if (stalls[index]) {
       ahead = starts[index] - position;
       peakAhead = peakOf(index);
+      parkedAhead = axisToSide(chunks, starts[index], side, folds) - peakAhead;
       break;
     }
   }
@@ -474,9 +479,13 @@ export function stallLift(
     }
   }
 
+  const sideNow = axisToSide(chunks, position, side, folds);
   let lift = 0;
   if (peakAhead > 0) {
-    lift = Math.max(lift, peakAhead * (1 - Math.min(ahead, half) / half));
+    lift = Math.max(
+      lift,
+      Math.min(peakAhead, Math.max(0, sideNow - parkedAhead)),
+    );
   }
   if (peakBehind > 0) {
     lift = Math.max(lift, peakBehind * (1 - Math.min(behind, half) / half));

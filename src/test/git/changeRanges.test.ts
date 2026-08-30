@@ -137,6 +137,43 @@ describe("change ranges", () => {
     assert.strictEqual(await read(repo), "one\ntwo\nthree\nfour\n");
   });
 
+  it("reverts a file emptied completely", async () => {
+    // A wholly emptied file emits `@@ -1,N +0,0 @@`: git anchors it at new
+    // side 0 with no context, so a range addressed at new line 1 only reaches
+    // its removals if the empty-new-side anchor is tolerated. Without the fix
+    // the selection is empty and revertRange returns false.
+    const repo = await GitTestRepo.create();
+    await repo.writeFile("r.ts", "one\ntwo\nthree\nfour\n");
+    await repo.git("add", "r.ts");
+    await repo.git("commit", "-m", "seed");
+    await repo.writeFile("r.ts", "");
+    const service = serviceFor(repo);
+
+    // The emptied file's block is addressed at new line 1, covering no lines.
+    assert.strictEqual(await service.revertRange("r.ts", 1, 0), true);
+    assert.strictEqual(await read(repo), "one\ntwo\nthree\nfour\n");
+  });
+
+  it("stages the deletion of a file emptied completely", async () => {
+    const repo = await GitTestRepo.create();
+    await repo.writeFile("r.ts", "one\ntwo\nthree\nfour\n");
+    await repo.git("add", "r.ts");
+    await repo.git("commit", "-m", "seed");
+    await repo.writeFile("r.ts", "");
+    const service = serviceFor(repo);
+
+    assert.strictEqual(
+      await service.setRangeStaged(
+        "r.ts",
+        { newStart: 1, newCount: 0, oldStart: 1, oldCount: 4 },
+        true,
+      ),
+      true,
+    );
+    // The index now holds the emptied file.
+    assert.strictEqual(await repo.git("show", ":r.ts"), "");
+  });
+
   it("reports when a range names no change at all", async () => {
     const { service } = await twoBlocksOneHunk();
     // Line 1 is context on both sides.
