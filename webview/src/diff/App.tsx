@@ -442,7 +442,13 @@ export function DiffApp() {
     };
     node.addEventListener("wheel", onWheel, { passive: false });
     return () => node.removeEventListener("wheel", onWheel);
-  }, [store.syncScroll, unified, layout.mode, scrollLeftPane, leftLines.length]);
+  }, [
+    store.syncScroll,
+    unified,
+    layout.mode,
+    scrollLeftPane,
+    leftLines.length,
+  ]);
 
   // Editing, where a side owns a buffer (the working tree, per the merge
   // scope review's decision 2) — through the same editor core the merge
