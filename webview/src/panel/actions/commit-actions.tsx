@@ -227,16 +227,23 @@ export function buildCommitActions(
     action(
       {
         id: "cherry-pick",
-        label: "Cherry-Pick",
+        label: multiSelected
+          ? `Cherry-Pick ${selectedCommitHashes.length} Commits`
+          : "Cherry-Pick",
         icon: <IconCherryPick />,
         visible: true,
-        enabled: singleOnly,
+        enabled: true,
         refresh: mutationRefresh,
       },
       () =>
         context.requestWithProgress(
           "cherryPick",
-          { hash: commit.hash },
+          {
+            // The selection arrives newest-first; git applies oldest-first.
+            hashes: multiSelected
+              ? [...selectedCommitHashes].reverse()
+              : [commit.hash],
+          },
           repoOptions,
         ),
       "Cherry-pick",

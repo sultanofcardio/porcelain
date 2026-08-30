@@ -174,7 +174,6 @@ describe("buildCommitActions", () => {
     );
 
     for (const id of [
-      "cherry-pick",
       "checkout-revision",
       "reset-mixed",
       "reset-soft",
@@ -186,6 +185,26 @@ describe("buildCommitActions", () => {
     ]) {
       expect(actions.find((action) => action.id === id)?.enabled).toBe(false);
     }
+  });
+
+  it("cherry-picks a multi-selection oldest-first", async () => {
+    const requestWithProgress = vi.fn().mockResolvedValue(undefined);
+    // The log selection arrives newest-first.
+    const pick = buildCommitActions(
+      contextFor({
+        selectedCommitHashes: ["cccccccc", "bbbbbbbb", "aaaaaaaa"],
+        requestWithProgress,
+      }),
+    ).find((action) => action.id === "cherry-pick");
+
+    expect(pick?.enabled).toBe(true);
+    expect(pick?.label).toBe("Cherry-Pick 3 Commits");
+    await pick?.execute();
+    expect(requestWithProgress).toHaveBeenCalledWith(
+      "cherryPick",
+      { hashes: ["aaaaaaaa", "bbbbbbbb", "cccccccc"] },
+      { repoId: "repo-a" },
+    );
   });
 
   it("copies every selected revision when several are selected", async () => {

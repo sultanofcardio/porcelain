@@ -215,16 +215,32 @@ export function CommitRow({
 }) {
   const selectedCommitHashes = useGitLogStore((s) => s.selectedCommitHashes);
   const setHoveredColumn = useGitLogStore((s) => s.setHoveredColumn);
+  const presentation = useGitLogStore((s) => s.presentation);
+  const myIdentity = useGitLogStore((s) => s.myIdentity);
   const rowRef = usePreventSelect<HTMLDivElement>();
 
   const isSelected = selectedCommitHashes.includes(commit.hash);
   const col = lane?.column ?? 0;
-  const refItems = buildRefDisplayItems(commit.refs);
+  let refItems = buildRefDisplayItems(commit.refs);
+  if (!presentation.showTagNames) {
+    refItems = refItems.filter((item) => item.type !== "tag");
+  }
+  const isMine =
+    presentation.highlightMyCommits &&
+    myIdentity !== null &&
+    commit.authorName === myIdentity;
+  const isDimmedMerge =
+    presentation.dimMergeCommits && commit.parents.length > 1;
+  const faded =
+    presentation.fadeOtherBranches && commit.reachableFromCurrent === false;
+  const rowDate = presentation.preferCommitDate
+    ? (commit.committerDate ?? commit.authorDate)
+    : commit.authorDate;
 
   return (
     <div
       ref={rowRef}
-      className={`commit-row selectable-row${commit.reachableFromCurrent === false ? " not-reachable" : ""}${isSelected ? " selected" : ""}`}
+      className={`commit-row selectable-row${faded ? " not-reachable" : ""}${isSelected ? " selected" : ""}`}
       onClick={(event) => onCommitClick(event, commit.hash)}
       onContextMenu={(e) => {
         if (onContextMenu) {
@@ -255,6 +271,7 @@ export function CommitRow({
               whiteSpace: "nowrap",
               opacity: 0.7,
               paddingLeft: 8,
+              fontWeight: isMine ? 600 : undefined,
             }}
           >
             {commit.authorName}
@@ -294,6 +311,8 @@ export function CommitRow({
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
                 display: "block",
+                fontWeight: isMine ? 600 : undefined,
+                opacity: isDimmedMerge ? 0.45 : undefined,
               }}
             >
               {commit.subject}
@@ -343,26 +362,29 @@ export function CommitRow({
                 );
               })}
             </span>
-            {/* Text labels (skip HEAD text) */}
-            <Tooltip
-              text={refItems
+            {/* Text labels (skip HEAD text); compact mode keeps the first. */}
+            {(() => {
+              const labels = refItems
                 .filter((item) => item.type !== "HEAD")
                 .map((item) => item.label)
-                .join("  ")}
-            >
-              <span
-                style={{
-                  fontSize: "0.8em",
-                  whiteSpace: "nowrap",
-                  opacity: 0.85,
-                }}
-              >
-                {refItems
-                  .filter((item) => item.type !== "HEAD")
-                  .map((item) => item.label)
-                  .join("  ")}
-              </span>
-            </Tooltip>
+                .filter(Boolean);
+              const compact = presentation.compactRefs && labels.length > 1;
+              return (
+                <Tooltip text={labels.join("  ")}>
+                  <span
+                    style={{
+                      fontSize: "0.8em",
+                      whiteSpace: "nowrap",
+                      opacity: 0.85,
+                    }}
+                  >
+                    {compact
+                      ? `${labels[0]} +${labels.length - 1}`
+                      : labels.join("  ")}
+                  </span>
+                </Tooltip>
+              );
+            })()}
           </span>
         )}
       </span>
@@ -371,7 +393,7 @@ export function CommitRow({
       {visibleColumns?.date !== false && (
         <>
           <ColumnGutter />
-          <Tooltip text={formatDateTime(commit.authorDate)}>
+          <Tooltip text={formatDateTime(rowDate)}>
             <span
               style={{
                 flexShrink: 0,
@@ -381,7 +403,7 @@ export function CommitRow({
                 paddingLeft: 8,
               }}
             >
-              {formatRelativeTime(commit.authorDate)}
+              {formatRelativeTime(rowDate)}
             </span>
           </Tooltip>
         </>

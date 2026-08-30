@@ -28,6 +28,19 @@ export function registerLogHandlers(router: MessageRouter): void {
     if (!context) return NOT_GIT_REPO;
     return context.gitService.getLogAuthors();
   });
+  router.handle("getUserIdentity", async (_params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    return context.gitService.getUserIdentity();
+  });
+  router.handle("resolveLogRef", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const input = params.input;
+    if (typeof input !== "string") {
+      throw new Error("resolveLogRef requires an input string");
+    }
+    const hash = await context.gitService.resolveRevisionInput(input);
+    return { hash };
+  });
   router.handle("getContainingBranches", async (params, context) => {
     if (!context) return NOT_GIT_REPO;
     const hash = params.hash;
@@ -79,6 +92,10 @@ async function handleGraphPage(
     since: params.since,
     until: params.until,
     file: params.file,
+    paths: params.paths,
+    sortTopo: params.sortTopo,
+    firstParent: params.firstParent,
+    noMerges: params.noMerges,
   };
   const result = await context.gitService.getGraphTopology(
     options,

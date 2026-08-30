@@ -28,6 +28,10 @@ export interface LogQueryParams extends Record<string, unknown> {
   since?: string;
   until?: string;
   file?: string;
+  paths?: string[];
+  sortTopo?: boolean;
+  firstParent?: boolean;
+  noMerges?: boolean;
 }
 
 export type LogQueryResult =
@@ -169,6 +173,8 @@ export type CommandType =
   | "loadMoreLog"
   | "getLogAuthors"
   | "getContainingBranches"
+  | "getUserIdentity"
+  | "resolveLogRef"
   | "getBranches"
   | "getTags"
   | "getDiff"

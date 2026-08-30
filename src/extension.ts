@@ -1328,9 +1328,11 @@ export async function activate(context: vscode.ExtensionContext) {
   messageRouter.handle("cherryPick", async (params, ctx) => {
     if (!ctx) return NOT_GIT_REPO;
     const { gitService } = ctx;
-    const hash = params.hash as string;
+    const hashes = Array.isArray(params.hashes)
+      ? (params.hashes as string[])
+      : (params.hash as string);
     return withProgress(messageRouter, ctx.repoId, async () => {
-      await gitService.cherryPick(hash);
+      await gitService.cherryPick(hashes);
       messageRouter.broadcastEvent("gitStateChanged", {
         scope: "all",
         repoId: ctx.repoId,

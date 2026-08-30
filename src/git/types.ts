@@ -5,6 +5,7 @@ export interface CommitNode {
   authorName: string;
   authorEmail: string;
   authorDate: string; // ISO 8601
+  committerDate: string; // ISO 8601
   subject: string;
   body: string;
   refs: RefInfo[];
@@ -102,8 +103,16 @@ export interface LogOptions {
   /** Match `search`/`author` case-sensitively (git's raw default). */
   searchCaseSensitive?: boolean;
   file?: string;
+  /** Additional pathspecs (files or folders) narrowing the log. */
+  paths?: string[];
   since?: string;
   until?: string;
+  /** Order commits topologically instead of by commit date. */
+  sortTopo?: boolean;
+  /** Follow only the first parent at merge commits. */
+  firstParent?: boolean;
+  /** Exclude merge commits entirely. */
+  noMerges?: boolean;
 }
 
 export interface MergeState {

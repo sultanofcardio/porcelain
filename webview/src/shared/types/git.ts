@@ -5,6 +5,8 @@ export interface Commit {
   authorName: string;
   authorEmail: string;
   authorDate: string;
+  /** ISO 8601; optional so fixtures predating the field stay valid. */
+  committerDate?: string;
   subject: string;
   body: string;
   refs: RefInfo[];

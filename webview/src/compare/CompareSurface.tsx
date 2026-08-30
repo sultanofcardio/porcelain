@@ -7,7 +7,10 @@ import {
   GitLogStoreProvider,
   useGitLogStore,
 } from "../shared/store/git-log-store-context";
-import type { PanelStore } from "../shared/store/panel-store";
+import {
+  hasActiveLogFilter,
+  type PanelStore,
+} from "../shared/store/panel-store";
 import type { GitRefIdentity } from "../shared/types/git";
 
 interface CompareSurfaceProps {
@@ -59,7 +62,7 @@ function CompareSurfaceContent({
   );
   const unavailableRef = useGitLogStore((state) => state.unavailableRef);
   const loadError = useGitLogStore((state) => state.loadError);
-  const hasActiveFilter = Object.values(filter).some(Boolean);
+  const hasActiveFilter = hasActiveLogFilter(filter);
 
   let surfaceState: { state: SurfaceState; message: string } | null = null;
   if (loadError?.kind === "repository-unavailable") {

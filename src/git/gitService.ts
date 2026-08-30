@@ -61,6 +61,7 @@ const LOG_FORMAT = [
   "%aN", // authorName (mailmap resolved)
   "%aE", // authorEmail (mailmap resolved)
   "%aI", // authorDate ISO 8601
+  "%cI", // committerDate ISO 8601
   "%s", // subject
   "%b", // body
   "%D", // refs
@@ -196,9 +197,15 @@ export class GitService {
     const args = [
       "log",
       `--format=${LOG_FORMAT}${FMT_RECORD_SEP}`,
-      "--date-order",
+      options.sortTopo ? "--topo-order" : "--date-order",
     ];
 
+    if (options.firstParent) {
+      args.push("--first-parent");
+    }
+    if (options.noMerges) {
+      args.push("--no-merges");
+    }
     if (options.maxCount) {
       args.push(`--max-count=${options.maxCount}`);
     } else {
@@ -229,8 +236,16 @@ export class GitService {
       args.push(`--until=${options.until}`);
     }
     await this.appendRevision(args, options.revision, options.branch);
-    if (options.file) {
-      args.push("--", options.file);
+    const pathspecs = [
+      ...(options.file ? [options.file] : []),
+      ...(options.paths ?? []).filter(
+        (p) => typeof p === "string" && p.length > 0,
+      ),
+    ];
+    if (pathspecs.length > 0) {
+      // Everything after "--" is a pathspec to git, so user-typed paths
+      // cannot be reinterpreted as options or revisions.
+      args.push("--", ...pathspecs);
     }
 
     const output = await this.execGit(args);
@@ -261,7 +276,11 @@ export class GitService {
     const commits = currentRef
       ? await this.getLogWithReachability(options, currentRef)
       : await this.getLog(options);
-    const breakHiddenParents = !!options.search;
+    // These filters punch arbitrary holes in the ancestry, so lanes must not
+    // wait for parents that will never arrive. Path filters keep the relation
+    // (hiddenParent edges) instead, matching the existing file-history look.
+    const breakHiddenParents =
+      !!options.search || !!options.noMerges || !!options.firstParent;
     return computeGraphLayout(commits, prevSnapshot, breakHiddenParents);
   }
 
@@ -308,6 +327,67 @@ export class GitService {
       if (match) authors.push(match[1]);
     }
     const result = { authors, me: me.trim() || null };
+    this.cache.set(cacheKey, result);
+    return result;
+  }
+
+  /**
+   * Resolve free-form go-to input — a full or abbreviated hash, or a bare
+   * branch/tag name — to a commit hash. Returns null when nothing matches.
+   */
+  async resolveRevisionInput(input: string): Promise<string | null> {
+    const trimmed = input.trim();
+    if (!trimmed) return null;
+
+    // Abbreviated object ids never pass validateRef, so resolve hex input
+    // directly; the character class keeps the argv value inert.
+    if (/^[0-9a-f]{4,64}$/i.test(trimmed)) {
+      try {
+        return (
+          await this.execGit([
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            `${trimmed}^{commit}`,
+          ])
+        ).trim();
+      } catch (error) {
+        if (!(error instanceof GitCommandError && error.exitCode === 1)) {
+          throw error;
+        }
+        // Fall through: an all-hex branch name is legal.
+      }
+    }
+
+    for (const prefix of ["refs/heads/", "refs/remotes/", "refs/tags/"]) {
+      try {
+        const hash = await this.resolveCommitRef(`${prefix}${trimmed}`);
+        if (hash) return hash;
+      } catch {
+        // Invalid as a ref name under this namespace; try the next.
+      }
+    }
+    return null;
+  }
+
+  /** The configured author identity, for "me" affordances in the log. */
+  async getUserIdentity(): Promise<{
+    name: string | null;
+    email: string | null;
+  }> {
+    const cacheKey = "log:identity";
+    const cached = this.cache.get<{
+      name: string | null;
+      email: string | null;
+    }>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const [name, email] = await Promise.all([
+      this.execGit(["config", "user.name"]).catch(() => ""),
+      this.execGit(["config", "user.email"]).catch(() => ""),
+    ]);
+    const result = { name: name.trim() || null, email: email.trim() || null };
     this.cache.set(cacheKey, result);
     return result;
   }
@@ -1029,8 +1109,14 @@ export class GitService {
     this.invalidateCache();
   }
 
-  async cherryPick(hash: string): Promise<void> {
-    await this.execGit(["cherry-pick", hash]);
+  /** Cherry-pick one or more commits, given oldest-first. */
+  async cherryPick(hashes: string | string[]): Promise<void> {
+    const list = Array.isArray(hashes) ? hashes : [hashes];
+    if (list.length === 0) return;
+    for (const hash of list) {
+      await this.validateRef(hash);
+    }
+    await this.execGit(["cherry-pick", ...list]);
     this.invalidateCache();
   }
 
@@ -1695,11 +1781,11 @@ function parseLogOutput(output: string): CommitNode[] {
       continue;
     }
     const fields = trimmed.split(FIELD_SEP);
-    if (fields.length < 9) {
+    if (fields.length < 10) {
       continue;
     }
 
-    const refsStr = fields[8]?.trim() ?? "";
+    const refsStr = fields[9]?.trim() ?? "";
     const refs = parseRefs(refsStr);
 
     commits.push({
@@ -1709,8 +1795,9 @@ function parseLogOutput(output: string): CommitNode[] {
       authorName: fields[3] ?? "",
       authorEmail: fields[4] ?? "",
       authorDate: fields[5] ?? "",
-      subject: fields[6] ?? "",
-      body: fields[7] ?? "",
+      committerDate: fields[6] ?? "",
+      subject: fields[7] ?? "",
+      body: fields[8] ?? "",
       refs,
     });
   }

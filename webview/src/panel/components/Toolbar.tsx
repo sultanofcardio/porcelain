@@ -2,6 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Tooltip } from "../../shared/components/Tooltip";
 import "../../shared/components/Tooltip.css";
 import { useGitLogStore } from "../../shared/store/git-log-store-context";
+import type { LogPresentation } from "../../shared/store/panel-store";
+import type {
+  BranchInfo,
+  GitRefIdentity,
+  TagInfo,
+} from "../../shared/types/git";
 
 export function Toolbar({
   showBranchFilter = true,
@@ -12,6 +18,9 @@ export function Toolbar({
   const filter = useGitLogStore((s) => s.filter);
   const commits = useGitLogStore((s) => s.commits);
   const branches = useGitLogStore((s) => s.branches);
+  const tags = useGitLogStore((s) => s.tags);
+  const navigateToRef = useGitLogStore((s) => s.navigateToRef);
+  const navigateToCommit = useGitLogStore((s) => s.navigateToCommit);
   const currentBranch = useGitLogStore((s) => s.currentBranch);
   const visibleColumns = useGitLogStore((s) => s.visibleColumns);
   const toggleColumnVisibility = useGitLogStore(
@@ -19,13 +28,17 @@ export function Toolbar({
   );
   const collapseAllSequences = useGitLogStore((s) => s.collapseAllSequences);
   const expandAllSequences = useGitLogStore((s) => s.expandAllSequences);
+  const presentation = useGitLogStore((s) => s.presentation);
+  const togglePresentation = useGitLogStore((s) => s.togglePresentation);
   const requestFromSurface = useGitLogStore((s) => s.requestFromSurface);
   const historyBranch = filter.branch || currentBranch;
 
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [showDateDropdown, setShowDateDropdown] = useState(false);
   const [showBranchDropdown, setShowBranchDropdown] = useState(false);
+  const [showPathsDropdown, setShowPathsDropdown] = useState(false);
   const [showViewOptions, setShowViewOptions] = useState(false);
+  const [showGoTo, setShowGoTo] = useState(false);
   const [hostAuthors, setHostAuthors] = useState<{
     authors: string[];
     me: string | null;
@@ -122,6 +135,23 @@ export function Toolbar({
     setShowBranchDropdown(false);
     setFilter({ branch: "" });
   };
+
+  const handleClearPaths = () => {
+    setShowPathsDropdown(false);
+    setFilter({ paths: [] });
+  };
+
+  // Cmd/Ctrl+G opens the go-to-hash/branch/tag popup, IntelliJ style.
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "g") {
+        e.preventDefault();
+        setShowGoTo(true);
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, []);
 
   const dateLabels: Record<string, string> = {
     today: "Today",
@@ -253,8 +283,105 @@ export function Toolbar({
         )}
       </div>
 
+      {/* Paths filter */}
+      <div style={{ position: "relative" }}>
+        <FilterButton
+          label="Paths"
+          active={filter.paths.length > 0}
+          activeValue={
+            filter.paths.length === 1
+              ? (filter.paths[0].split("/").filter(Boolean).pop() ??
+                filter.paths[0])
+              : filter.paths.length > 1
+                ? `${filter.paths.length} paths`
+                : undefined
+          }
+          onClick={() => {
+            setShowPathsDropdown(!showPathsDropdown);
+            setShowUserDropdown(false);
+            setShowDateDropdown(false);
+            setShowBranchDropdown(false);
+          }}
+          onClear={handleClearPaths}
+        />
+        {showPathsDropdown && (
+          <PathsFilterDropdown
+            paths={filter.paths}
+            onApply={(paths) => {
+              setShowPathsDropdown(false);
+              setFilter({ paths });
+            }}
+            onClear={filter.paths.length > 0 ? handleClearPaths : undefined}
+            onClose={() => setShowPathsDropdown(false)}
+          />
+        )}
+      </div>
+
       {/* View Options (eye icon) — pushed to far right */}
       <div style={{ flex: 1 }} />
+      <div style={{ position: "relative" }}>
+        <Tooltip text="Go to Hash / Branch / Tag (⌘G)">
+          <button
+            type="button"
+            aria-label="Go to hash, branch or tag"
+            onClick={() => setShowGoTo(!showGoTo)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 24,
+              height: 24,
+              border: "none",
+              borderRadius: 4,
+              background: showGoTo
+                ? "var(--vscode-toolbar-activeBackground, rgba(90,93,94,0.31))"
+                : "transparent",
+              color: "var(--app-fg)",
+              cursor: "pointer",
+              opacity: 0.6,
+              padding: 0,
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.opacity = "1";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.opacity = "0.6";
+            }}
+          >
+            <GoToIcon />
+          </button>
+        </Tooltip>
+        {showGoTo && (
+          <GoToRefPopup
+            branches={branches}
+            tags={tags}
+            onClose={() => setShowGoTo(false)}
+            onNavigateRef={(ref, hash) => {
+              setShowGoTo(false);
+              void navigateToRef(ref, hash);
+            }}
+            onResolveFreeText={async (input) => {
+              setShowGoTo(false);
+              try {
+                const result = (await requestFromSurface("resolveLogRef", {
+                  input,
+                })) as { hash: string | null } | null;
+                if (result?.hash) {
+                  await navigateToCommit(input, result.hash);
+                } else {
+                  await requestFromSurface(
+                    "showErrorNotification",
+                    { message: `"${input}" is not a commit, branch, or tag.` },
+                    { scope: "global" },
+                  );
+                }
+              } catch (err) {
+                console.error("resolveLogRef failed:", err);
+              }
+            }}
+          />
+        )}
+      </div>
       <div style={{ position: "relative" }}>
         <Tooltip text="View Options">
           <button
@@ -303,6 +430,14 @@ export function Toolbar({
           <ViewOptionsDropdown
             visibleColumns={visibleColumns}
             onToggle={toggleColumnVisibility}
+            graphModes={{
+              sortTopo: filter.sortTopo,
+              firstParent: filter.firstParent,
+              noMerges: filter.noMerges,
+            }}
+            onToggleGraphMode={(key) => setFilter({ [key]: !filter[key] })}
+            presentation={presentation}
+            onTogglePresentation={togglePresentation}
             onCollapseAll={() => {
               setShowViewOptions(false);
               collapseAllSequences();
@@ -997,6 +1132,355 @@ function DateFilterDropdown({
 }
 
 // ---------------------------------------------------------------------------
+// PathsFilterDropdown — free-text pathspecs, one per line
+// ---------------------------------------------------------------------------
+
+function PathsFilterDropdown({
+  paths,
+  onApply,
+  onClear,
+  onClose,
+}: {
+  paths: string[];
+  onApply: (paths: string[]) => void;
+  onClear?: () => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [text, setText] = useState(paths.join("\n"));
+
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const handleMouseDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("mousedown", handleMouseDown, true);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown, true);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [onClose]);
+
+  const apply = () => {
+    const next = text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    onApply(next);
+  };
+
+  return (
+    <div
+      ref={ref}
+      style={{
+        position: "absolute",
+        top: "100%",
+        left: 0,
+        marginTop: 4,
+        zIndex: 9999,
+        background: "var(--vscode-menu-background, #1e1e1e)",
+        border: "1px solid var(--vscode-menu-border, #454545)",
+        borderRadius: 4,
+        padding: "8px 12px",
+        minWidth: 260,
+        boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+      }}
+    >
+      <div style={{ fontSize: "11px", fontWeight: 600, opacity: 0.6 }}>
+        Filter by paths
+      </div>
+      <textarea
+        ref={textareaRef}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            apply();
+          }
+        }}
+        placeholder={"src/components\nREADME.md"}
+        rows={4}
+        style={{
+          width: "100%",
+          resize: "vertical",
+          padding: "4px 8px",
+          fontSize: "12px",
+          fontFamily: "var(--vscode-editor-font-family, monospace)",
+          border: "1px solid var(--vscode-input-border, #3c3c3c)",
+          background: "var(--vscode-input-background, #3c3c3c)",
+          color: "var(--vscode-input-foreground, #ccc)",
+          borderRadius: 3,
+          outline: "none",
+          boxSizing: "border-box",
+        }}
+      />
+      <div style={{ fontSize: "11px", opacity: 0.5 }}>
+        One file or folder per line, relative to the repository root
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
+        {onClear && (
+          <button
+            type="button"
+            onClick={onClear}
+            style={{
+              padding: "3px 12px",
+              fontSize: "12px",
+              border: "1px solid var(--vscode-button-border, transparent)",
+              borderRadius: 3,
+              background:
+                "var(--vscode-button-secondaryBackground, transparent)",
+              color: "var(--vscode-button-secondaryForeground, #ccc)",
+              cursor: "pointer",
+            }}
+          >
+            Clear
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={apply}
+          style={{
+            padding: "3px 12px",
+            fontSize: "12px",
+            border: "none",
+            borderRadius: 3,
+            background: "var(--vscode-button-background, #0e639c)",
+            color: "var(--vscode-button-foreground, #fff)",
+            cursor: "pointer",
+          }}
+        >
+          Apply
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// GoToRefPopup — jump to a hash, branch, or tag with completion
+// ---------------------------------------------------------------------------
+
+const GO_TO_MAX_SUGGESTIONS = 20;
+
+interface GoToSuggestion {
+  key: string;
+  label: string;
+  kind: "branch" | "remote" | "tag";
+  ref: GitRefIdentity;
+  hash: string;
+}
+
+function GoToRefPopup({
+  branches,
+  tags,
+  onClose,
+  onNavigateRef,
+  onResolveFreeText,
+}: {
+  branches: BranchInfo[];
+  tags: TagInfo[];
+  onClose: () => void;
+  onNavigateRef: (ref: GitRefIdentity, hash: string) => void;
+  onResolveFreeText: (input: string) => Promise<void>;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const handleMouseDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    document.addEventListener("mousedown", handleMouseDown, true);
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown, true);
+    };
+  }, [onClose]);
+
+  const suggestions = useMemo<GoToSuggestion[]>(() => {
+    const all: GoToSuggestion[] = [
+      ...branches.map(
+        (branch): GoToSuggestion => ({
+          key: `${branch.isRemote ? "remote" : "branch"}:${branch.name}`,
+          label: branch.name,
+          kind: branch.isRemote ? "remote" : "branch",
+          ref: {
+            type: branch.isRemote ? "remote" : "local",
+            name: branch.name,
+            fullRef: branch.fullRef,
+          },
+          hash: branch.lastCommitHash,
+        }),
+      ),
+      ...tags.map(
+        (tag): GoToSuggestion => ({
+          key: `tag:${tag.name}`,
+          label: tag.name,
+          kind: "tag",
+          ref: { type: "tag", name: tag.name, fullRef: tag.fullRef },
+          hash: tag.targetCommitHash,
+        }),
+      ),
+    ];
+    const needle = query.trim().toLowerCase();
+    const filtered = needle
+      ? all.filter((s) => s.label.toLowerCase().includes(needle))
+      : all;
+    return filtered.slice(0, GO_TO_MAX_SUGGESTIONS);
+  }, [branches, tags, query]);
+
+  const clampedIndex = Math.min(activeIndex, suggestions.length - 1);
+
+  const submit = () => {
+    const chosen = clampedIndex >= 0 ? suggestions[clampedIndex] : undefined;
+    if (chosen) {
+      onNavigateRef(chosen.ref, chosen.hash);
+      return;
+    }
+    const input = query.trim();
+    if (input) void onResolveFreeText(input);
+  };
+
+  return (
+    <div
+      ref={ref}
+      style={{
+        position: "absolute",
+        top: "100%",
+        right: 0,
+        marginTop: 4,
+        zIndex: 9999,
+        background: "var(--vscode-menu-background, #1e1e1e)",
+        border: "1px solid var(--vscode-menu-border, #454545)",
+        borderRadius: 4,
+        padding: "8px 0 4px",
+        minWidth: 280,
+        boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
+      }}
+    >
+      <div style={{ padding: "0 10px 6px" }}>
+        <input
+          ref={inputRef}
+          type="text"
+          placeholder="Enter hash or branch/tag name…"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setActiveIndex(0);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              onClose();
+            } else if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setActiveIndex((i) => Math.min(i + 1, suggestions.length - 1));
+            } else if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setActiveIndex((i) => Math.max(i - 1, 0));
+            } else if (e.key === "Enter") {
+              e.preventDefault();
+              submit();
+            }
+          }}
+          style={{
+            width: "100%",
+            padding: "4px 8px",
+            fontSize: "12px",
+            border: "1px solid var(--vscode-input-border, #3c3c3c)",
+            background: "var(--vscode-input-background, #3c3c3c)",
+            color: "var(--vscode-input-foreground, #ccc)",
+            borderRadius: 3,
+            outline: "none",
+            boxSizing: "border-box",
+          }}
+        />
+      </div>
+      <div style={{ maxHeight: 260, overflowY: "auto" }}>
+        {suggestions.map((suggestion, index) => (
+          <div
+            key={suggestion.key}
+            onClick={() => onNavigateRef(suggestion.ref, suggestion.hash)}
+            onMouseEnter={() => setActiveIndex(index)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "4px 12px",
+              fontSize: "12px",
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              color:
+                index === clampedIndex
+                  ? "var(--vscode-menu-selectionForeground, #fff)"
+                  : "var(--vscode-menu-foreground, #ccc)",
+              background:
+                index === clampedIndex
+                  ? "var(--vscode-menu-selectionBackground, #04395e)"
+                  : "transparent",
+            }}
+          >
+            <span
+              style={{
+                fontSize: "10px",
+                opacity: 0.6,
+                width: 44,
+                flexShrink: 0,
+              }}
+            >
+              {suggestion.kind}
+            </span>
+            <span
+              style={{
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {suggestion.label}
+            </span>
+          </div>
+        ))}
+        {suggestions.length === 0 && (
+          <div style={{ padding: "6px 12px", fontSize: "12px", opacity: 0.5 }}>
+            Press Enter to resolve as a commit hash
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function GoToIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="5.5" stroke="currentColor" />
+      <circle cx="8" cy="8" r="1.5" fill="currentColor" />
+      <path d="M8 1v3M8 12v3M1 8h3M12 8h3" stroke="currentColor" />
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // ViewOptionsIcon — eye icon with small triangle (JetBrains show.svg style)
 // ---------------------------------------------------------------------------
 
@@ -1018,15 +1502,91 @@ function ViewOptionsIcon() {
 // ViewOptionsDropdown — column visibility menu from the eye icon
 // ---------------------------------------------------------------------------
 
+type GraphModeKey = "sortTopo" | "firstParent" | "noMerges";
+
+function MenuSectionLabel({ label }: { label: string }) {
+  return (
+    <div
+      style={{
+        padding: "4px 12px 6px",
+        fontSize: "11px",
+        fontWeight: 600,
+        opacity: 0.6,
+      }}
+    >
+      {label}
+    </div>
+  );
+}
+
+function MenuSeparator() {
+  return (
+    <div
+      style={{
+        borderTop: "1px solid var(--vscode-menu-separatorBackground, #454545)",
+        margin: "4px 0",
+      }}
+    />
+  );
+}
+
+function CheckMenuItem({
+  label,
+  checked,
+  onToggle,
+}: {
+  label: string;
+  checked: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div
+      onClick={onToggle}
+      role="menuitemcheckbox"
+      aria-checked={checked}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "5px 12px",
+        fontSize: "12px",
+        cursor: "pointer",
+        color: "var(--vscode-menu-foreground, #ccc)",
+        whiteSpace: "nowrap",
+      }}
+      onMouseEnter={(e) => {
+        (e.currentTarget as HTMLElement).style.background =
+          "var(--vscode-list-hoverBackground, #2a2d2e)";
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLElement).style.background = "transparent";
+      }}
+    >
+      <span style={{ width: 16, textAlign: "center", flexShrink: 0 }}>
+        {checked ? "✓" : ""}
+      </span>
+      <span>{label}</span>
+    </div>
+  );
+}
+
 function ViewOptionsDropdown({
   visibleColumns,
   onToggle,
+  graphModes,
+  onToggleGraphMode,
+  presentation,
+  onTogglePresentation,
   onCollapseAll,
   onExpandAll,
   onClose,
 }: {
   visibleColumns: { author: boolean; date: boolean; hash: boolean };
   onToggle: (col: "author" | "date" | "hash") => void;
+  graphModes: Record<GraphModeKey, boolean>;
+  onToggleGraphMode: (key: GraphModeKey) => void;
+  presentation: LogPresentation;
+  onTogglePresentation: (key: keyof LogPresentation) => void;
   onCollapseAll: () => void;
   onExpandAll: () => void;
   onClose: () => void;
@@ -1069,64 +1629,43 @@ function ViewOptionsDropdown({
         border: "1px solid var(--vscode-menu-border, #454545)",
         borderRadius: 4,
         padding: "4px 0",
-        minWidth: 160,
+        minWidth: 220,
+        maxHeight: 420,
+        overflowY: "auto",
         boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
       }}
     >
-      <div
-        style={{
-          padding: "4px 12px 6px",
-          fontSize: "11px",
-          fontWeight: 600,
-          opacity: 0.6,
-        }}
-      >
-        Columns
-      </div>
+      <MenuSectionLabel label="Columns" />
       {columns.map((col) => (
-        <div
+        <CheckMenuItem
           key={col.key}
-          onClick={() => onToggle(col.key)}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "5px 12px",
-            fontSize: "12px",
-            cursor: "pointer",
-            color: "var(--vscode-menu-foreground, #ccc)",
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.background =
-              "var(--vscode-list-hoverBackground, #2a2d2e)";
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLElement).style.background = "transparent";
-          }}
-        >
-          <span style={{ width: 16, textAlign: "center", flexShrink: 0 }}>
-            {visibleColumns[col.key] ? "✓" : ""}
-          </span>
-          <span>{col.label}</span>
-        </div>
+          label={col.label}
+          checked={visibleColumns[col.key]}
+          onToggle={() => onToggle(col.key)}
+        />
       ))}
-      <div
-        style={{
-          borderTop:
-            "1px solid var(--vscode-menu-separatorBackground, #454545)",
-          margin: "4px 0",
-        }}
+      <MenuSeparator />
+      <MenuSectionLabel label="Graph" />
+      <CheckMenuItem
+        label="Sort Topologically"
+        checked={graphModes.sortTopo}
+        onToggle={() => onToggleGraphMode("sortTopo")}
       />
-      <div
-        style={{
-          padding: "4px 12px 6px",
-          fontSize: "11px",
-          fontWeight: 600,
-          opacity: 0.6,
-        }}
-      >
-        Graph
-      </div>
+      <CheckMenuItem
+        label="First Parent Only"
+        checked={graphModes.firstParent}
+        onToggle={() => onToggleGraphMode("firstParent")}
+      />
+      <CheckMenuItem
+        label="No Merge Commits"
+        checked={graphModes.noMerges}
+        onToggle={() => onToggleGraphMode("noMerges")}
+      />
+      <CheckMenuItem
+        label="Show Long Edges"
+        checked={presentation.showLongEdges}
+        onToggle={() => onTogglePresentation("showLongEdges")}
+      />
       <DropdownItem
         label="Collapse Linear Branches"
         active={false}
@@ -1136,6 +1675,40 @@ function ViewOptionsDropdown({
         label="Expand Linear Branches"
         active={false}
         onClick={onExpandAll}
+      />
+      <MenuSeparator />
+      <MenuSectionLabel label="Presentation" />
+      <CheckMenuItem
+        label="Compact References"
+        checked={presentation.compactRefs}
+        onToggle={() => onTogglePresentation("compactRefs")}
+      />
+      <CheckMenuItem
+        label="Tag Names"
+        checked={presentation.showTagNames}
+        onToggle={() => onTogglePresentation("showTagNames")}
+      />
+      <CheckMenuItem
+        label="Commit Timestamp"
+        checked={presentation.preferCommitDate}
+        onToggle={() => onTogglePresentation("preferCommitDate")}
+      />
+      <MenuSeparator />
+      <MenuSectionLabel label="Highlight" />
+      <CheckMenuItem
+        label="My Commits"
+        checked={presentation.highlightMyCommits}
+        onToggle={() => onTogglePresentation("highlightMyCommits")}
+      />
+      <CheckMenuItem
+        label="Dim Merge Commits"
+        checked={presentation.dimMergeCommits}
+        onToggle={() => onTogglePresentation("dimMergeCommits")}
+      />
+      <CheckMenuItem
+        label="Fade Other Branches"
+        checked={presentation.fadeOtherBranches}
+        onToggle={() => onTogglePresentation("fadeOtherBranches")}
       />
     </div>
   );

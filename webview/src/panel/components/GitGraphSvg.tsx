@@ -7,6 +7,9 @@ const COLUMN_WIDTH = 10;
 const ROW_HEIGHT = 28;
 const GRAPH_PADDING = 6;
 const VISIBLE_OVERSCAN = 8;
+/** Edges spanning more rows than this collapse into clickable arrow stubs. */
+const LONG_EDGE_ROWS = 30;
+const LONG_EDGE_PX = LONG_EDGE_ROWS * ROW_HEIGHT;
 const LANE_COLORS = [
   "#3a8ee6", // blue – primary branch (IDEA blue)
   "#c75450", // red – merge/feature branch
@@ -107,6 +110,8 @@ export function GitGraphSvg({
   const toggleSequenceCollapse = useGitLogStore(
     (s) => s.toggleSequenceCollapse,
   );
+  const showLongEdges = useGitLogStore((s) => s.presentation.showLongEdges);
+  const jumpToCommit = useGitLogStore((s) => s.jumpToCommit);
 
   const [hoveredSequenceId, setHoveredSequenceId] = useState<string | null>(
     null,
@@ -149,6 +154,9 @@ export function GitGraphSvg({
       fromHash?: string;
       targetHash?: string;
       sequenceId?: string;
+      arrow?: "up" | "down";
+      /** Set on long-edge stubs: clicking jumps to this loaded commit. */
+      jumpToHash?: string;
     }> = [];
     const nodes: Array<{
       key: string;
@@ -243,6 +251,48 @@ export function GitGraphSvg({
           if (wasResolved) {
             isDashed = true;
           }
+          // IntelliJ hides edges longer than ~30 rows behind a pair of arrow
+          // stubs; clicking either stub jumps to the edge's other end. Both
+          // endpoints are loaded rows here, so the jump is always resolvable.
+          if (!showLongEdges && toY - fromY > LONG_EDGE_PX) {
+            const dx = toX - fromX;
+            const stubX =
+              dx === 0
+                ? fromX
+                : fromX +
+                  Math.sign(dx) * Math.min(Math.abs(dx), COLUMN_WIDTH * 0.5);
+            lines.push({
+              key: `${commit.hash}-${targetHash}-stub-down`,
+              fromX,
+              fromY,
+              toX: stubX,
+              toY: fromY + ROW_HEIGHT,
+              minY: fromY,
+              maxY: fromY + ROW_HEIGHT,
+              color,
+              isStub: true,
+              arrow: "down",
+              jumpToHash: targetHash,
+              fromHash: commit.hash,
+              targetHash: line.toCommit,
+            });
+            lines.push({
+              key: `${commit.hash}-${targetHash}-stub-up`,
+              fromX: toX,
+              fromY: toY,
+              toX,
+              toY: toY - ROW_HEIGHT,
+              minY: toY - ROW_HEIGHT,
+              maxY: toY,
+              color,
+              isStub: true,
+              arrow: "up",
+              jumpToHash: commit.hash,
+              fromHash: commit.hash,
+              targetHash: line.toCommit,
+            });
+            continue;
+          }
         }
 
         // Determine sequenceId for this line
@@ -273,6 +323,7 @@ export function GitGraphSvg({
           color,
           isStub,
           isDashed,
+          arrow: isStub ? "down" : undefined,
           fromHash: commit.hash,
           targetHash: line.toCommit,
           sequenceId: lineSeqId,
@@ -288,6 +339,7 @@ export function GitGraphSvg({
     visibleSet,
     hashToSequenceId,
     sequencesById,
+    showLongEdges,
   ]);
 
   const { visibleLines, visibleNodes } = useMemo(() => {
@@ -303,6 +355,8 @@ export function GitGraphSvg({
         color: line.color,
         isStub: line.isStub,
         isDashed: line.isDashed,
+        arrow: line.arrow,
+        jumpToHash: line.jumpToHash,
         fromHash: line.fromHash,
         targetHash: line.targetHash,
         sequenceId: line.sequenceId,
@@ -334,6 +388,8 @@ export function GitGraphSvg({
       <g ref={scrollGroupRef} transform={`translate(0, ${-scrollTop})`}>
         {visibleLines.map((line) => {
           const hasSeq = !!line.sequenceId;
+          const isJumpStub = !!line.jumpToHash;
+          const interactive = hasSeq || isJumpStub;
           const isSeqHovered = hasSeq && line.sequenceId === hoveredSequenceId;
           const isSeqCollapsed =
             hasSeq && collapsedSequenceIds.has(line.sequenceId as string);
@@ -344,14 +400,15 @@ export function GitGraphSvg({
             if (isSeqHovered) className += " sequence-hover";
             if (isSeqCollapsed) className += " sequence-collapsed";
           }
+          if (isJumpStub) className += " graph-jump-stub interactive";
 
           return (
             <g
               key={line.key}
               className={className}
               style={{
-                cursor: hasSeq ? "pointer" : "default",
-                pointerEvents: hasSeq ? "auto" : "none",
+                cursor: interactive ? "pointer" : "default",
+                pointerEvents: interactive ? "auto" : "none",
               }}
               onMouseEnter={() => {
                 if (hasSeq) setHoveredSequenceId(line.sequenceId as string);
@@ -360,6 +417,10 @@ export function GitGraphSvg({
                 if (hasSeq) setHoveredSequenceId(null);
               }}
               onClick={() => {
+                if (line.jumpToHash) {
+                  jumpToCommit(line.jumpToHash);
+                  return;
+                }
                 if (line.sequenceId) {
                   const seq = sequencesById[line.sequenceId];
                   if (seq) {
@@ -368,6 +429,9 @@ export function GitGraphSvg({
                 }
               }}
             >
+              {isJumpStub && (
+                <title>{`Jump to ${line.jumpToHash?.slice(0, 8)}`}</title>
+              )}
               <path
                 className="graph-line-path"
                 d={line.d}
@@ -381,9 +445,15 @@ export function GitGraphSvg({
                 }
                 opacity={1}
               />
-              {line.isStub && (
+              {line.arrow === "down" && (
                 <polygon
                   points={`${line.toX - 2.5},${line.toY - 4} ${line.toX},${line.toY} ${line.toX + 2.5},${line.toY - 4}`}
+                  fill={line.color}
+                />
+              )}
+              {line.arrow === "up" && (
+                <polygon
+                  points={`${line.toX - 2.5},${line.toY + 4} ${line.toX},${line.toY} ${line.toX + 2.5},${line.toY + 4}`}
                   fill={line.color}
                 />
               )}
@@ -392,7 +462,7 @@ export function GitGraphSvg({
                 d={line.d}
                 fill="none"
                 stroke="transparent"
-                strokeWidth={hasSeq ? 12 : 0}
+                strokeWidth={interactive ? 12 : 0}
                 strokeLinejoin="round"
                 strokeLinecap="round"
               />

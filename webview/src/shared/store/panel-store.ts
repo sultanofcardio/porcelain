@@ -36,6 +36,73 @@ export interface PanelFilter {
   dateAfter: string;
   dateBefore: string;
   file: string;
+  /** Pathspecs (files or folders) narrowing the log, one per entry. */
+  paths: string[];
+  /** Order commits topologically instead of by commit date. */
+  sortTopo: boolean;
+  /** Follow only the first parent at merge commits. */
+  firstParent: boolean;
+  /** Exclude merge commits entirely. */
+  noMerges: boolean;
+}
+
+/** Row/graph presentation preferences, persisted per client. */
+export interface LogPresentation {
+  /** Draw edges longer than the stub threshold in full. */
+  showLongEdges: boolean;
+  /** Show only the first ref label per commit, with a +N overflow. */
+  compactRefs: boolean;
+  /** Show tag labels in commit rows. */
+  showTagNames: boolean;
+  /** Date column shows the committer timestamp instead of the author's. */
+  preferCommitDate: boolean;
+  /** Emphasize commits authored by the configured git identity. */
+  highlightMyCommits: boolean;
+  /** Render merge commit subjects dimmed. */
+  dimMergeCommits: boolean;
+  /** Fade commits not reachable from the checked-out branch. */
+  fadeOtherBranches: boolean;
+}
+
+/**
+ * Whether any value-bearing filter field narrows the log. Search-mode toggles
+ * and the sort order are preferences, not filters; first-parent and no-merges
+ * hide commits, so they count. Tolerates partial filter objects from older
+ * persisted state and test fixtures.
+ */
+export function hasActiveLogFilter(filter: PanelFilter): boolean {
+  return (
+    !!filter.searchQuery ||
+    !!filter.branch ||
+    !!filter.author ||
+    !!filter.dateRange ||
+    !!filter.file ||
+    (filter.paths?.length ?? 0) > 0 ||
+    !!filter.firstParent ||
+    !!filter.noMerges
+  );
+}
+
+const PRESENTATION_STORAGE_KEY = "logPresentation";
+
+const DEFAULT_PRESENTATION: LogPresentation = {
+  showLongEdges: false,
+  compactRefs: false,
+  showTagNames: true,
+  preferCommitDate: false,
+  highlightMyCommits: false,
+  dimMergeCommits: false,
+  fadeOtherBranches: true,
+};
+
+function loadPresentation(): LogPresentation {
+  try {
+    const raw = localStorage.getItem(PRESENTATION_STORAGE_KEY);
+    if (!raw) return DEFAULT_PRESENTATION;
+    return { ...DEFAULT_PRESENTATION, ...JSON.parse(raw) };
+  } catch {
+    return DEFAULT_PRESENTATION;
+  }
 }
 
 export interface PanelLoadError {
@@ -136,6 +203,8 @@ export interface PanelStore {
     singleClickAction?: "filter" | "navigate";
   }) => Promise<void>;
   navigateToRef: (ref: GitRefIdentity, targetHash: string) => Promise<void>;
+  /** Reveal an arbitrary commit in the unfiltered log (go-to hash/ref). */
+  navigateToCommit: (label: string, targetHash: string) => Promise<void>;
   clearScrollTarget: () => void;
   setHoveredColumn: (column: number | null) => void;
   toggleColumnVisibility: (column: "author" | "date" | "hash") => void;
@@ -144,6 +213,13 @@ export interface PanelStore {
   collapseAllSequences: () => void;
   /** Expand every collapsed linear run. */
   expandAllSequences: () => void;
+  /** Persisted row/graph presentation preferences. */
+  presentation: LogPresentation;
+  togglePresentation: (key: keyof LogPresentation) => void;
+  /** The configured git identity, fetched lazily for the My Commits highlighter. */
+  myIdentity: string | null;
+  /** Select and scroll to a loaded, visible commit (long-edge stub jumps). */
+  jumpToCommit: (hash: string) => void;
   toggleBranchGroupByDirectory: () => void;
   refresh: (options?: RefreshOptions) => Promise<void>;
   /**
@@ -291,6 +367,10 @@ function queryParams(filter: PanelFilter): Record<string, unknown> {
     ...(filter.author ? { author: filter.author } : {}),
     ...dateRangeParams(filter),
     ...(filter.file ? { file: filter.file } : {}),
+    ...((filter.paths?.length ?? 0) > 0 ? { paths: filter.paths } : {}),
+    ...(filter.sortTopo ? { sortTopo: true } : {}),
+    ...(filter.firstParent ? { firstParent: true } : {}),
+    ...(filter.noMerges ? { noMerges: true } : {}),
   };
 }
 
@@ -545,7 +625,13 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
       dateAfter: "",
       dateBefore: "",
       file: "",
+      paths: [],
+      sortTopo: false,
+      firstParent: false,
+      noMerges: false,
     },
+    presentation: loadPresentation(),
+    myIdentity: null,
     pendingSelectionFromFilter: [],
     collapsedSequenceIds: new Set(),
     collapsedIntermediates: new Map(),
@@ -607,6 +693,9 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
       const start = Date.now();
       const operation = (async () => {
         try {
+          // A persisted My Commits highlighter needs the identity resolved
+          // before rows can be emphasized; fire-and-forget alongside the load.
+          if (get().presentation.highlightMyCommits) void ensureMyIdentity();
           let requestedFilter = { ...get().filter };
           const branchesRequest = request("getBranches") as Promise<
             BranchInfo[] | null
@@ -1146,7 +1235,11 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
         (next.dateRange === "custom" &&
           (current.dateAfter !== next.dateAfter ||
             current.dateBefore !== next.dateBefore)) ||
-        current.file !== next.file;
+        current.file !== next.file ||
+        (current.paths ?? []).join("\n") !== (next.paths ?? []).join("\n") ||
+        current.sortTopo !== next.sortTopo ||
+        current.firstParent !== next.firstParent ||
+        current.noMerges !== next.noMerges;
       if (!queryChanged) {
         // Still record inert changes (for example toggling regex with an
         // empty search box) so the toggle is armed for the next query.
@@ -1279,21 +1372,19 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
     },
 
     async navigateToRef(ref, targetHash) {
+      await get().navigateToCommit(ref.name, targetHash);
+    },
+
+    async navigateToCommit(label, targetHash) {
       const generation = ++navigationGeneration;
       const filter = get().filter;
-      // Search-mode toggles alone don't narrow the log; only value-bearing
-      // fields can hide the target commit.
-      const hasActiveFilter =
-        !!filter.searchQuery ||
-        !!filter.branch ||
-        !!filter.author ||
-        !!filter.dateRange ||
-        !!filter.file;
+      const hasActiveFilter = hasActiveLogFilter(filter);
 
       // Navigate means reveal this ref's head in the main log. Any active filter
-      // can hide that commit, so clear it and await the replacement log before
-      // searching or paginating. The regex/match-case toggles are preferences,
-      // not filters, and survive the clear.
+      // can hide that commit — first-parent and no-merges included — so clear
+      // them and await the replacement log before searching or paginating. The
+      // regex/match-case toggles and the sort order are preferences, not
+      // filters, and survive the clear.
       if (hasActiveFilter) {
         set({
           filter: {
@@ -1306,6 +1397,10 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
             dateAfter: "",
             dateBefore: "",
             file: "",
+            paths: [],
+            sortTopo: filter.sortTopo,
+            firstParent: false,
+            noMerges: false,
           },
           pendingSelectionFromFilter: [],
           collapsedSequenceIds: new Set(),
@@ -1335,7 +1430,7 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
         await request(
           "showErrorNotification",
           {
-            message: `Could not find ${ref.name} (${targetHash.slice(0, 8)}) in the loaded log.`,
+            message: `Could not find ${label} (${targetHash.slice(0, 8)}) in the loaded log.`,
           },
           { scope: "global" },
         );
@@ -1459,6 +1554,29 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
       applyCollapseState(new Set(), new Map());
     },
 
+    togglePresentation(key) {
+      const next = {
+        ...get().presentation,
+        [key]: !get().presentation[key],
+      };
+      try {
+        localStorage.setItem(PRESENTATION_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      set({ presentation: next });
+      if (key === "highlightMyCommits" && next.highlightMyCommits) {
+        void ensureMyIdentity();
+      }
+    },
+
+    jumpToCommit(hash) {
+      const visibleHashes = get().visibleCommits.map((c) => c.hash);
+      if (!visibleHashes.includes(hash)) return;
+      void get().selectCommit(hash, "single", visibleHashes, "navigation");
+      set({ scrollTargetHash: hash });
+    },
+
     async refresh(refreshOptions = {}) {
       // A command surface explicitly refreshes after its mutation succeeds.
       // Consume any watcher/event refresh queued for the same mutation so the
@@ -1503,6 +1621,10 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
           dateAfter: filter.dateAfter,
           dateBefore: filter.dateBefore,
           file: "",
+          paths: [],
+          sortTopo: filter.sortTopo,
+          firstParent: filter.firstParent,
+          noMerges: filter.noMerges,
         },
         loading: false,
       });
@@ -1528,12 +1650,29 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
           dateAfter: filter.dateAfter,
           dateBefore: filter.dateBefore,
           file: "",
+          paths: [],
+          sortTopo: filter.sortTopo,
+          firstParent: filter.firstParent,
+          noMerges: filter.noMerges,
         },
         hasMore: true,
         loading: false,
       });
     },
   }));
+
+  /** Fetch the configured git identity once for the My Commits highlighter. */
+  async function ensureMyIdentity(): Promise<void> {
+    if (store.getState().myIdentity !== null) return;
+    try {
+      const identity = (await request("getUserIdentity")) as {
+        name: string | null;
+      } | null;
+      if (identity?.name) store.setState({ myIdentity: identity.name });
+    } catch (err) {
+      console.error("getUserIdentity failed:", err);
+    }
+  }
 
   /**
    * Replace the collapse state wholesale (collapse-all / expand-all), then

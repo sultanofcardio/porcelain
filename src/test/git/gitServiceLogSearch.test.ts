@@ -82,6 +82,128 @@ describe("gitService log search modes", () => {
   });
 });
 
+describe("gitService log graph modes and paths", () => {
+  let repo: GitTestRepo;
+  let service: GitService;
+
+  beforeEach(async () => {
+    repo = await GitTestRepo.create();
+    await repo.writeFile("main.txt", "main\n");
+    await repo.git("add", "main.txt");
+    await commitAs(repo, "Ada Lovelace", "base");
+    await repo.git("checkout", "-b", "feature");
+    await repo.writeFile("feature.txt", "feature\n");
+    await repo.git("add", "feature.txt");
+    await commitAs(repo, "Ada Lovelace", "feature work");
+    await repo.git("checkout", "main");
+    await repo.writeFile("main.txt", "main again\n");
+    await repo.git("add", "main.txt");
+    await commitAs(repo, "Ada Lovelace", "main work");
+    await repo.git("merge", "--no-ff", "-m", "merge feature", "feature");
+    service = serviceFor(repo);
+  });
+
+  it("excludes merge commits with noMerges", async () => {
+    const commits = await service.getLog({ noMerges: true });
+    assert.ok(!commits.some((c) => c.subject === "merge feature"));
+    assert.ok(commits.some((c) => c.subject === "feature work"));
+  });
+
+  it("follows only the first parent with firstParent", async () => {
+    // The unfiltered log walks --all, where the feature tip is still a head;
+    // scope to main so first-parent traversal is what hides the side branch.
+    const full = await service.getLog({ branch: "main" });
+    assert.ok(full.some((c) => c.subject === "feature work"));
+
+    const commits = await service.getLog({
+      branch: "main",
+      firstParent: true,
+    });
+    assert.ok(commits.some((c) => c.subject === "merge feature"));
+    assert.ok(!commits.some((c) => c.subject === "feature work"));
+  });
+
+  it("returns the same commits under topological order", async () => {
+    const byDate = await service.getLog({});
+    const topo = await service.getLog({ sortTopo: true });
+    assert.deepStrictEqual(
+      topo.map((c) => c.subject).sort(),
+      byDate.map((c) => c.subject).sort(),
+    );
+  });
+
+  it("narrows the log to the given pathspecs", async () => {
+    const commits = await service.getLog({ paths: ["feature.txt"] });
+    assert.deepStrictEqual(
+      commits.map((c) => c.subject),
+      ["feature work"],
+    );
+  });
+
+  it("parses the committer timestamp", async () => {
+    const [head] = await service.getLog({ maxCount: 1 });
+    assert.ok(head.committerDate);
+    assert.ok(!Number.isNaN(new Date(head.committerDate).getTime()));
+  });
+});
+
+describe("gitService.resolveRevisionInput", () => {
+  it("resolves abbreviated hashes, branch names, and tag names", async () => {
+    const repo = await GitTestRepo.create();
+    await commitAs(repo, "Ada Lovelace", "one");
+    const hash = (await repo.git("rev-parse", "HEAD")).trim();
+    await repo.git("tag", "v1");
+    await repo.git("branch", "topic");
+    const service = serviceFor(repo);
+
+    assert.strictEqual(await service.resolveRevisionInput(hash), hash);
+    assert.strictEqual(
+      await service.resolveRevisionInput(hash.slice(0, 7)),
+      hash,
+    );
+    assert.strictEqual(await service.resolveRevisionInput("topic"), hash);
+    assert.strictEqual(await service.resolveRevisionInput("v1"), hash);
+    assert.strictEqual(await service.resolveRevisionInput("no-such-ref"), null);
+    assert.strictEqual(await service.resolveRevisionInput("  "), null);
+  });
+});
+
+describe("gitService.getUserIdentity", () => {
+  it("returns the configured name and email", async () => {
+    const repo = await GitTestRepo.create();
+    const service = serviceFor(repo);
+    assert.deepStrictEqual(await service.getUserIdentity(), {
+      name: "Porcelain Test",
+      email: "porcelain@example.com",
+    });
+  });
+});
+
+describe("gitService.cherryPick", () => {
+  it("applies a multi-commit selection oldest-first", async () => {
+    const repo = await GitTestRepo.create();
+    await repo.writeFile("a.txt", "base\n");
+    await repo.git("add", "a.txt");
+    await commitAs(repo, "Ada Lovelace", "base");
+    await repo.git("checkout", "-b", "feature");
+    await repo.writeFile("b.txt", "one\n");
+    await repo.git("add", "b.txt");
+    await commitAs(repo, "Ada Lovelace", "pick one");
+    const first = (await repo.git("rev-parse", "HEAD")).trim();
+    await repo.writeFile("c.txt", "two\n");
+    await repo.git("add", "c.txt");
+    await commitAs(repo, "Ada Lovelace", "pick two");
+    const second = (await repo.git("rev-parse", "HEAD")).trim();
+    await repo.git("checkout", "main");
+    const service = serviceFor(repo);
+
+    await service.cherryPick([first, second]);
+
+    const subjects = (await repo.git("log", "--format=%s", "-3")).split("\n");
+    assert.deepStrictEqual(subjects.slice(0, 2), ["pick two", "pick one"]);
+  });
+});
+
 describe("gitService.getLogAuthors", () => {
   it("lists every author across history and the configured identity", async () => {
     const repo = await GitTestRepo.create();

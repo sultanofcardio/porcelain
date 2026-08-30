@@ -2415,9 +2415,7 @@ describe("panel-store collapse-all / expand-all", () => {
   });
 
   it("keeps selection on a collapsed commit's nearest visible fallback", () => {
-    const { bridge: fakeBridge } = createFakeBridge(
-      vi.fn(async () => []),
-    );
+    const { bridge: fakeBridge } = createFakeBridge(vi.fn(async () => []));
     const instance = createGitLogStore({
       repoId: "repo-a",
       history: { kind: "ordinary" },
@@ -2441,6 +2439,113 @@ describe("panel-store collapse-all / expand-all", () => {
       // The selected intermediate vanished; selection falls back to the first
       // visible commit instead of pointing at a hidden row.
       expect(instance.store.getState().selectedCommitHash).toBe("head");
+    } finally {
+      instance.dispose();
+    }
+  });
+});
+
+describe("panel-store graph modes, paths, and presentation", () => {
+  function instanceWith(request: ReturnType<typeof vi.fn>) {
+    const { bridge: fakeBridge } = createFakeBridge(request);
+    return createGitLogStore({
+      repoId: "repo-a",
+      history: { kind: "ordinary" },
+      followGlobalActiveRepo: false,
+      showCurrentReachability: false,
+      bridge: fakeBridge,
+    });
+  }
+
+  function stubRequest() {
+    return vi.fn(async (command: string) => {
+      if (command === "getBranches" || command === "getTags") return [];
+      if (command === "getGraphData") return graphResult([]);
+      if (command === "getCommitRangeFiles") return [];
+      return null;
+    });
+  }
+
+  it("sends graph modes and pathspecs to the host query", async () => {
+    vi.useFakeTimers();
+    const request = stubRequest();
+    const instance = instanceWith(request);
+
+    try {
+      instance.store.getState().setFilter({
+        paths: ["src/components", "README.md"],
+        sortTopo: true,
+        noMerges: true,
+      });
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(request).toHaveBeenCalledWith(
+        "getGraphData",
+        expect.objectContaining({
+          paths: ["src/components", "README.md"],
+          sortTopo: true,
+          noMerges: true,
+        }),
+        expect.objectContaining({ repoId: "repo-a" }),
+      );
+      const params = request.mock.calls.find(
+        (c) => c[0] === "getGraphData",
+      )?.[1] as Record<string, unknown>;
+      expect(params.firstParent).toBeUndefined();
+    } finally {
+      instance.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("persists presentation toggles and fetches the identity for My Commits", async () => {
+    const request = vi.fn(async (command: string) => {
+      if (command === "getUserIdentity") {
+        return { name: "Ada Lovelace", email: "ada@example.com" };
+      }
+      return null;
+    });
+    const instance = instanceWith(request);
+
+    try {
+      localStorage.removeItem("logPresentation");
+      expect(instance.store.getState().presentation.dimMergeCommits).toBe(
+        false,
+      );
+      instance.store.getState().togglePresentation("dimMergeCommits");
+      expect(instance.store.getState().presentation.dimMergeCommits).toBe(true);
+      expect(
+        JSON.parse(localStorage.getItem("logPresentation") ?? "{}")
+          .dimMergeCommits,
+      ).toBe(true);
+
+      instance.store.getState().togglePresentation("highlightMyCommits");
+      await vi.waitFor(() => {
+        expect(instance.store.getState().myIdentity).toBe("Ada Lovelace");
+      });
+    } finally {
+      localStorage.removeItem("logPresentation");
+      instance.dispose();
+    }
+  });
+
+  it("navigateToCommit selects and scrolls to a loaded commit", async () => {
+    const target = commit("cafebabe");
+    const request = vi.fn(async (command: string) => {
+      if (command === "getCommitRangeFiles") return [];
+      return null;
+    });
+    const instance = instanceWith(request);
+
+    try {
+      instance.store.setState({
+        commits: [commit("aaaa"), target],
+        visibleCommits: [commit("aaaa"), target],
+        hasMore: false,
+      });
+      await instance.store.getState().navigateToCommit("cafebabe", "cafebabe");
+      expect(instance.store.getState().selectedCommitHash).toBe("cafebabe");
+      expect(instance.store.getState().scrollTargetHash).toBe("cafebabe");
     } finally {
       instance.dispose();
     }

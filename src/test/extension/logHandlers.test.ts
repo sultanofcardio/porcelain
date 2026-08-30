@@ -171,6 +171,10 @@ describe("structured log handlers", () => {
       since: "2026-01-01",
       until: "2026-02-01",
       file: "src/index.ts",
+      paths: ["src/components"],
+      sortTopo: true,
+      firstParent: false,
+      noMerges: true,
       snapshot,
     });
 
@@ -190,6 +194,10 @@ describe("structured log handlers", () => {
         since: "2026-01-01",
         until: "2026-02-01",
         file: "src/index.ts",
+        paths: ["src/components"],
+        sortTopo: true,
+        firstParent: false,
+        noMerges: true,
       },
       snapshot,
       currentRef: mainRef.fullRef,
