@@ -31,6 +31,7 @@ import {
   ErrorCode,
   type FileVersionsResult,
 } from "./messages/protocol";
+import { registerRefHandlers } from "./messages/refHandlers";
 import { ChangesWindowManager } from "./views/changesWindowManager";
 import { CommitViewProvider } from "./views/commitViewProvider";
 import {
@@ -419,6 +420,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // If GitService is unavailable, handlers return { status: 'not_git_repo' }
 
   registerLogHandlers(messageRouter);
+  registerRefHandlers(messageRouter);
   registerComparePanelHandlers(messageRouter, comparePanelManager);
 
   messageRouter.handle("openMergeEditor", async (params, ctx) => {

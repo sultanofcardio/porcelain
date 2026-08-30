@@ -1,0 +1,135 @@
+import { withProgress } from "../extension";
+import type { MessageRouter } from "./messageRouter";
+import type { RequestContext } from "./protocol";
+
+const NOT_GIT_REPO = { status: "not_git_repo" as const, data: null };
+
+function requireString(value: unknown, field: string): string {
+  if (typeof value !== "string" || !value) {
+    throw new Error(`${field} is required`);
+  }
+  return value;
+}
+
+function requireStringArray(value: unknown, field: string): string[] {
+  if (!Array.isArray(value) || value.some((v) => typeof v !== "string")) {
+    throw new Error(`${field} must be an array of strings`);
+  }
+  return value as string[];
+}
+
+/**
+ * Branch, tag, and remote management — the ref-shaped half of the Git Log's
+ * command surface. Mutations broadcast `gitStateChanged` so every open surface
+ * re-reads the refs they just changed.
+ */
+export function registerRefHandlers(router: MessageRouter): void {
+  const mutate = (
+    context: RequestContext,
+    run: () => Promise<unknown>,
+  ): Promise<unknown> =>
+    withProgress(router, context.repoId, async () => {
+      const result = await run();
+      router.broadcastEvent("gitStateChanged", {
+        scope: "all",
+        repoId: context.repoId,
+      });
+      return result ?? { success: true };
+    });
+
+  router.handle("getRecentBranches", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const limit = typeof params.limit === "number" ? params.limit : undefined;
+    return context.gitService.getRecentBranches(limit);
+  });
+
+  router.handle("smartCheckout", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const branchName = requireString(params.branchName, "branchName");
+    return mutate(context, () => context.gitService.smartCheckout(branchName));
+  });
+
+  router.handle("getUnmergedCommits", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const branchName = requireString(params.branchName, "branchName");
+    const target =
+      typeof params.target === "string" ? params.target : undefined;
+    return context.gitService.getUnmergedCommits(branchName, target);
+  });
+
+  router.handle("resetToRemoteBranch", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const branchName = requireString(params.branchName, "branchName");
+    return mutate(context, () =>
+      context.gitService.resetToRemoteBranch(branchName),
+    );
+  });
+
+  router.handle("getMergedBranches", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const target =
+      typeof params.target === "string" ? params.target : undefined;
+    const prefix =
+      typeof params.prefix === "string" ? params.prefix : undefined;
+    return context.gitService.getMergedBranches(target, prefix);
+  });
+
+  router.handle("deleteTag", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const tagName = requireString(params.tagName, "tagName");
+    return mutate(context, () => context.gitService.deleteTag(tagName));
+  });
+
+  router.handle("deleteRemoteTag", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const tagName = requireString(params.tagName, "tagName");
+    const remotes = requireStringArray(params.remotes, "remotes");
+    return mutate(context, () =>
+      context.gitService.deleteRemoteTag(tagName, remotes),
+    );
+  });
+
+  router.handle("pushTag", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const remote = requireString(params.remote, "remote");
+    const tagName =
+      typeof params.tagName === "string" && params.tagName
+        ? params.tagName
+        : undefined;
+    return mutate(context, () => context.gitService.pushTag(remote, tagName));
+  });
+
+  router.handle("getRemotes", async (_params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    return context.gitService.getRemotes();
+  });
+
+  router.handle("addRemote", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const name = requireString(params.name, "name");
+    const url = requireString(params.url, "url");
+    return mutate(context, () => context.gitService.addRemote(name, url));
+  });
+
+  router.handle("renameRemote", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const oldName = requireString(params.oldName, "oldName");
+    const newName = requireString(params.newName, "newName");
+    return mutate(context, () =>
+      context.gitService.renameRemote(oldName, newName),
+    );
+  });
+
+  router.handle("setRemoteUrl", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const name = requireString(params.name, "name");
+    const url = requireString(params.url, "url");
+    return mutate(context, () => context.gitService.setRemoteUrl(name, url));
+  });
+
+  router.handle("removeRemote", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const name = requireString(params.name, "name");
+    return mutate(context, () => context.gitService.removeRemote(name));
+  });
+}

@@ -909,8 +909,213 @@ export class GitService {
   }
 
   async checkout(branchName: string): Promise<void> {
-    await this.execGit(["checkout", branchName]);
+    try {
+      await this.execGit(["checkout", branchName]);
+    } catch (error) {
+      // IntelliJ answers this case with the smart-checkout offer rather than
+      // the raw git text, so the failure needs a code the UI can branch on.
+      const detail = gitErrorText(error);
+      if (
+        /would be overwritten by checkout|Please commit your changes or stash them/i.test(
+          detail,
+        )
+      ) {
+        throw new PorcelainError(
+          PorcelainErrorCode.LOCAL_CHANGES_WOULD_BE_OVERWRITTEN,
+          `Local changes would be overwritten by checking out '${branchName}'`,
+          "Stash the changes, check out, and restore them (smart checkout), or cancel.",
+        );
+      }
+      throw error;
+    }
     this.invalidateCache();
+  }
+
+  /**
+   * IntelliJ's smart checkout: stash what blocks the switch, check out, then
+   * restore. A restore conflict leaves the stash in place deliberately —
+   * dropping it would lose the user's work.
+   */
+  async smartCheckout(
+    branchName: string,
+  ): Promise<{ restored: boolean; stashRef?: string }> {
+    await this.validateBranch(branchName);
+    const message = `porcelain: smart checkout ${branchName}`;
+    await this.execGit(["stash", "push", "--include-untracked", "-m", message]);
+    const stashRef = (await this.execGit(["rev-parse", "stash@{0}"]))
+      .trim()
+      .slice(0, 40);
+    try {
+      await this.execGit(["checkout", branchName]);
+    } catch (error) {
+      // Put the working tree back the way we found it before surfacing this.
+      await this.execGit(["stash", "pop"]).catch(() => undefined);
+      this.invalidateCache();
+      throw error;
+    }
+    try {
+      await this.execGit(["stash", "pop"]);
+      this.invalidateCache();
+      return { restored: true };
+    } catch {
+      this.invalidateCache();
+      return { restored: false, stashRef };
+    }
+  }
+
+  /** Branches ordered by most recent checkout, read from the reflog. */
+  async getRecentBranches(limit = 10): Promise<string[]> {
+    const cacheKey = `refs:recent:${limit}`;
+    const cached = this.cache.get<string[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const output = await this.execGit([
+      "reflog",
+      "show",
+      "--format=%gs",
+      "-n",
+      "200",
+    ]).catch(() => "");
+    const seen: string[] = [];
+    for (const line of output.split("\n")) {
+      // "checkout: moving from <a> to <b>" — <b> is what was checked out.
+      const match = line.match(/^checkout: moving from (.+) to (.+)$/);
+      const name = match?.[2]?.trim();
+      if (!name || seen.includes(name)) continue;
+      // Detached checkouts record a hash, which is not a branch to offer.
+      if (/^[0-9a-f]{7,64}$/i.test(name)) continue;
+      seen.push(name);
+      if (seen.length >= limit) break;
+    }
+    this.cache.set(cacheKey, seen);
+    return seen;
+  }
+
+  /** Commits on `branchName` that `target` does not contain. */
+  async getUnmergedCommits(
+    branchName: string,
+    target = "HEAD",
+  ): Promise<CommitNode[]> {
+    // The range revision takes full refs (or HEAD), so bare branch names are
+    // resolved through git rather than concatenated into a ref path.
+    const [includeRef, excludeRef] = await Promise.all([
+      this.resolveFullRef(branchName),
+      this.resolveFullRef(target),
+    ]);
+    return this.getLog({
+      revision: { kind: "range", excludeRef, includeRef },
+      maxCount: 50,
+    });
+  }
+
+  /** Expand a branch name to its full ref; HEAD and full refs pass through. */
+  private async resolveFullRef(nameOrRef: string): Promise<string> {
+    if (nameOrRef === "HEAD" || nameOrRef.startsWith("refs/")) {
+      return nameOrRef;
+    }
+    await this.validateBranch(nameOrRef);
+    const full = (
+      await this.execGit(["rev-parse", "--symbolic-full-name", nameOrRef])
+    ).trim();
+    if (!full.startsWith("refs/")) {
+      throw new PorcelainError(
+        PorcelainErrorCode.BRANCH_NOT_FOUND,
+        `No branch named '${nameOrRef}'`,
+      );
+    }
+    return full;
+  }
+
+  /** Drop local commits so the branch matches its upstream exactly. */
+  async resetToRemoteBranch(branchName: string): Promise<void> {
+    await this.validateBranch(branchName);
+    const upstream = (
+      await this.execGit([
+        "rev-parse",
+        "--abbrev-ref",
+        `${branchName}@{upstream}`,
+      ]).catch(() => "")
+    ).trim();
+    if (!upstream) {
+      throw new PorcelainError(
+        PorcelainErrorCode.BRANCH_NO_UPSTREAM,
+        `Branch '${branchName}' has no upstream to reset to`,
+        "Set a tracked branch first.",
+      );
+    }
+    const current = await this.getCurrentBranch();
+    if (current !== branchName) {
+      throw new PorcelainError(
+        PorcelainErrorCode.BRANCH_NOT_FOUND,
+        `Only the checked-out branch can be reset to its remote`,
+        `Check out '${branchName}' first.`,
+      );
+    }
+    await this.execGit(["reset", "--hard", upstream]);
+    this.invalidateCache();
+  }
+
+  /**
+   * Local branches already contained in `target`, with the metadata the
+   * cleanup dialog shows. `prefix` narrows to a directory-style namespace.
+   */
+  async getMergedBranches(
+    target = "HEAD",
+    prefix = "",
+  ): Promise<
+    Array<{
+      name: string;
+      lastCommitDate: string;
+      upstream?: string;
+      merged: boolean;
+    }>
+  > {
+    if (target !== "HEAD") await this.validateBranch(target);
+    const merged = new Set(
+      (
+        await this.execGit([
+          "branch",
+          "--merged",
+          target,
+          "--format=%(refname:short)",
+        ])
+      )
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean),
+    );
+    const output = await this.execGit([
+      "branch",
+      `--format=${[
+        "%(refname:short)",
+        "%(committerdate:iso8601)",
+        "%(upstream:short)",
+        "%(HEAD)",
+      ].join("%00")}`,
+    ]);
+    const rows: Array<{
+      name: string;
+      lastCommitDate: string;
+      upstream?: string;
+      merged: boolean;
+    }> = [];
+    for (const line of output.split("\n")) {
+      if (!line.trim()) continue;
+      const [name, date, upstream, head] = line.split(FIELD_SEP);
+      const branchName = name?.trim() ?? "";
+      if (!branchName) continue;
+      // The checked-out branch is never a cleanup candidate.
+      if (head?.trim() === "*") continue;
+      if (prefix && !branchName.startsWith(prefix)) continue;
+      rows.push({
+        name: branchName,
+        lastCommitDate: date?.trim() ?? "",
+        upstream: upstream?.trim() || undefined,
+        merged: merged.has(branchName),
+      });
+    }
+    return rows;
   }
 
   async createBranch(
@@ -1295,13 +1500,163 @@ export class GitService {
     tagName: string,
     hash: string,
     message?: string,
+    force = false,
   ): Promise<void> {
+    const forceFlag = force ? ["-f"] : [];
     if (message) {
-      await this.execGit(["tag", "-a", tagName, hash, "-m", message]);
+      await this.execGit([
+        "tag",
+        ...forceFlag,
+        "-a",
+        tagName,
+        hash,
+        "-m",
+        message,
+      ]);
     } else {
-      await this.execGit(["tag", tagName, hash]);
+      await this.execGit(["tag", ...forceFlag, tagName, hash]);
     }
     this.invalidateCache();
+  }
+
+  async deleteTag(tagName: string): Promise<void> {
+    await this.validateRef(`refs/tags/${tagName}`);
+    await this.execGit(["tag", "-d", tagName]);
+    this.invalidateCache();
+  }
+
+  /** Delete a tag on one or more remotes, reporting where it existed. */
+  async deleteRemoteTag(
+    tagName: string,
+    remotes: string[],
+  ): Promise<Array<{ remote: string; deleted: boolean; message?: string }>> {
+    await this.validateRef(`refs/tags/${tagName}`);
+    const results: Array<{
+      remote: string;
+      deleted: boolean;
+      message?: string;
+    }> = [];
+    for (const remote of remotes) {
+      await this.validateRemoteName(remote);
+      try {
+        await this.execGit([
+          "push",
+          remote,
+          "--delete",
+          `refs/tags/${tagName}`,
+        ]);
+        results.push({ remote, deleted: true });
+      } catch (error) {
+        results.push({
+          remote,
+          deleted: false,
+          message: gitErrorText(error).trim(),
+        });
+      }
+    }
+    this.invalidateCache();
+    return results;
+  }
+
+  /** Push one tag, or every tag, to a remote. */
+  async pushTag(remote: string, tagName?: string): Promise<void> {
+    await this.validateRemoteName(remote);
+    if (tagName) {
+      await this.validateRef(`refs/tags/${tagName}`);
+      await this.execGit(["push", remote, `refs/tags/${tagName}`]);
+    } else {
+      await this.execGit(["push", remote, "--tags"]);
+    }
+    this.invalidateCache();
+  }
+
+  /** Configured remotes with their fetch URLs. */
+  async getRemotes(): Promise<Array<{ name: string; url: string }>> {
+    const cacheKey = "refs:remotes";
+    const cached =
+      this.cache.get<Array<{ name: string; url: string }>>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const output = await this.execGit(["remote", "-v"]).catch(() => "");
+    const byName = new Map<string, string>();
+    for (const line of output.split("\n")) {
+      if (!line.trim()) continue;
+      const match = line.match(/^(\S+)\s+(\S+)\s+\(fetch\)$/);
+      if (match) byName.set(match[1], match[2]);
+    }
+    const result = [...byName].map(([name, url]) => ({ name, url }));
+    this.cache.set(cacheKey, result);
+    return result;
+  }
+
+  async addRemote(name: string, url: string): Promise<void> {
+    await this.validateRemoteName(name, { mustExist: false });
+    assertRemoteUrl(url);
+    try {
+      await this.execGit(["remote", "add", name, url]);
+    } catch (error) {
+      if (/already exists/i.test(gitErrorText(error))) {
+        throw new PorcelainError(
+          PorcelainErrorCode.REMOTE_ALREADY_EXISTS,
+          `A remote named '${name}' already exists`,
+          "Pick another name, or edit the existing remote.",
+        );
+      }
+      throw error;
+    }
+    this.invalidateCache();
+  }
+
+  async renameRemote(oldName: string, newName: string): Promise<void> {
+    await this.validateRemoteName(oldName);
+    await this.validateRemoteName(newName, { mustExist: false });
+    await this.execGit(["remote", "rename", oldName, newName]);
+    this.invalidateCache();
+  }
+
+  async setRemoteUrl(name: string, url: string): Promise<void> {
+    await this.validateRemoteName(name);
+    assertRemoteUrl(url);
+    await this.execGit(["remote", "set-url", name, url]);
+    this.invalidateCache();
+  }
+
+  async removeRemote(name: string): Promise<void> {
+    await this.validateRemoteName(name);
+    await this.execGit(["remote", "remove", name]);
+    this.invalidateCache();
+  }
+
+  /**
+   * Remote names reach git as argv values, so they are checked against the
+   * configured set (or the ref-name grammar when the remote is being created).
+   */
+  private async validateRemoteName(
+    name: string,
+    options: { mustExist?: boolean } = {},
+  ): Promise<void> {
+    const mustExist = options.mustExist ?? true;
+    if (!name || name.startsWith("-")) {
+      throw new Error(`Invalid Git remote: ${name}`);
+    }
+    if (mustExist) {
+      const configured = (await this.execGit(["remote"]).catch(() => ""))
+        .split("\n")
+        .map((line) => line.trim());
+      if (!configured.includes(name)) {
+        throw new PorcelainError(
+          PorcelainErrorCode.REMOTE_NOT_FOUND,
+          `No remote named '${name}'`,
+        );
+      }
+      return;
+    }
+    try {
+      await this.execGit(["check-ref-format", `refs/remotes/${name}/HEAD`]);
+    } catch {
+      throw new Error(`Invalid Git remote: ${name}`);
+    }
   }
 
   // ─── Commit Panel Operations ───────────────────────────────────────
@@ -1783,6 +2138,17 @@ function parseWorktreeCheckouts(output: string): Map<string, string> {
     }
   }
   return result;
+}
+
+/**
+ * Remote URLs reach git as argv values. Anything starting with "-" would be
+ * read as an option, so it is rejected before the command is built.
+ */
+function assertRemoteUrl(url: string): void {
+  const trimmed = url.trim();
+  if (!trimmed || trimmed.startsWith("-")) {
+    throw new Error(`Invalid remote URL: ${url}`);
+  }
 }
 
 function parseLogOutput(output: string): CommitNode[] {
