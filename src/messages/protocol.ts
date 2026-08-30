@@ -25,6 +25,8 @@ export interface LogQueryParams extends Record<string, unknown> {
   currentRef?: GitRefIdentity;
   branch?: string;
   search?: string;
+  searchRegex?: boolean;
+  searchCaseSensitive?: boolean;
   author?: string;
   since?: string;
   until?: string;
@@ -154,6 +156,8 @@ export type CommandType =
   | "getLog"
   | "getGraphData"
   | "loadMoreLog"
+  | "getLogAuthors"
+  | "getContainingBranches"
   | "getBranches"
   | "getTags"
   | "getDiff"

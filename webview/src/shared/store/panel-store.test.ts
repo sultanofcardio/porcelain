@@ -1078,6 +1078,104 @@ describe("panel-store host-backed filters", () => {
     }
   });
 
+  it("sends the search-mode toggles with an active search only", async () => {
+    vi.useFakeTimers();
+    const request = vi.fn(async (command: string) => {
+      if (command === "getBranches" || command === "getTags") return [];
+      if (command === "getGraphData") return graphResult([]);
+      if (command === "getCommitRangeFiles") return [];
+      return null;
+    });
+    const { bridge: fakeBridge } = createFakeBridge(request);
+    const instance = createGitLogStore({
+      repoId: "repo-a",
+      history: { kind: "ordinary" },
+      followGlobalActiveRepo: false,
+      showCurrentReachability: false,
+      bridge: fakeBridge,
+    });
+
+    try {
+      // Toggling a mode with no search text arms the toggle without a refetch.
+      instance.store.getState().setFilter({ searchRegex: true });
+      await vi.advanceTimersByTimeAsync(200);
+      expect(request).not.toHaveBeenCalledWith(
+        "getGraphData",
+        expect.anything(),
+        expect.anything(),
+      );
+      expect(instance.store.getState().filter.searchRegex).toBe(true);
+
+      instance.store.getState().setFilter({
+        searchQuery: "f.x",
+        searchCaseSensitive: true,
+      });
+      await vi.advanceTimersByTimeAsync(200);
+      expect(request).toHaveBeenCalledWith(
+        "getGraphData",
+        expect.objectContaining({
+          search: "f.x",
+          searchRegex: true,
+          searchCaseSensitive: true,
+        }),
+        expect.objectContaining({ repoId: "repo-a" }),
+      );
+
+      // Flipping a mode while a search is active refetches with the new mode.
+      request.mockClear();
+      instance.store.getState().setFilter({ searchRegex: false });
+      await vi.advanceTimersByTimeAsync(200);
+      expect(request).toHaveBeenCalledWith(
+        "getGraphData",
+        expect.objectContaining({ search: "f.x", searchRegex: false }),
+        expect.objectContaining({ repoId: "repo-a" }),
+      );
+    } finally {
+      instance.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("sends a custom date range as inclusive since/until bounds", async () => {
+    vi.useFakeTimers();
+    const request = vi.fn(async (command: string) => {
+      if (command === "getBranches" || command === "getTags") return [];
+      if (command === "getGraphData") return graphResult([]);
+      if (command === "getCommitRangeFiles") return [];
+      return null;
+    });
+    const { bridge: fakeBridge } = createFakeBridge(request);
+    const instance = createGitLogStore({
+      repoId: "repo-a",
+      history: { kind: "ordinary" },
+      followGlobalActiveRepo: false,
+      showCurrentReachability: false,
+      bridge: fakeBridge,
+    });
+
+    try {
+      instance.store.getState().setFilter({
+        dateRange: "custom",
+        dateAfter: "2026-01-05",
+        dateBefore: "2026-01-10",
+      });
+      await vi.advanceTimersByTimeAsync(200);
+
+      const call = request.mock.calls.find((c) => c[0] === "getGraphData");
+      expect(call).toBeDefined();
+      const params = call?.[1] as { since: string; until: string };
+      expect(new Date(params.since).getTime()).toBe(
+        new Date("2026-01-05T00:00:00").getTime(),
+      );
+      expect(new Date(params.until).getTime()).toBe(
+        new Date("2026-01-10T23:59:59.999").getTime(),
+      );
+    } finally {
+      instance.dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it("discards a delayed earlier search response", async () => {
     vi.useFakeTimers();
     const older = deferred<ReturnType<typeof graphResult>>();
@@ -2256,5 +2354,95 @@ describe("panel-store async response ordering", () => {
     expect(usePanelStore.getState().commitFiles).toEqual([
       { newPath: "newer.ts" },
     ]);
+  });
+});
+
+describe("panel-store collapse-all / expand-all", () => {
+  function linearChain() {
+    // head → i1 → i2 → i3 → tail, all in one lane: i1..i3 are collapsible.
+    const hashes = ["head", "i1", "i2", "i3", "tail"];
+    const commits = hashes.map((hash, i) => ({
+      ...commit(hash),
+      parents: i < hashes.length - 1 ? [hashes[i + 1]] : [],
+    }));
+    const graphLayout = Object.fromEntries(
+      hashes.map((hash) => [hash, { column: 0, color: 0, lines: [] }]),
+    );
+    return { commits, graphLayout };
+  }
+
+  it("collapses every linear run and expands them all back", async () => {
+    const request = vi.fn(async (command: string) => {
+      if (command === "getCommitRangeFiles") return [];
+      return null;
+    });
+    const { bridge: fakeBridge } = createFakeBridge(request);
+    const instance = createGitLogStore({
+      repoId: "repo-a",
+      history: { kind: "ordinary" },
+      followGlobalActiveRepo: false,
+      showCurrentReachability: false,
+      bridge: fakeBridge,
+    });
+
+    try {
+      const { commits, graphLayout } = linearChain();
+      instance.store.setState({
+        commits,
+        visibleCommits: commits,
+        graphLayout,
+        selectedCommitHash: "head",
+        selectedCommitHashes: ["head"],
+        lastSelectedCommitHash: "head",
+      });
+
+      instance.store.getState().collapseAllSequences();
+      expect(
+        instance.store.getState().visibleCommits.map((c) => c.hash),
+      ).toEqual(["head", "tail"]);
+      expect(instance.store.getState().collapsedSequenceIds.size).toBe(1);
+      // The selection survives: "head" is still visible.
+      expect(instance.store.getState().selectedCommitHash).toBe("head");
+
+      instance.store.getState().expandAllSequences();
+      expect(
+        instance.store.getState().visibleCommits.map((c) => c.hash),
+      ).toEqual(["head", "i1", "i2", "i3", "tail"]);
+      expect(instance.store.getState().collapsedSequenceIds.size).toBe(0);
+    } finally {
+      instance.dispose();
+    }
+  });
+
+  it("keeps selection on a collapsed commit's nearest visible fallback", () => {
+    const { bridge: fakeBridge } = createFakeBridge(
+      vi.fn(async () => []),
+    );
+    const instance = createGitLogStore({
+      repoId: "repo-a",
+      history: { kind: "ordinary" },
+      followGlobalActiveRepo: false,
+      showCurrentReachability: false,
+      bridge: fakeBridge,
+    });
+
+    try {
+      const { commits, graphLayout } = linearChain();
+      instance.store.setState({
+        commits,
+        visibleCommits: commits,
+        graphLayout,
+        selectedCommitHash: "i2",
+        selectedCommitHashes: ["i2"],
+        lastSelectedCommitHash: "i2",
+      });
+
+      instance.store.getState().collapseAllSequences();
+      // The selected intermediate vanished; selection falls back to the first
+      // visible commit instead of pointing at a hidden row.
+      expect(instance.store.getState().selectedCommitHash).toBe("head");
+    } finally {
+      instance.dispose();
+    }
   });
 });

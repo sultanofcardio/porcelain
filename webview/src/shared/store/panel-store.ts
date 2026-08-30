@@ -17,6 +17,7 @@ import type {
   LaneSnapshot,
   TagInfo,
 } from "../types/git";
+import { computeCollapsibleSequences } from "../utils/collapsible-sequences";
 import { useRepoStore } from "./repo-store";
 
 const DEFAULT_LOG_BATCH_SIZE = 200;
@@ -24,9 +25,16 @@ const REPO_REFRESH_DEBOUNCE_MS = 100;
 
 export interface PanelFilter {
   searchQuery: string;
+  /** Treat `searchQuery` as an extended regex instead of a literal string. */
+  searchRegex: boolean;
+  /** Match `searchQuery` case-sensitively. */
+  searchCaseSensitive: boolean;
   branch: string;
   author: string;
   dateRange: string;
+  /** Custom range bounds (yyyy-mm-dd), used when `dateRange` is "custom". */
+  dateAfter: string;
+  dateBefore: string;
   file: string;
 }
 
@@ -132,6 +140,10 @@ export interface PanelStore {
   setHoveredColumn: (column: number | null) => void;
   toggleColumnVisibility: (column: "author" | "date" | "hash") => void;
   toggleSequenceCollapse: (sequenceId: string, intermediates: string[]) => void;
+  /** Collapse every collapsible linear run in the loaded graph. */
+  collapseAllSequences: () => void;
+  /** Expand every collapsed linear run. */
+  expandAllSequences: () => void;
   toggleBranchGroupByDirectory: () => void;
   refresh: (options?: RefreshOptions) => Promise<void>;
   /**
@@ -234,11 +246,26 @@ function filterCommits(
   return commits.filter((commit) => !hiddenSet.has(commit.hash));
 }
 
-function dateRangeParams(dateRange: PanelFilter["dateRange"]): {
+function dateRangeParams(filter: PanelFilter): {
   since?: string;
   until?: string;
 } {
+  const { dateRange, dateAfter, dateBefore } = filter;
   if (!dateRange) return {};
+
+  if (dateRange === "custom") {
+    // Bounds are local calendar dates; the range is inclusive of both days.
+    const since = dateAfter ? new Date(`${dateAfter}T00:00:00`) : null;
+    const until = dateBefore ? new Date(`${dateBefore}T23:59:59.999`) : null;
+    return {
+      ...(since && !Number.isNaN(since.getTime())
+        ? { since: since.toISOString() }
+        : {}),
+      ...(until && !Number.isNaN(until.getTime())
+        ? { until: until.toISOString() }
+        : {}),
+    };
+  }
 
   const now = new Date();
   let since: Date;
@@ -254,9 +281,15 @@ function dateRangeParams(dateRange: PanelFilter["dateRange"]): {
 function queryParams(filter: PanelFilter): Record<string, unknown> {
   return {
     ...(filter.branch ? { branch: filter.branch } : {}),
-    ...(filter.searchQuery ? { search: filter.searchQuery } : {}),
+    ...(filter.searchQuery
+      ? {
+          search: filter.searchQuery,
+          searchRegex: filter.searchRegex,
+          searchCaseSensitive: filter.searchCaseSensitive,
+        }
+      : {}),
     ...(filter.author ? { author: filter.author } : {}),
-    ...dateRangeParams(filter.dateRange),
+    ...dateRangeParams(filter),
     ...(filter.file ? { file: filter.file } : {}),
   };
 }
@@ -504,9 +537,13 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
 
     filter: {
       searchQuery: "",
+      searchRegex: false,
+      searchCaseSensitive: false,
       branch: "",
       author: "",
       dateRange: "",
+      dateAfter: "",
+      dateBefore: "",
       file: "",
     },
     pendingSelectionFromFilter: [],
@@ -1096,13 +1133,26 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
       }
       const { filter: current } = get();
       const next = { ...current, ...partial };
+      const searchModeChanged =
+        current.searchRegex !== next.searchRegex ||
+        current.searchCaseSensitive !== next.searchCaseSensitive;
       const queryChanged =
         current.searchQuery !== next.searchQuery ||
+        // Search-mode toggles only change the query while a search is active.
+        (searchModeChanged && !!next.searchQuery) ||
         current.branch !== next.branch ||
         current.author !== next.author ||
         current.dateRange !== next.dateRange ||
+        (next.dateRange === "custom" &&
+          (current.dateAfter !== next.dateAfter ||
+            current.dateBefore !== next.dateBefore)) ||
         current.file !== next.file;
-      if (!queryChanged) return;
+      if (!queryChanged) {
+        // Still record inert changes (for example toggling regex with an
+        // empty search box) so the toggle is armed for the next query.
+        set({ filter: next });
+        return;
+      }
 
       // Invalidate old results and selection before a replacement host query.
       // These counters are per store instance, so comparison panels stay isolated.
@@ -1231,18 +1281,30 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
     async navigateToRef(ref, targetHash) {
       const generation = ++navigationGeneration;
       const filter = get().filter;
-      const hasActiveFilter = Object.values(filter).some(Boolean);
+      // Search-mode toggles alone don't narrow the log; only value-bearing
+      // fields can hide the target commit.
+      const hasActiveFilter =
+        !!filter.searchQuery ||
+        !!filter.branch ||
+        !!filter.author ||
+        !!filter.dateRange ||
+        !!filter.file;
 
       // Navigate means reveal this ref's head in the main log. Any active filter
       // can hide that commit, so clear it and await the replacement log before
-      // searching or paginating.
+      // searching or paginating. The regex/match-case toggles are preferences,
+      // not filters, and survive the clear.
       if (hasActiveFilter) {
         set({
           filter: {
             searchQuery: "",
+            searchRegex: filter.searchRegex,
+            searchCaseSensitive: filter.searchCaseSensitive,
             branch: "",
             author: "",
             dateRange: "",
+            dateAfter: "",
+            dateBefore: "",
             file: "",
           },
           pendingSelectionFromFilter: [],
@@ -1381,6 +1443,22 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
       }
     },
 
+    collapseAllSequences() {
+      const { commits, graphLayout } = get();
+      const { sequences } = computeCollapsibleSequences(commits, graphLayout);
+      const nextIds = new Set<string>();
+      const nextMap = new Map<string, string[]>();
+      for (const seq of sequences) {
+        nextIds.add(seq.id);
+        nextMap.set(seq.id, seq.intermediates);
+      }
+      applyCollapseState(nextIds, nextMap);
+    },
+
+    expandAllSequences() {
+      applyCollapseState(new Set(), new Map());
+    },
+
     async refresh(refreshOptions = {}) {
       // A command surface explicitly refreshes after its mutation succeeds.
       // Consume any watcher/event refresh queued for the same mutation so the
@@ -1417,9 +1495,13 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
         ..._clearRepoBoundDisplay(),
         filter: {
           searchQuery: filter.searchQuery,
+          searchRegex: filter.searchRegex,
+          searchCaseSensitive: filter.searchCaseSensitive,
           branch: "",
           author: filter.author,
           dateRange: filter.dateRange,
+          dateAfter: filter.dateAfter,
+          dateBefore: filter.dateBefore,
           file: "",
         },
         loading: false,
@@ -1438,9 +1520,13 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
         ..._clearRepoBoundDisplay(),
         filter: {
           searchQuery: filter.searchQuery,
+          searchRegex: filter.searchRegex,
+          searchCaseSensitive: filter.searchCaseSensitive,
           branch: "",
           author: filter.author,
           dateRange: filter.dateRange,
+          dateAfter: filter.dateAfter,
+          dateBefore: filter.dateBefore,
           file: "",
         },
         hasMore: true,
@@ -1448,6 +1534,60 @@ export function createGitLogStore(options: GitLogStoreOptions): GitLogStore {
       });
     },
   }));
+
+  /**
+   * Replace the collapse state wholesale (collapse-all / expand-all), then
+   * re-derive visibility and selection exactly like a single toggle does.
+   */
+  function applyCollapseState(
+    nextIds: Set<string>,
+    nextMap: Map<string, string[]>,
+  ): void {
+    const fileGeneration = ++selectionGeneration;
+    const {
+      commits,
+      selectedCommitHashes,
+      selectedCommitHash,
+      lastSelectedCommitHash,
+    } = store.getState();
+
+    const nextVisible = filterCommits(commits, nextMap);
+    const nextSelection = deriveSelectionFromVisible(
+      nextVisible,
+      selectedCommitHashes,
+      selectedCommitHash,
+      lastSelectedCommitHash,
+    );
+
+    store.setState({
+      collapsedSequenceIds: nextIds,
+      collapsedIntermediates: nextMap,
+      visibleCommits: nextVisible,
+      selectedCommitHash: nextSelection.selectedCommitHash,
+      selectedCommitHashes: nextSelection.selectedCommitHashes,
+      lastSelectedCommitHash: nextSelection.lastSelectedCommitHash,
+      rangeOldest: nextSelection.rangeOldest,
+      rangeNewest: nextSelection.rangeNewest,
+      selectedFilePath: null,
+      commitFiles: [],
+    });
+
+    const hashes = nextSelection.selectedCommitHashes;
+    if (hashes.length > 0) {
+      void (async () => {
+        try {
+          const files = (await request("getCommitRangeFiles", {
+            hashes,
+          })) as DiffFile[] | null;
+          if (fileGeneration === selectionGeneration) {
+            store.setState({ commitFiles: files ?? [] });
+          }
+        } catch (err) {
+          console.error("applyCollapseState failed to load files:", err);
+        }
+      })();
+    }
+  }
 
   // Progress counts and both subscriptions are instance-owned. Fixed-repo
   // stores compare events against their configured repo while the ordinary

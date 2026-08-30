@@ -17,15 +17,33 @@ export function Toolbar({
   const toggleColumnVisibility = useGitLogStore(
     (s) => s.toggleColumnVisibility,
   );
+  const collapseAllSequences = useGitLogStore((s) => s.collapseAllSequences);
+  const expandAllSequences = useGitLogStore((s) => s.expandAllSequences);
+  const requestFromSurface = useGitLogStore((s) => s.requestFromSurface);
   const historyBranch = filter.branch || currentBranch;
 
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [showDateDropdown, setShowDateDropdown] = useState(false);
   const [showBranchDropdown, setShowBranchDropdown] = useState(false);
   const [showViewOptions, setShowViewOptions] = useState(false);
+  const [hostAuthors, setHostAuthors] = useState<{
+    authors: string[];
+    me: string | null;
+  } | null>(null);
 
-  // Collect unique authors from commits
+  // The loaded page seeds the author list; the host's whole-history list
+  // (fetched when the dropdown first opens) replaces it.
   const authors = useMemo(() => {
+    if (hostAuthors) {
+      const list = [...hostAuthors.authors];
+      const { me } = hostAuthors;
+      if (me) {
+        const meIdx = list.indexOf(me);
+        if (meIdx > 0) list.splice(meIdx, 1);
+        if (meIdx !== 0) list.unshift(me);
+      }
+      return list;
+    }
     const set = new Set<string>();
     for (const c of commits) {
       if (c.authorName) set.add(c.authorName);
@@ -33,7 +51,33 @@ export function Toolbar({
     return Array.from(set).sort((a, b) =>
       a.localeCompare(b, undefined, { sensitivity: "base" }),
     );
-  }, [commits]);
+  }, [commits, hostAuthors]);
+
+  const authorLabels = useMemo(() => {
+    const me = hostAuthors?.me;
+    return me ? { [me]: `${me} (me)` } : undefined;
+  }, [hostAuthors]);
+
+  const openUserDropdown = () => {
+    setShowUserDropdown(!showUserDropdown);
+    setShowDateDropdown(false);
+    setShowBranchDropdown(false);
+    if (!showUserDropdown && !hostAuthors) {
+      void (async () => {
+        try {
+          const result = (await requestFromSurface("getLogAuthors")) as {
+            authors: string[];
+            me: string | null;
+          } | null;
+          if (result && Array.isArray(result.authors)) {
+            setHostAuthors(result);
+          }
+        } catch (err) {
+          console.error("getLogAuthors failed:", err);
+        }
+      })();
+    }
+  };
 
   // Collect branch names for filter
   const branchNames = useMemo(() => {
@@ -61,12 +105,12 @@ export function Toolbar({
 
   const handleSelectDate = (range: string) => {
     setShowDateDropdown(false);
-    setFilter({ dateRange: range });
+    setFilter({ dateRange: range, dateAfter: "", dateBefore: "" });
   };
 
   const handleClearDate = () => {
     setShowDateDropdown(false);
-    setFilter({ dateRange: "" });
+    setFilter({ dateRange: "", dateAfter: "", dateBefore: "" });
   };
 
   const handleSelectBranch = (branch: string) => {
@@ -86,6 +130,15 @@ export function Toolbar({
     "90days": "Last 90 days",
   };
 
+  const customDateLabel = () => {
+    const from = filter.dateAfter;
+    const to = filter.dateBefore;
+    if (from && to) return `${from} – ${to}`;
+    if (from) return `Since ${from}`;
+    if (to) return `Until ${to}`;
+    return "Custom";
+  };
+
   return (
     <div
       style={{
@@ -101,6 +154,12 @@ export function Toolbar({
         placeholder="Search commits..."
         defaultValue={filter.searchQuery}
         onChange={handleSearch}
+        matchCase={filter.searchCaseSensitive}
+        regex={filter.searchRegex}
+        onToggleMatchCase={() =>
+          setFilter({ searchCaseSensitive: !filter.searchCaseSensitive })
+        }
+        onToggleRegex={() => setFilter({ searchRegex: !filter.searchRegex })}
       />
 
       {/* Fixed revision ranges omit only the branch selector. */}
@@ -136,12 +195,8 @@ export function Toolbar({
         <FilterButton
           label="User"
           active={!!filter.author}
-          activeValue={filter.author}
-          onClick={() => {
-            setShowUserDropdown(!showUserDropdown);
-            setShowDateDropdown(false);
-            setShowBranchDropdown(false);
-          }}
+          activeValue={authorLabels?.[filter.author] ?? filter.author}
+          onClick={openUserDropdown}
           onClear={handleClearAuthor}
         />
         {showUserDropdown && (
@@ -153,6 +208,7 @@ export function Toolbar({
             onClear={filter.author ? handleClearAuthor : undefined}
             clearLabel="All users"
             onClose={() => setShowUserDropdown(false)}
+            labelMap={authorLabels}
           />
         )}
       </div>
@@ -163,7 +219,11 @@ export function Toolbar({
           label="Date"
           active={!!filter.dateRange}
           activeValue={
-            filter.dateRange ? dateLabels[filter.dateRange] : undefined
+            filter.dateRange === "custom"
+              ? customDateLabel()
+              : filter.dateRange
+                ? dateLabels[filter.dateRange]
+                : undefined
           }
           onClick={() => {
             setShowDateDropdown(!showDateDropdown);
@@ -173,15 +233,22 @@ export function Toolbar({
           onClear={handleClearDate}
         />
         {showDateDropdown && (
-          <SearchableDropdown
-            items={["today", "7days", "30days", "90days"]}
-            activeItem={filter.dateRange}
-            placeholder="Select date range..."
+          <DateFilterDropdown
+            active={filter.dateRange}
+            dateAfter={filter.dateAfter}
+            dateBefore={filter.dateBefore}
+            labels={dateLabels}
             onSelect={handleSelectDate}
+            onApplyCustom={(after, before) => {
+              setShowDateDropdown(false);
+              setFilter({
+                dateRange: after || before ? "custom" : "",
+                dateAfter: after,
+                dateBefore: before,
+              });
+            }}
             onClear={filter.dateRange ? handleClearDate : undefined}
-            clearLabel="All time"
             onClose={() => setShowDateDropdown(false)}
-            labelMap={dateLabels}
           />
         )}
       </div>
@@ -236,6 +303,14 @@ export function Toolbar({
           <ViewOptionsDropdown
             visibleColumns={visibleColumns}
             onToggle={toggleColumnVisibility}
+            onCollapseAll={() => {
+              setShowViewOptions(false);
+              collapseAllSequences();
+            }}
+            onExpandAll={() => {
+              setShowViewOptions(false);
+              expandAllSequences();
+            }}
             onClose={() => setShowViewOptions(false)}
           />
         )}
@@ -298,10 +373,18 @@ function SearchInput({
   placeholder,
   defaultValue,
   onChange,
+  matchCase,
+  regex,
+  onToggleMatchCase,
+  onToggleRegex,
 }: {
   placeholder: string;
   defaultValue: string;
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  matchCase: boolean;
+  regex: boolean;
+  onToggleMatchCase: () => void;
+  onToggleRegex: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState(defaultValue);
@@ -358,7 +441,7 @@ function SearchInput({
         onChange={handleChange}
         style={{
           width: "100%",
-          padding: "4px 24px",
+          padding: "4px 58px 4px 24px",
           fontSize: "12px",
           border: "1px solid var(--vscode-input-border, #c4c4c4)",
           background: "var(--vscode-input-background, #1e1e1e)",
@@ -384,32 +467,108 @@ function SearchInput({
           }
         }}
       />
-      {value && (
-        <div
-          onClick={handleClear}
-          style={{
-            position: "absolute",
-            right: 4,
-            cursor: "pointer",
-            opacity: 0.6,
-            display: "flex",
-            alignItems: "center",
-            padding: 2,
-            borderRadius: 3,
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.opacity = "1";
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLElement).style.opacity = "0.6";
-          }}
-        >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M8 8.707l3.646 3.647.708-.707L8.707 8l3.647-3.646-.707-.708L8 7.293 4.354 3.646l-.707.708L7.293 8l-3.646 3.646.707.708L8 8.707z" />
-          </svg>
-        </div>
-      )}
+      <div
+        style={{
+          position: "absolute",
+          right: 4,
+          display: "flex",
+          alignItems: "center",
+          gap: 2,
+        }}
+      >
+        {value && (
+          <div
+            onClick={handleClear}
+            style={{
+              cursor: "pointer",
+              opacity: 0.6,
+              display: "flex",
+              alignItems: "center",
+              padding: 2,
+              borderRadius: 3,
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.opacity = "1";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.opacity = "0.6";
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 8.707l3.646 3.647.708-.707L8.707 8l3.647-3.646-.707-.708L8 7.293 4.354 3.646l-.707.708L7.293 8l-3.646 3.646.707.708L8 8.707z" />
+            </svg>
+          </div>
+        )}
+        <SearchModeToggle
+          label="Cc"
+          title="Match Case"
+          pressed={matchCase}
+          onToggle={onToggleMatchCase}
+        />
+        <SearchModeToggle
+          label=".*"
+          title="Regex"
+          pressed={regex}
+          onToggle={onToggleRegex}
+        />
+      </div>
     </div>
+  );
+}
+
+function SearchModeToggle({
+  label,
+  title,
+  pressed,
+  onToggle,
+}: {
+  label: string;
+  title: string;
+  pressed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <Tooltip text={title}>
+      <button
+        type="button"
+        aria-label={title}
+        aria-pressed={pressed}
+        onClick={onToggle}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          minWidth: 18,
+          height: 16,
+          padding: "0 2px",
+          fontSize: "10px",
+          fontFamily: "var(--vscode-editor-font-family, monospace)",
+          lineHeight: 1,
+          border: pressed
+            ? "1px solid var(--vscode-inputOption-activeBorder, #007fd4)"
+            : "1px solid transparent",
+          borderRadius: 3,
+          background: pressed
+            ? "var(--vscode-inputOption-activeBackground, rgba(0,127,212,0.4))"
+            : "transparent",
+          color: pressed
+            ? "var(--vscode-inputOption-activeForeground, #fff)"
+            : "var(--vscode-input-foreground, #ccc)",
+          cursor: "pointer",
+          opacity: pressed ? 1 : 0.7,
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLElement).style.opacity = "1";
+        }}
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLElement).style.opacity = pressed
+            ? "1"
+            : "0.7";
+        }}
+      >
+        {label}
+      </button>
+    </Tooltip>
   );
 }
 
@@ -683,6 +842,161 @@ function SearchableDropdown({
 }
 
 // ---------------------------------------------------------------------------
+// DateFilterDropdown — presets plus a custom after/before range
+// ---------------------------------------------------------------------------
+
+function DateFilterDropdown({
+  active,
+  dateAfter,
+  dateBefore,
+  labels,
+  onSelect,
+  onApplyCustom,
+  onClear,
+  onClose,
+}: {
+  active: string;
+  dateAfter: string;
+  dateBefore: string;
+  labels: Record<string, string>;
+  onSelect: (range: string) => void;
+  onApplyCustom: (after: string, before: string) => void;
+  onClear?: () => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [after, setAfter] = useState(dateAfter);
+  const [before, setBefore] = useState(dateBefore);
+
+  useEffect(() => {
+    const handleMouseDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("mousedown", handleMouseDown, true);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown, true);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [onClose]);
+
+  const dateInputStyle: React.CSSProperties = {
+    width: "100%",
+    padding: "3px 6px",
+    fontSize: "12px",
+    border: "1px solid var(--vscode-input-border, #3c3c3c)",
+    background: "var(--vscode-input-background, #3c3c3c)",
+    color: "var(--vscode-input-foreground, #ccc)",
+    borderRadius: 3,
+    outline: "none",
+    boxSizing: "border-box",
+    colorScheme: "dark light",
+  };
+
+  return (
+    <div
+      ref={ref}
+      style={{
+        position: "absolute",
+        top: "100%",
+        left: 0,
+        marginTop: 4,
+        zIndex: 9999,
+        background: "var(--vscode-menu-background, #1e1e1e)",
+        border: "1px solid var(--vscode-menu-border, #454545)",
+        borderRadius: 4,
+        padding: "4px 0",
+        minWidth: 220,
+        boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
+      }}
+    >
+      {onClear && (
+        <DropdownItem label="All time" active={false} onClick={onClear} />
+      )}
+      {Object.entries(labels).map(([range, label]) => (
+        <DropdownItem
+          key={range}
+          label={label}
+          active={range === active}
+          onClick={() => onSelect(range)}
+        />
+      ))}
+      <div
+        style={{
+          borderTop:
+            "1px solid var(--vscode-menu-separatorBackground, #454545)",
+          margin: "4px 0",
+        }}
+      />
+      <div
+        style={{
+          padding: "2px 12px 6px",
+          fontSize: "11px",
+          fontWeight: 600,
+          opacity: 0.6,
+        }}
+      >
+        Custom range
+      </div>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
+          padding: "0 12px 8px",
+        }}
+      >
+        <label style={{ fontSize: "12px" }}>
+          <span style={{ display: "block", opacity: 0.7, marginBottom: 2 }}>
+            After
+          </span>
+          <input
+            type="date"
+            value={after}
+            onChange={(e) => setAfter(e.target.value)}
+            style={dateInputStyle}
+          />
+        </label>
+        <label style={{ fontSize: "12px" }}>
+          <span style={{ display: "block", opacity: 0.7, marginBottom: 2 }}>
+            Before
+          </span>
+          <input
+            type="date"
+            value={before}
+            onChange={(e) => setBefore(e.target.value)}
+            style={dateInputStyle}
+          />
+        </label>
+        <button
+          type="button"
+          disabled={!after && !before}
+          onClick={() => onApplyCustom(after, before)}
+          style={{
+            alignSelf: "flex-end",
+            padding: "3px 12px",
+            fontSize: "12px",
+            border: "none",
+            borderRadius: 3,
+            background: "var(--vscode-button-background, #0e639c)",
+            color: "var(--vscode-button-foreground, #fff)",
+            cursor: !after && !before ? "default" : "pointer",
+            opacity: !after && !before ? 0.5 : 1,
+          }}
+        >
+          Apply
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // ViewOptionsIcon — eye icon with small triangle (JetBrains show.svg style)
 // ---------------------------------------------------------------------------
 
@@ -707,10 +1021,14 @@ function ViewOptionsIcon() {
 function ViewOptionsDropdown({
   visibleColumns,
   onToggle,
+  onCollapseAll,
+  onExpandAll,
   onClose,
 }: {
   visibleColumns: { author: boolean; date: boolean; hash: boolean };
   onToggle: (col: "author" | "date" | "hash") => void;
+  onCollapseAll: () => void;
+  onExpandAll: () => void;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -792,6 +1110,33 @@ function ViewOptionsDropdown({
           <span>{col.label}</span>
         </div>
       ))}
+      <div
+        style={{
+          borderTop:
+            "1px solid var(--vscode-menu-separatorBackground, #454545)",
+          margin: "4px 0",
+        }}
+      />
+      <div
+        style={{
+          padding: "4px 12px 6px",
+          fontSize: "11px",
+          fontWeight: 600,
+          opacity: 0.6,
+        }}
+      >
+        Graph
+      </div>
+      <DropdownItem
+        label="Collapse Linear Branches"
+        active={false}
+        onClick={onCollapseAll}
+      />
+      <DropdownItem
+        label="Expand Linear Branches"
+        active={false}
+        onClick={onExpandAll}
+      />
     </div>
   );
 }

@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Added
+- **Search modes on the log filter** — the commit search gains IntelliJ-style Match Case (`Cc`) and Regex (`.*`) toggles. Search is now literal and case-insensitive by default; it used to be handed to `git log --grep` raw, which silently treated every query as a case-sensitive regex — searching `f.x` matched `fax`
+- **Custom date range** — the Date filter's dropdown adds an After/Before date pair alongside the presets, sent to git as inclusive day bounds
+- **Whole-history author filter** — the User dropdown now lists every author in the repository (via `git shortlog`), most-commits first, with the configured `user.name` pinned to the top as "(me)". It used to offer only authors present in the loaded page
+- **Collapse / Expand Linear Branches** — the log's View Options menu can now collapse every collapsible linear run in one action, and expand them all back, matching the per-fragment click collapse
+- **"In N branches"** — the details pane for a single selected commit shows which local and remote branches contain it, loaded lazily with Show all / Hide
 - **Porcelain diff viewer** — an optional JetBrains-style diff surface rendered in a webview, behind `porcelain.diff.viewer`. Paired centre gutter with each side's own line numbers, curved Bézier connectors between changed regions, per-side revision headers, a live difference count, a change stripe with click-to-jump, and a settings menu whose options apply to that window only and are forgotten when it closes
 - **Per-window diff options** — ignore whitespace, highlight granularity (line / word / character / off), collapse unchanged fragments and synchronised scrolling. VS Code's `diffEditor.*` equivalents are global settings, so these have no native counterpart
 - **Unified view** — the settings menu can switch the diff from side-by-side to a single-column unified layout: old lines then new lines for each change, folds and find included. Modified lines keep their modified colouring on both halves rather than posing as removed/added — an edited line is not an addition. Sync-scroll controls hide in unified mode (one column has nothing to synchronise), and single-file layouts for added or deleted files ignore the toggle

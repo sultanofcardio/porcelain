@@ -97,6 +97,10 @@ export interface LogOptions {
   branch?: string; // specific branch, default --all
   author?: string;
   search?: string; // --grep
+  /** Treat `search` as an extended regex instead of a literal string. */
+  searchRegex?: boolean;
+  /** Match `search`/`author` case-sensitively (git's raw default). */
+  searchCaseSensitive?: boolean;
   file?: string;
   since?: string;
   until?: string;

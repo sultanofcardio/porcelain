@@ -213,6 +213,15 @@ export class GitService {
     if (options.search) {
       args.push(`--grep=${options.search}`);
     }
+    if (options.search || options.author) {
+      // Git treats --grep/--author patterns as case-sensitive basic regexes.
+      // The log UI wants literal, case-insensitive matching unless the user
+      // flips the regex / match-case toggles.
+      args.push(options.searchRegex ? "--extended-regexp" : "--fixed-strings");
+      if (!options.searchCaseSensitive) {
+        args.push("--regexp-ignore-case");
+      }
+    }
     if (options.since) {
       args.push(`--since=${options.since}`);
     }
@@ -273,6 +282,71 @@ export class GitService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Every distinct author across the whole repository, most-commits first,
+   * plus the configured local identity for the "me" filter entry. The log
+   * toolbar's author dropdown must not be limited to the loaded page.
+   */
+  async getLogAuthors(): Promise<{ authors: string[]; me: string | null }> {
+    const cacheKey = "log:authors";
+    const cached = this.cache.get<{ authors: string[]; me: string | null }>(
+      cacheKey,
+    );
+    if (cached) {
+      return cached;
+    }
+
+    const [shortlog, me] = await Promise.all([
+      this.execGit(["shortlog", "-sn", "--all"]),
+      this.execGit(["config", "user.name"]).catch(() => ""),
+    ]);
+    const authors: string[] = [];
+    for (const line of shortlog.split("\n")) {
+      const match = line.match(/^\s*\d+\t(.+)$/);
+      if (match) authors.push(match[1]);
+    }
+    const result = { authors, me: me.trim() || null };
+    this.cache.set(cacheKey, result);
+    return result;
+  }
+
+  /** Branch names whose history contains the commit, for the details pane. */
+  async getContainingBranches(
+    hash: string,
+  ): Promise<{ local: string[]; remote: string[] }> {
+    await this.validateRef(hash);
+    const cacheKey = `log:contains:${hash}`;
+    const cached = this.cache.get<{ local: string[]; remote: string[] }>(
+      cacheKey,
+    );
+    if (cached) {
+      return cached;
+    }
+
+    const output = await this.execGit([
+      "for-each-ref",
+      "--contains",
+      hash,
+      "--format=%(refname)",
+      "refs/heads",
+      "refs/remotes",
+    ]);
+    const local: string[] = [];
+    const remote: string[] = [];
+    for (const line of output.split("\n")) {
+      const ref = line.trim();
+      if (ref.startsWith("refs/heads/")) {
+        local.push(ref.slice("refs/heads/".length));
+      } else if (ref.startsWith("refs/remotes/")) {
+        const name = ref.slice("refs/remotes/".length);
+        if (!name.endsWith("/HEAD")) remote.push(name);
+      }
+    }
+    const result = { local, remote };
+    this.cache.set(cacheKey, result);
+    return result;
   }
 
   private async getReachableHashes(ref: string): Promise<Set<string>> {

@@ -24,6 +24,18 @@ export function registerLogHandlers(router: MessageRouter): void {
       params as Record<string, unknown> & { maxCount?: number },
     );
   });
+  router.handle("getLogAuthors", async (_params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    return context.gitService.getLogAuthors();
+  });
+  router.handle("getContainingBranches", async (params, context) => {
+    if (!context) return NOT_GIT_REPO;
+    const hash = params.hash;
+    if (typeof hash !== "string" || !hash) {
+      throw new Error("getContainingBranches requires a commit hash");
+    }
+    return context.gitService.getContainingBranches(hash);
+  });
 }
 
 async function handleGraphPage(
@@ -61,6 +73,8 @@ async function handleGraphPage(
     revision: revision && "value" in revision ? revision.value : undefined,
     ...(params.revision ? {} : { branch: params.branch }),
     search: params.search,
+    searchRegex: params.searchRegex,
+    searchCaseSensitive: params.searchCaseSensitive,
     author: params.author,
     since: params.since,
     until: params.until,

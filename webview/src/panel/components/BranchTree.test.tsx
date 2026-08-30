@@ -98,9 +98,13 @@ function seedTree(showTags = true) {
     selectedRefs: [],
     filter: {
       searchQuery: "",
+      searchRegex: false,
+      searchCaseSensitive: false,
       branch: "",
       author: "",
       dateRange: "",
+      dateAfter: "",
+      dateBefore: "",
       file: "",
     },
     branchGroupByDirectory: false,
