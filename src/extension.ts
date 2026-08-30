@@ -726,7 +726,10 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("porcelain.operationsPopup", async () => {
       // IntelliJ's Alt+` popup: the verbs you reach for most, in one list.
       const actions: Array<{ label: string; command: string }> = [
-        { label: "$(git-commit) Commit…", command: "porcelain.commitPanel" },
+        {
+          label: "$(git-commit) Commit…",
+          command: "porcelain.commitPanel.focus",
+        },
         { label: "$(repo-push) Push…", command: "porcelain.openPushPanel" },
         { label: "$(sync) Update Project", command: "porcelain.updateProject" },
         {

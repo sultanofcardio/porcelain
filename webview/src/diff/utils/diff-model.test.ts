@@ -87,6 +87,42 @@ describe("computeChunks", () => {
     expect(countDifferences(computeChunks(lines("a", "b"), ""))).toBe(1);
     expect(computeChunks("", "")).toEqual([]);
   });
+
+  it("ignores a blank-line-only difference under 'ignore-empty' but not 'ignore'", () => {
+    const left = lines("A", "B");
+    const right = lines("A", "", "B");
+    // "ignore" still reports the inserted blank as a difference...
+    expect(
+      countDifferences(computeChunks(left, right, { whitespace: "ignore" })),
+    ).toBe(1);
+    // ...while "ignore-empty" drops it entirely.
+    const chunks = computeChunks(left, right, { whitespace: "ignore-empty" });
+    expect(countDifferences(chunks)).toBe(0);
+    // The blank still belongs to a chunk, so both documents stay tiled.
+    let leftEnd = 0;
+    let rightEnd = 0;
+    for (const chunk of chunks) {
+      expect(chunk.left.start).toBe(leftEnd);
+      expect(chunk.right.start).toBe(rightEnd);
+      leftEnd += chunk.left.count;
+      rightEnd += chunk.right.count;
+    }
+    expect(leftEnd).toBe(2);
+    expect(rightEnd).toBe(3);
+  });
+
+  it("still reports a real edit that sits alongside an ignored blank line", () => {
+    // Right gains a blank line and edits B -> X; only the edit is a difference,
+    // and it must address X at its true position (right line index 2).
+    const chunks = computeChunks(lines("A", "B"), lines("A", "", "X"), {
+      whitespace: "ignore-empty",
+    });
+    expect(countDifferences(chunks)).toBe(1);
+    const edit = chunks.find((c) => c.kind !== "equal");
+    expect(edit?.kind).toBe("modified");
+    expect(edit?.left).toEqual({ start: 1, count: 1 });
+    expect(edit?.right).toEqual({ start: 2, count: 1 });
+  });
 });
 
 describe("the shared scroll axis", () => {

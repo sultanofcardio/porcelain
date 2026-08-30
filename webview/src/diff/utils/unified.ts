@@ -34,7 +34,10 @@ export function unifiedRows(
   for (const [chunkIndex, chunk] of chunks.entries()) {
     if (chunk.kind === "equal") {
       const fold = foldOf.get(chunkIndex);
-      for (let i = 0; i < chunk.left.count; i++) {
+      // Folds only land on balanced equal chunks, so where a chunk is folded
+      // its two sides have the same count and `paired` covers all of it.
+      const paired = Math.min(chunk.left.count, chunk.right.count);
+      for (let i = 0; i < paired; i++) {
         if (fold) {
           const hiddenStart = fold.left.start - chunk.left.start;
           const hiddenEnd = hiddenStart + fold.left.count;
@@ -47,6 +50,31 @@ export function unifiedRows(
           side: "right",
           line: chunk.right.start + i,
           leftNumber: chunk.left.start + i + 1,
+          rightNumber: chunk.right.start + i + 1,
+          chunkIndex,
+        });
+      }
+      // A blank line ignored on one side under "ignore-empty" leaves that side
+      // with surplus equal lines; show each on its own side so every real line
+      // still gets a row rather than reading a line off the shorter side.
+      for (let i = paired; i < chunk.left.count; i++) {
+        rows.push({
+          kind: "line",
+          chunkKind: "equal",
+          side: "left",
+          line: chunk.left.start + i,
+          leftNumber: chunk.left.start + i + 1,
+          rightNumber: null,
+          chunkIndex,
+        });
+      }
+      for (let i = paired; i < chunk.right.count; i++) {
+        rows.push({
+          kind: "line",
+          chunkKind: "equal",
+          side: "right",
+          line: chunk.right.start + i,
+          leftNumber: null,
           rightNumber: chunk.right.start + i + 1,
           chunkIndex,
         });

@@ -48,30 +48,147 @@ export interface ChunkOptions {
   whitespace?: WhitespacePolicy;
 }
 
-/** Collapse a line the way the policy says two lines may be considered equal. */
-function normalizeLine(line: string, policy: WhitespacePolicy): string {
-  switch (policy) {
-    case "trim":
-      return line.trim();
-    case "ignore":
-    case "ignore-empty":
-      // Every run of whitespace collapses away entirely, so re-wrapping and
-      // re-indenting stop reading as changes.
-      return line.replace(/\s+/g, "");
-    default:
-      return line;
+/**
+ * A side rewritten for comparison: the comparable lines joined for the diff
+ * library, plus a map back to the real line each comparable line came from.
+ *
+ * Under "ignore" every line is whitespace-stripped and the map is the identity.
+ * Under "ignore-empty" a line that is blank once whitespace is stripped is
+ * dropped entirely, so a blank present on one side only never reaches the diff
+ * and cannot read as an insertion; the map is what lets the chunks it produces
+ * still address the real document by index, since the line count no longer
+ * matches.
+ */
+interface ComparableSide {
+  /** Comparable lines joined with trailing newline, or "" when none survive. */
+  text: string;
+  /** `map[k]` is the real line index of the k-th comparable line. */
+  map: number[];
+  /** The real line count of the original side. */
+  total: number;
+}
+
+function comparableSide(
+  text: string,
+  policy: WhitespacePolicy,
+): ComparableSide {
+  const lines = splitLines(text);
+  const kept: string[] = [];
+  const map: number[] = [];
+  for (let index = 0; index < lines.length; index++) {
+    const normalized = lines[index].replace(/\s+/g, "");
+    if (policy === "ignore-empty" && normalized === "") continue;
+    kept.push(normalized);
+    map.push(index);
   }
+  return {
+    text: kept.length === 0 ? "" : `${kept.join("\n")}\n`,
+    map,
+    total: lines.length,
+  };
 }
 
 /**
- * Rewrite every line to its comparable form, keeping the line count intact so
- * chunk spans still index the original document. Under "ignore-empty" a line
- * that is blank on one side collapses to nothing and pairs with its
- * counterpart instead of reading as an insertion.
+ * The real line index at the boundary before comparable line `index`.
+ *
+ * Boundary 0 is the top of the file and boundary `map.length` is its end, so
+ * dropped blank lines at either edge fold into the outermost chunk; a blank
+ * dropped between two comparable lines folds into the chunk of the line above
+ * it. The result is monotonic, which is what keeps the mapped spans tiling the
+ * document without gaps or overlaps.
  */
-function normalizeForCompare(text: string, policy: WhitespacePolicy): string {
-  const lines = splitLines(text).map((line) => normalizeLine(line, policy));
-  return lines.length === 0 ? "" : `${lines.join("\n")}\n`;
+function realBoundary(side: ComparableSide, index: number): number {
+  if (index <= 0) return 0;
+  if (index >= side.map.length) return side.total;
+  return side.map[index];
+}
+
+/** A real-line span covering comparable lines [start, start+count) of a side. */
+function mappedSpan(side: ComparableSide, start: number, count: number): Span {
+  const from = realBoundary(side, start);
+  return { start: from, count: realBoundary(side, start + count) - from };
+}
+
+/**
+ * Chunks for the "ignore" / "ignore-empty" policies, diffed over normalized
+ * copies while the spans address the real lines through each side's map.
+ */
+function computeNormalizedChunks(
+  leftText: string,
+  rightText: string,
+  policy: WhitespacePolicy,
+): DiffChunk[] {
+  const left = comparableSide(leftText, policy);
+  const right = comparableSide(rightText, policy);
+
+  // Both sides reduced to nothing (e.g. two runs of blank lines under
+  // "ignore-empty"): no comparable lines to diff, but the real lines still
+  // exist and must read as one equal block rather than vanishing.
+  if (left.map.length === 0 && right.map.length === 0) {
+    if (left.total === 0 && right.total === 0) return [];
+    return [
+      {
+        kind: "equal",
+        left: { start: 0, count: left.total },
+        right: { start: 0, count: right.total },
+      },
+    ];
+  }
+
+  const parts = diffLines(left.text, right.text);
+  const chunks: DiffChunk[] = [];
+  let leftLine = 0;
+  let rightLine = 0;
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    const count = part.count ?? 0;
+
+    if (!part.added && !part.removed) {
+      if (count > 0) {
+        chunks.push({
+          kind: "equal",
+          left: mappedSpan(left, leftLine, count),
+          right: mappedSpan(right, rightLine, count),
+        });
+      }
+      leftLine += count;
+      rightLine += count;
+      continue;
+    }
+
+    if (part.removed) {
+      const next = parts[i + 1];
+      if (next?.added) {
+        const addedCount = next.count ?? 0;
+        chunks.push({
+          kind: "modified",
+          left: mappedSpan(left, leftLine, count),
+          right: mappedSpan(right, rightLine, addedCount),
+        });
+        leftLine += count;
+        rightLine += addedCount;
+        i++;
+        continue;
+      }
+      chunks.push({
+        kind: "removed",
+        left: mappedSpan(left, leftLine, count),
+        right: { start: realBoundary(right, rightLine), count: 0 },
+      });
+      leftLine += count;
+      continue;
+    }
+
+    chunks.push({
+      kind: "added",
+      left: { start: realBoundary(left, leftLine), count: 0 },
+      right: mappedSpan(right, rightLine, count),
+    });
+    rightLine += count;
+  }
+
+  return chunks;
 }
 
 /**
@@ -91,16 +208,12 @@ export function computeChunks(
     options.whitespace ?? (options.ignoreWhitespace ? "trim" : "none");
   // "ignore" and "ignore-empty" go beyond what the diff library offers, so
   // the comparison runs over normalized copies while the chunks still address
-  // the real lines by index.
-  const comparableLeft =
-    policy === "ignore" || policy === "ignore-empty"
-      ? normalizeForCompare(leftText, policy)
-      : leftText;
-  const comparableRight =
-    policy === "ignore" || policy === "ignore-empty"
-      ? normalizeForCompare(rightText, policy)
-      : rightText;
-  const parts = diffLines(comparableLeft, comparableRight, {
+  // the real lines by index — "ignore-empty" additionally drops blank lines,
+  // so its copies no longer share the real line count and need the index map.
+  if (policy === "ignore" || policy === "ignore-empty") {
+    return computeNormalizedChunks(leftText, rightText, policy);
+  }
+  const parts = diffLines(leftText, rightText, {
     ignoreWhitespace: policy === "trim",
   });
 
@@ -408,6 +521,10 @@ export function computeFolds(
 
   for (const [index, chunk] of chunks.entries()) {
     if (chunk.kind !== "equal") continue;
+    // A blank ignored under "ignore-empty" can leave an equal chunk with more
+    // lines on one side; the fold machinery collapses both sides in lockstep,
+    // so an uneven equal run must not fold or the shorter side would drift.
+    if (chunk.left.count !== chunk.right.count) continue;
     if (chunk.left.count < minimum) continue;
 
     const leadingContext = index === 0 ? 0 : context;
