@@ -3,7 +3,7 @@
   "displayName": "Porcelain: JetBrains-style Git for VS Code",
   "publisher": "sultanofcardio",
   "description": "Keep your JetBrains-style Git workflow in VS Code and Cursor with Git graph, commit and shelf tools, branch comparison, rebase, merge, conflicts, and multi-repo support.",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "license": "MIT",
   "icon": "images/icon.png",
   "repository": {
@@ -206,7 +206,7 @@
             "Porcelain's own diff surface: paired centre gutter, curved connectors, per-side revision headers and a live difference count."
           ],
           "default": "porcelain",
-          "markdownDescription": "Which renderer shows file diffs, including diffs against the working tree and the index. On the Porcelain surface the working-tree side is editable in place \u2014 double-click a line to edit, `Cmd+S` saves \u2014 while historical revisions and the index stay read-only; Edit Source still opens the real file. Binary and oversized files show a placeholder with a way into the built-in editor."
+          "markdownDescription": "Which renderer shows file diffs, including diffs against the working tree and the index. On the Porcelain surface the working-tree side is editable in place — double-click a line to edit, `Cmd+S` saves — while historical revisions and the index stay read-only; Edit Source still opens the real file. Binary and oversized files show a placeholder with a way into the built-in editor."
         },
         "porcelain.push.protectedBranches": {
           "type": "array",

@@ -1,6 +1,6 @@
 # Changelog / 更新日志
 
-## [Unreleased]
+## [0.9.0] - 2026-09-03
 
 ### Added
 - **Search modes on the log filter** — the commit search gains IntelliJ-style Match Case (`Cc`) and Regex (`.*`) toggles. Search is now literal and case-insensitive by default; it used to be handed to `git log --grep` raw, which silently treated every query as a case-sensitive regex — searching `f.x` matched `fax`
