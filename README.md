@@ -76,7 +76,7 @@ Compare a local branch, remote branch, or tag with the current branch. Porcelain
 
 Select two commits in the Git Log, right-click, and choose **Compare Versions** to see everything that differs between them. The result is the net difference between the two snapshots, always read oldest to newest whichever order you selected them in, so work that was added and later reverted between them correctly shows as no change.
 
-![The commit list with two commits highlighted and the context menu open. Compare Versions is highlighted. Copy Revision Numbers sits at the top, and the single-commit actions below, Checkout Revision, Reset, Revert, Drop, New Branch and New Tag, are all greyed out.](./images/screenshots/compare-versions.png)
+![The commit list with two commits highlighted and the context menu open. Compare Versions is highlighted. Copy Revision Numbers, Cherry-Pick 2 Commits and Squash 2 Commits stay available, while the single-commit actions, Checkout Revision, the three Reset variants, Revert, Drop, Interactively Rebase, Edit Commit Message, Fixup and Undo Commit, are greyed out. New Branch and New Tag sit at the bottom.](./images/screenshots/compare-versions.png)
 
 *With two commits selected the single-commit actions grey out, because the row you happened to right-click is not an obvious target for a reset or a revert.*
 
@@ -84,7 +84,7 @@ Select two commits in the Git Log, right-click, and choose **Compare Versions** 
 
 Diffs open in their own window instead of competing with your code for editor space. Compare Versions opens a Changes window listing the files that differ; double-clicking a file opens the diff in a second window that every later diff reuses, so you never accumulate diff tabs. Pin a diff to keep it out of that cycle.
 
-![Two compact windows floating over a dimmed VS Code. The smaller one lists the files that differ between two commits, grouped by directory. The larger one shows a side-by-side diff of pool.ts with an added block highlighted in green.](./images/screenshots/floating-diff-windows-transparent.png)
+![Two compact floating windows. The smaller one lists the three files that differ between two commits, grouped by directory, with pool.ts selected. The larger one shows pool.ts in Porcelain's diff viewer: each side headed by its own revision, paired line numbers down the centre gutter, an added block highlighted in green on the right, and a curved connector joining it to the matching point on the left.](./images/screenshots/floating-diff-windows-transparent.png)
 
 *Both windows open compact, stripped back to their content. The file list stays put while the diff window is reused for every file you open.*
 
@@ -108,7 +108,7 @@ A conflicted merge is three steps, and Porcelain gives each one a surface.
 
 **3. Resolve.** Double-clicking a conflicted file opens the three-way editor in its own window: your side on the left, the working result in the middle, Theirs on the right, with each conflict individually acceptable.
 
-![The three-way merge editor in a compact window. Three syntax-highlighted columns are labelled Left (Theirs), Center (Result) and Right (Yours). Two conflicting regions are highlighted in red with per-conflict accept and dismiss controls, and the header reads 2 changes, 2 conflicts.](./images/screenshots/merge-conflicts-3-way-resolution.png)
+![The three-way merge editor in a compact window. Three syntax-highlighted columns: main on the left, marked Yours; the editable Result in the middle; fix/pool-leak on the right, marked Theirs. The conflicting region is highlighted in red on both outer columns, with accept and ignore controls in the gutters beside it, and the toolbar reads 1 conflict, 0 resolved.](./images/screenshots/merge-conflicts-3-way-resolution.png)
 
 Each conflict can be taken individually rather than the whole file at once, the result column can be edited directly while you work, and everything stays syntax-highlighted throughout. Porcelain also integrates with the built-in VS Code Source Control view, so conflicts raised elsewhere land here too.
 
