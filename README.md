@@ -10,6 +10,12 @@
 
 A JetBrains-style Git workflow for developers moving to **VS Code** or **Cursor**.
 
+[![Open in VS Code](https://img.shields.io/static/v1?label=&message=Open%20in%20VS%20Code&color=007acc&labelColor=2c2c32)](https://vscode.dev/redirect?url=vscode%3Aextension%2Fsultanofcardio.porcelain)
+[![Marketplace](https://vsmarketplacebadges.dev/version/sultanofcardio.porcelain.svg?label=marketplace&color=3574f0)](https://marketplace.visualstudio.com/items?itemName=sultanofcardio.porcelain)
+[![Installs](https://vsmarketplacebadges.dev/installs-short/sultanofcardio.porcelain.svg?color=3574f0)](https://marketplace.visualstudio.com/items?itemName=sultanofcardio.porcelain)
+![Status](https://img.shields.io/badge/status-preview%20%C2%B7%20pre--1.0-e5a50a)
+![License](https://img.shields.io/badge/license-MIT-blue)
+
 </div>
 
 ---
@@ -21,6 +27,8 @@ Porcelain keeps the Git habits you already know from JetBrains IDEs: a visual br
   <br />
   <sub>Branch tree, commit graph, changed files and commit details, in one panel.</sub>
 </div>
+
+> **Preview.** Porcelain is pre-1.0: everything described below is shipped, but rough edges remain, and settings or command IDs may still change in a minor version before 1.0. Found something off? [Open an issue](https://github.com/sultanofcardio/porcelain/issues).
 
 > Porcelain is an independent open-source project and is not affiliated with or endorsed by JetBrains, Microsoft, GitHub, or Cursor.
 
@@ -110,6 +118,14 @@ Porcelain discovers one Git repository per workspace folder and exposes a shared
 
 ## Installation
 
+[![Open in VS Code](https://img.shields.io/static/v1?label=&message=Open%20Porcelain%20in%20VS%20Code&color=007acc&labelColor=2c2c32&style=for-the-badge)](https://vscode.dev/redirect?url=vscode%3Aextension%2Fsultanofcardio.porcelain)
+
+The button opens Porcelain's page inside VS Code; press **Install** there. You can also install from the [Marketplace listing](https://marketplace.visualstudio.com/items?itemName=sultanofcardio.porcelain) or from a terminal:
+
+```sh
+code --install-extension sultanofcardio.porcelain
+```
+
 > Porcelain uses the extension ID `sultanofcardio.porcelain` and the `porcelain.*` command IDs. It is a separate extension from BranchShift, so keybindings bound to `branchshift.*` commands need repointing.
 
 ### VSIX
@@ -169,11 +185,42 @@ Task…**, or **Tasks: Run Task** in the Command Palette.
 
 ### Releasing
 
-`Verify` has to pass before either release task will package anything, and
-packaging happens before publishing, so a release is one task away:
+CI runs on every push to `main` and on every pull request: build, both test
+suites, and a `vsce package` dry run that checks the manifest and
+`.vscodeignore`. A release is a tag:
 
 ```bash
-pnpm run vsce:package   # Verify, then build porcelain-<version>.vsix
+# 1. In CHANGELOG.md, rename the Unreleased section to the new version and date
+npm version minor -m "release: %s"   # commits and tags vX.Y.Z
+git push --follow-tags origin main
+```
+
+The `v*` tag triggers the release workflow, which checks that the tag matches
+`package.json`, runs the same build and tests, packages
+`porcelain-<version>.vsix`, publishes it to the VS Code Marketplace, and
+creates the GitHub release with the VSIX attached and that version's
+CHANGELOG section as the notes. It needs a `VSCE_PAT` repository secret: an
+Azure DevOps personal access token with the Marketplace (Manage) scope for the
+`sultanofcardio` publisher. Azure DevOps retires personal access tokens on
+1 December 2026, so before then the secret has to move to a Microsoft Entra ID
+credential built for CI pipelines.
+
+An existing tag can also be released by hand from the Actions tab, or with:
+
+```bash
+gh workflow run release.yml --ref main -f tag=vX.Y.Z
+```
+
+Versions must strictly increase and can never be reused, so a bad publish is
+fixed by bumping rather than replacing.
+
+#### Open VSX
+
+Cursor reads Open VSX, and publishing there is still a local step. `Verify` has to pass before the release task will package
+anything, and packaging happens before publishing:
+
+```bash
+pnpm run vsce:package   # Build porcelain-<version>.vsix
 pnpm run ovsx:publish   # Publish that VSIX to Open VSX
 ```
 
@@ -181,14 +228,6 @@ Open VSX reads its token from `OVSX_PAT` in the environment, so it never
 reaches a command line or a config file. Before the first publish, claim the
 namespace once with `pnpm run ovsx:namespace`, and check the token works
 without publishing anything using `pnpm run ovsx:verify`.
-
-Versions must strictly increase and can never be reused, so a bad publish is
-fixed by bumping rather than replacing.
-
-Publishing to the VS Code Marketplace instead is `pnpm run vsce:publish`, but
-note that Azure DevOps retires the personal access tokens it depends on
-on 1 December 2026. After that it needs a Microsoft Entra ID setup built for
-CI pipelines, which is why Open VSX is the route above.
 
 ## Project lineage
 

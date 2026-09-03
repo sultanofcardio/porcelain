@@ -1,5 +1,6 @@
 .vscode/**
 .vscode-test/**
+.github/**
 .claude/**
 .idea/**
 .superpowers/**
@@ -9,9 +10,11 @@ node_modules/**
 src/**
 webview/**
 docs/**
+scripts/**
 AGENTS.md
 CLAUDE.md
-*.vsix
+**/*.vsix
+**/.DS_Store
 .gitignore
 .npmrc
 .yarnrc

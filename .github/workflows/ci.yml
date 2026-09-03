@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            webview/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile
+        working-directory: webview
+      - run: pnpm run build
+      - run: pnpm run test:web
+      - name: Extension-host tests
+        run: xvfb-run -a pnpm run test
+      - name: Package (checks the manifest and .vscodeignore)
+        run: pnpm exec vsce package --no-dependencies

@@ -71,7 +71,7 @@
     },
     {
       "label": "Release: publish to VS Code Marketplace",
-      "detail": "Needs a Marketplace token. PATs are retired on 2026-12-01; see the README.",
+      "detail": "Local publish with VSCE_PAT in the environment. The normal route is the tag-driven release workflow; see the README.",
       "type": "npm",
       "script": "vsce:publish",
       "dependsOn": ["Verify"],
