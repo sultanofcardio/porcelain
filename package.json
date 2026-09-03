@@ -314,6 +314,7 @@
   },
   "scripts": {
     "vscode:prepublish": "pnpm run package && pnpm run build:web",
+    "version": "node scripts/release-changelog.mjs",
     "compile": "pnpm run check-types && pnpm run lint && node esbuild.js",
     "watch": "npm-run-all -p watch:*",
     "watch:esbuild": "node esbuild.js --watch",

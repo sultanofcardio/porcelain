@@ -1,8 +1,9 @@
 # Publishes a release when a version tag is pushed:
 #
-#   1. edit CHANGELOG.md: rename "Unreleased" to the new version and date
-#   2. npm version <patch|minor|major> -m "release: %s"   (commits and tags vX.Y.Z)
-#   3. git push --follow-tags origin main
+#   1. npm version <patch|minor|major> -m "release: %s"
+#      (moves the Unreleased section of CHANGELOG.md under the new version,
+#       commits, and tags vX.Y.Z)
+#   2. git push --follow-tags origin main
 #
 # An existing tag can also be released by hand from the Actions tab or with
 #   gh workflow run release.yml --ref main -f tag=vX.Y.Z

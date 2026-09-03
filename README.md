@@ -190,10 +190,12 @@ suites, and a `vsce package` dry run that checks the manifest and
 `.vscodeignore`. A release is a tag:
 
 ```bash
-# 1. In CHANGELOG.md, rename the Unreleased section to the new version and date
 npm version minor -m "release: %s"   # commits and tags vX.Y.Z
 git push --follow-tags origin main
 ```
+
+`npm version` also turns the Unreleased section of CHANGELOG.md into the new
+version's section, dated today, and carries that into the release commit.
 
 The `v*` tag triggers the release workflow, which checks that the tag matches
 `package.json`, runs the same build and tests, packages
