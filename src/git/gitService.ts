@@ -1275,7 +1275,18 @@ export class GitService {
       await this.validateBranch(options.branch);
       args.push(options.branch);
     }
-    await this.execGit(args);
+    if (options.interactive || options.autosquash) {
+      // Interactive and autosquash rebases hand git a todo list, and any
+      // reword or squash entry a message. Nothing here has a terminal, so
+      // git's own todo and its generated messages are accepted as they are;
+      // otherwise git tries to open an editor in a process nobody can see.
+      await this.execGitWithEnv(args, {
+        GIT_SEQUENCE_EDITOR: "true",
+        GIT_EDITOR: "true",
+      });
+    } else {
+      await this.execGit(args);
+    }
     this.invalidateCache();
   }
 
