@@ -1,0 +1,42 @@
+---
+layout: default
+title: Home
+permalink: /
+---
+        <h1>Porcelain</h1>
+        <p class="dim"><strong>Switch editors, not your Git workflow.</strong></p>
+        <p>Porcelain brings the Git workflow from JetBrains IDEs to VS Code and Cursor: a branch tree beside a compact commit graph, a Commit tool window where the checkboxes are the commit, Shelf and Stash, branch comparison, interactive rebase, blame, floating diff windows and a three-way merge editor. I built it because I'd moved editors and didn't want to relearn ten years of Git habits, and it's for anyone else in the same position. It's free and MIT licensed, and it's a fork of <a href="https://github.com/VitalHex/branchshift">BranchShift</a>, which itself began as a fork of <a href="https://github.com/zhyc9de/jet-git">jet-git</a>.</p>
+        <p>It's pre-1.0. Everything on these pages is shipped and I use it daily, but there are rough edges, and a setting or command ID may still change in a minor version before 1.0. The <a href="roadmap.html">roadmap</a> has what's left.</p>
+        <div class="callout"><p>Porcelain is an independent open-source project with no affiliation to JetBrains, Microsoft, GitHub or Cursor. It uses none of JetBrains' code; eighteen (18) icons in the Commit tool window come from the Apache-licensed IntelliJ Platform icon set, unmodified.</p></div>
+
+        <figure>
+          <img src="assets/images/git-log-panel.png" alt="The Porcelain panel across the bottom of VS Code: a branch tree on the left, a colour-coded commit graph in the middle with author, message, date and hash columns, and the changed files and details of the selected commit on the right.">
+          <figcaption>The Porcelain panel: branch tree, commit graph, changed files and commit details, in one place.</figcaption>
+        </figure>
+
+        <h2>Familiar workflow, new editor</h2>
+        <div class="wf">
+          <div><b>Commit tool window</b>Partial commits by checkbox, Amend, Commit and Push, Shelf and Stash, per-hunk inclusion</div>
+          <div><b>Git Log</b>Branch tree, compact graph, refs, filters, changed files and details</div>
+          <div><b>Compare with Current</b>Bidirectional comparison tabs with per-side filters</div>
+          <div><b>Branch actions</b>Checkout, Update, Push, Merge, Rebase, Rename, Delete, Favourite, Clean Up</div>
+          <div><b>Rewriting history</b>Interactive rebase, reword, squash, fixup, undo, on real <code>git rebase -i</code></div>
+          <div><b>Merge conflicts</b>Conflict window and a syntax-highlighted three-way editor</div>
+        </div>
+
+        <h2>Installing</h2>
+        <p>Install from the <a href="https://marketplace.visualstudio.com/items?itemName=sultanofcardio.porcelain">Marketplace listing</a>, or from a terminal:</p>
+<pre><code>code --install-extension sultanofcardio.porcelain</code></pre>
+        <p>Every <a href="https://github.com/sultanofcardio/porcelain/releases/latest">GitHub release</a> has a <code>.vsix</code> attached for offline installs: run <strong>Extensions: Install from VSIX…</strong> from the Command Palette. That route works in Cursor too. Porcelain isn't on Open VSX yet (the registry Cursor's Extensions view reads), so the VSIX is the way in there for now.</p>
+        <p>You'll need VS Code 1.86 or later, for the detached windows the diff surfaces use, and <code>git</code> on <code>PATH</code>. Porcelain runs git against your workspace, and a workspace's own hooks and configuration can execute commands, so it stays disabled until the workspace is trusted. It doesn't run in virtual workspaces either, as there are no local files for git to read.</p>
+
+        <h2>The first five minutes</h2>
+        <ol class="steps">
+          <li>Open the <strong>Porcelain</strong> tab in the bottom panel. The branch tree is on the left; click a branch to filter the log to it, or press <span class="keys"><kbd>⌘</kbd><kbd>G</kbd></span> (<span class="keys"><kbd>Ctrl</kbd><kbd>G</kbd></span>) and type a hash, branch or tag to jump to it.</li>
+          <li>Select a commit to see its files and details on the right. Double-click a file for the diff, in its own window. Right-click the commit for checkout, reset, revert, cherry-pick and the rewriting verbs.</li>
+          <li>Open the <strong>Commit</strong> view in the activity bar. Tick the files you want, type a message, and press <strong>Commit</strong> or <strong>Commit and Push</strong>. There's no staging step; the checkboxes are the commit.</li>
+          <li><span class="keys"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>K</kbd></span> opens the push panel. <span class="keys"><kbd>⌘</kbd><kbd>⌥</kbd><kbd>G</kbd></span> opens the Git Operations popup, which is where <strong>Update Project</strong> lives.</li>
+          <li>When a merge stops on conflicts, a <strong>Merge Conflicts</strong> group appears inside Changes. <strong>Resolve</strong> opens the conflict list; double-click a file for the three-way editor.</li>
+        </ol>
+        <p>Each of those has its own page in the sidebar. If you already know IntelliJ's Git, the <a href="settings.html">shortcuts page</a> is probably the one you want first.</p>
+      

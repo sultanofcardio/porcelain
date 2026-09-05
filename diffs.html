@@ -1,0 +1,39 @@
+---
+layout: default
+title: Diffs
+---
+        <h1>Diffs</h1>
+        <p>Diffs open in Porcelain's own viewer: each side headed by its revision, paired line numbers down a centre gutter, and curved connectors joining each change to its counterpart. It's the default; <code>porcelain.diff.viewer: native</code> restores VS Code's diff editor.</p>
+
+        <figure>
+          <img src="assets/images/floating-diff-windows-transparent.png" alt="Two compact floating windows. The smaller lists the three files that differ between two commits. The larger shows pool.ts in Porcelain's diff viewer with paired line numbers, an added block in green, and a curved connector to the matching point on the left.">
+          <figcaption>A Changes window and the diff window. The file list stays put while the diff window is reused for every file you open.</figcaption>
+        </figure>
+
+        <h2>Windows</h2>
+        <p>Diffs and file lists open in their own compact windows, so they don't compete with your code for editor space. One diff window is reused for every later diff, so you never accumulate diff tabs; <strong>Pin</strong> keeps a diff out of that cycle. <code>porcelain.diff.openIn: editorTab</code> keeps everything in the main window, and editor builds that can't open a separate window fall back to tabs and say so once.</p>
+        <p>The title carries the position and both revisions (<code>panel-store.ts · 3 of 7 · 07748ba ↔ af89dd2</code>), and <span class="keys"><kbd>⌘</kbd><kbd>F7</kbd></span> / <span class="keys"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>F7</kbd></span> step to the next and previous file. The position used to be a transient status-bar message, which the compact window never shows, hence the title.</p>
+
+        <h2>The settings menu</h2>
+        <p>Per window, forgotten when it closes. VS Code's <code>diffEditor.*</code> equivalents are global, which is why these have no native counterpart.</p>
+        <div class="tablewrap"><table>
+          <thead><tr><th style="width:28%">Option</th><th>Values</th></tr></thead>
+          <tbody>
+            <tr><td>Layout</td><td>Side by side, or unified: old lines then new lines per change in one column. Modified lines keep their modified colouring on both halves, since an edited line isn't an addition.</td></tr>
+            <tr><td>Ignore</td><td>Do not ignore · leading and trailing whitespace · whitespace · whitespace and empty lines. The last two compare normalised copies, so re-indenting stops reading as a change while the chunks still address the real lines.</td></tr>
+            <tr><td>Highlight</td><td>Line, word, character, or off.</td></tr>
+            <tr><td>Collapse unchanged fragments</td><td>Folds long unchanged runs; click to open.</td></tr>
+            <tr><td>Synchronised scrolling</td><td>On, the panes track each other and a stalled side holds its anchor mid-window through a large insertion. Off, each pane scrolls on its own, seeded from wherever it already was.</td></tr>
+            <tr><td>Context lines</td><td>How many unchanged lines stay visible around a change when unchanged fragments are collapsed. Three (3) by default.</td></tr>
+            <tr><td>Swap sides</td><td>Puts the newer revision on the left.</td></tr>
+          </tbody>
+        </table></div><figure><img src="assets/images/diff-settings-window.png" alt="The diff settings menu open in the top-right of a diff: View with Side by side and Unified selected; Whitespace with Do not ignore, Ignore leading and trailing, Ignore whitespaces, Ignore whitespaces and empty lines; Highlight granularity with By line, By word selected, By character, Off; Collapse unchanged ticked; Context lines 3 with minus and plus; Swap sides; Applies to this window only."><figcaption>The settings menu. It says so at the bottom: applies to this window only.</figcaption></figure><figure><img src="assets/images/diff-unified-window.png" alt="The same router.ts diff in the unified layout: one column, with the old and new line numbers side by side on the left and the changed line highlighted."><figcaption>Unified: one column, both line numbers.</figcaption></figure>
+        <p>The change stripe beside the scrollbar jumps to any change on click, the toolbar counts the differences live, and <span class="keys"><kbd>⌘</kbd><kbd>F</kbd></span> finds within the diff.</p>
+
+        <h2>Editing the working tree</h2>
+        <p>When one side is the working tree, that side is a real editor: click anywhere and type, with selection, clipboard, IME composition and one coalescing undo/redo timeline. <span class="keys"><kbd>⌘</kbd><kbd>S</kbd></span> saves to disk, and a dot marks unsaved edits. If the file changes on disk underneath you, a banner offers to reload or keep yours. Index and historical sides stay read-only, and <strong>Edit Source</strong> is still the way to the real file.</p>
+        <p>The working-tree side also carries the include, exclude and revert controls per hunk described under <a href="commit.html">Commit</a>.</p>
+
+        <h2>What it won't render</h2>
+        <p>Binary files show a placeholder with an <strong>Open in editor</strong> action. Images up to 10 MB per side render side by side; heavier ones degrade to the placeholder with both sizes. Text past 25,000 lines shows the placeholder with <strong>Show anyway</strong>. That limit was measured against the diff algorithm's budget (about 400 ms), so if it seems arbitrary, it isn't. Syntax highlighting covers six (6) grammars today and falls back to plain text for the rest.</p>
+      

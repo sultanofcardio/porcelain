@@ -1,0 +1,47 @@
+---
+layout: default
+title: Settings & shortcuts
+---
+        <h1>Settings &amp; shortcuts</h1>
+
+        <h2>Settings</h2>
+        <div class="tablewrap"><table>
+          <thead><tr><th style="width:32%">Setting</th><th style="width:16%">Default</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><code>porcelain.diff.openIn</code></td><td><code>floatingWindow</code></td><td>Where diffs, changed-file lists, the conflicts view and the merge editor open. <code>editorTab</code> keeps them in the main window. Falls back to tabs when the editor build can't open a window.</td></tr>
+            <tr><td><code>porcelain.diff.viewer</code></td><td><code>porcelain</code></td><td>Which renderer shows file diffs. <code>native</code> is VS Code's own diff editor.</td></tr>
+            <tr><td><code>porcelain.push.protectedBranches</code></td><td><code>["main","master"]</code></td><td>Regular expressions matched against the whole branch name. Force push is refused on a match.</td></tr>
+            <tr><td><code>porcelain.update.method</code></td><td><code>merge</code></td><td>How Update Project brings the branch up to date: <code>merge</code> or <code>rebase</code>.</td></tr>
+            <tr><td><code>porcelain.fetch.tags</code></td><td><code>auto</code></td><td>Whether fetching brings tags: <code>auto</code> follows git's configuration, <code>all</code>, or <code>none</code>.</td></tr>
+          </tbody>
+        </table></div>
+
+        <h2>Editor shortcuts</h2>
+        <p>These are VS Code keybindings, so they show in the Keyboard Shortcuts editor and can be rebound. Windows and Linux use <kbd>Ctrl</kbd> for <kbd>⌘</kbd> and <kbd>Alt</kbd> for <kbd>⌥</kbd>.</p>
+        <div class="tablewrap"><table>
+          <thead><tr><th style="width:22%">Keys</th><th style="width:30%">Command</th><th>Where</th></tr></thead>
+          <tbody>
+            <tr><td><span class="keys"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>K</kbd></span></td><td>Push…</td><td>Anywhere.</td></tr>
+            <tr><td><span class="keys"><kbd>⌘</kbd><kbd>⌥</kbd><kbd>G</kbd></span></td><td>Git Operations…</td><td>Anywhere.</td></tr>
+            <tr><td><span class="keys"><kbd>⌘</kbd><kbd>F7</kbd></span> / <span class="keys"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>F7</kbd></span></td><td>Next File / Previous File</td><td>An editor has focus; steps through the changed files' diffs.</td></tr>
+          </tbody>
+        </table></div>
+
+        <h2>Inside the views</h2>
+        <p>These live inside Porcelain's own panels and follow IntelliJ.</p>
+        <div class="tablewrap"><table>
+          <thead><tr><th style="width:26%">Keys</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td><span class="keys"><kbd>⌘</kbd><kbd>G</kbd></span></td><td>Go to hash, branch or tag, in the Git Log</td></tr>
+            <tr><td><span class="keys"><kbd>⌘</kbd><kbd>⏎</kbd></span></td><td>Commit, from the message box</td></tr>
+            <tr><td><span class="keys"><kbd>⌘</kbd><kbd>D</kbd></span></td><td>Show Diff for the selected file, in Commit and Shelf</td></tr>
+            <tr><td><span class="keys"><kbd>⌥</kbd><kbd>⌘</kbd><kbd>Z</kbd></span></td><td>Rollback the selected files</td></tr>
+            <tr><td><span class="keys"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>U</kbd></span></td><td>Unshelve</td></tr>
+            <tr><td><span class="keys"><kbd>⌘</kbd><kbd>F</kbd></span></td><td>Find, in a diff or a merge pane</td></tr>
+            <tr><td><span class="keys"><kbd>⌘</kbd><kbd>S</kbd></span></td><td>Save the working-tree side of a diff (a read-only side ignores it)</td></tr>
+            <tr><td><span class="keys"><kbd>⌘</kbd><kbd>Z</kbd></span> / <span class="keys"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>Z</kbd></span></td><td>Undo and redo in an editable pane, covering typed edits and gutter verbs</td></tr>
+            <tr><td><span class="keys"><kbd>⌘</kbd><kbd>A</kbd></span></td><td>Select all in an editable pane</td></tr>
+            <tr><td><kbd>Esc</kbd></td><td>Close the menu, popup or find bar</td></tr>
+          </tbody>
+        </table></div>
+      

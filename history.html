@@ -1,0 +1,39 @@
+---
+layout: default
+title: Rewriting history
+---
+        <h1>Rewriting history</h1>
+        <p>Every rewriting verb drives real git. The interactive rebase editor registers Porcelain as <code>GIT_SEQUENCE_EDITOR</code> and hands git the plan you built, so hooks, <code>rerere</code> and the merge machinery behave exactly as they would from a terminal, and a conflict stops in the same continue/abort/skip banner as any other operation. I considered rewriting history in memory and applying the result, but that would've meant reimplementing git's own rules, and getting any of them subtly wrong loses commits.</p>
+
+        <h2>Interactively Rebase from Here</h2>
+        <p>On a commit in the log. It opens a <strong>Rebasing Commits</strong> table of every commit from there to HEAD:</p>
+        <ul>
+          <li><strong>pick</strong>, <strong>reword</strong>, <strong>stop to edit</strong>, <strong>squash</strong>, <strong>fixup</strong>, <strong>drop</strong> per row.</li>
+          <li>Inline message editing for reword and squash; a squash concatenates the messages for you to edit.</li>
+          <li>Move up and down to reorder. <strong>Reset</strong> restores the loaded plan.</li>
+          <li><strong>View Git Commands</strong> shows the exact <code>git-rebase-todo</code> before you start.</li>
+        </ul>
+        <figure><img src="assets/images/interactive-rebase.png" alt="The Rebasing Commits dialog over the log: four rows with an Action dropdown set to Pick, the hash, the subject, and up and down arrows under Order. Below: View Git Commands, Reset, Cancel and Start Rebasing."><figcaption>Rebasing Commits, rooted at the commit you right-clicked.</figcaption></figure>
+
+        <h2>The one-step verbs</h2>
+        <div class="tablewrap"><table>
+          <thead><tr><th style="width:30%">Verb</th><th>Does</th></tr></thead>
+          <tbody>
+            <tr><td>Edit Commit Message…</td><td>Any commit. An amend at HEAD, a reword rebase below it.</td></tr>
+            <tr><td>Squash N Commits…</td><td>Select several commits; they fold into one under a combined message you edit first.</td></tr>
+            <tr><td>Fixup…</td><td>Commits the working tree as a <code>fixup!</code> of the chosen commit, ready for an autosquash rebase.</td></tr>
+            <tr><td>Undo Commit</td><td>Undoes the tip commit and keeps its changes staged.</td></tr>
+            <tr><td>Drop Commit</td><td>Removes the commit from the branch.</td></tr>
+            <tr><td>Revert Commit</td><td>The inverse commit, keeping history.</td></tr>
+            <tr><td>Reset Current Branch to Here…</td><td>Soft, mixed or hard, with confirmation.</td></tr>
+          </tbody>
+        </table></div>
+        <p>All of these are disabled while another git operation is in progress, with the reason shown in the menu.</p>
+
+        <h2>Rebase, merge and pull options</h2>
+        <p>Rebase from the branch menu takes <code>--onto</code>, interactive, <code>--autosquash</code>, <code>--update-refs</code> and <code>--rebase-merges</code>. Merge takes <code>--no-ff</code>, <code>--ff-only</code>, <code>--squash</code>, <code>--no-commit</code> and a custom message. Pull takes rebase, <code>--ff-only</code>, <code>--no-ff</code>, <code>--squash</code> and <code>--no-commit</code>. Each is a dialog with the option names git uses, so what you tick is what runs.</p>
+
+        <h2>When it stops</h2>
+        <p>A conflict in any of them lands you in the Commit view with the Merge Conflicts group and the banner: <strong>Continue</strong>, <strong>Abort</strong>, or <strong>Skip</strong> the current commit. Resolve the files, tick them, and continue. See <a href="merge.html">Merge &amp; conflicts</a>.</p>
+        <div class="callout"><p>The review that shipped these caught a squash that discarded the given message, a squash folding into the wrong parent across a non-contiguous selection, and a 500-commit rebase silently dropping the commits past its cap. Each has a regression test now. If you find another way to lose a commit, <a href="https://github.com/sultanofcardio/porcelain/issues">open an issue</a> and I'll treat it as the top of the list.</p></div>
+      

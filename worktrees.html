@@ -1,0 +1,20 @@
+---
+layout: default
+title: Worktrees & multi-root
+---
+        <h1>Worktrees &amp; multi-root</h1>
+
+        <h2>Worktrees…</h2>
+        <p>Lists the linked working trees with their branch and state: main, locked, prunable. Pick one to open it in a new window or remove it (force is offered when git refuses). <strong>New worktree…</strong> asks for a path, relative to the repository root, then for a branch to create in it. Leave the branch blank and git checks out, or creates, a branch named after the path's last segment. <strong>Prune stale records</strong> drops entries whose directories are gone. Checking out a branch that another worktree already has checked out is refused, with the worktree named.</p>
+        <figure><img src="assets/images/worktrees.png" alt="The Worktrees quick pick: main, the main working tree, then New worktree… and Prune stale records."><figcaption>Worktrees…: the list, then the two actions.</figcaption></figure>
+
+        <h2>Multi-root workspaces</h2>
+        <p>Porcelain discovers one git repository per workspace folder and shows a shared active-repository selector in both Commit and Git Log. Switching repositories clears the repository-scoped state before the new one loads, and an action started against one repository stays bound to it even if you switch while its dialog is open. Nested repositories inside a single workspace folder aren't discovered yet; I've deferred that to a later release.</p>
+
+        <h2>Git Operations popup</h2>
+        <p><span class="keys"><kbd>⌘</kbd><kbd>⌥</kbd><kbd>G</kbd></span> (<span class="keys"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>G</kbd></span>) is IntelliJ's <kbd>Alt+`</kbd>: a quick list of the verbs you reach for most. <strong>Commit…</strong>, <strong>Push…</strong>, <strong>Update Project</strong>, <strong>Search Commits…</strong>, <strong>Annotate with Git Blame</strong>, <strong>Resolve Conflicts…</strong>, <strong>Worktrees…</strong>.</p>
+        <figure><img src="assets/images/git-operations.png" alt="The Git operations quick pick: Commit…, Push…, Update Project, Search Commits…, Annotate with Git Blame, Resolve Conflicts…, Worktrees…."><figcaption>The Git Operations popup.</figcaption></figure>
+
+        <h2>Workspace trust</h2>
+        <p>Porcelain runs git against the workspace, and the workspace's own configuration and hooks can execute commands, so it stays disabled until the workspace is trusted. It doesn't run in virtual workspaces, which have no local files for git to read.</p>
+      

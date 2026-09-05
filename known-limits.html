@@ -1,0 +1,20 @@
+---
+layout: default
+title: Known limits
+---
+        <h1>Known limits</h1>
+        <p>What I know is missing or rough as of 0.9.0. Most of these have a line on the <a href="roadmap.html">roadmap</a>.</p>
+        <ul>
+          <li>Syntax highlighting in diffs covers six (6) grammars. Everything else is plain text, which I'd rather have than the wrong colours.</li>
+          <li>There's no automatic fetch. Ahead/behind and incoming/outgoing counts are as fresh as your last fetch.</li>
+          <li>File history doesn't follow renames.</li>
+          <li>Nested repositories inside one workspace folder aren't discovered; it's one repository per folder.</li>
+          <li>Text diffs past 25,000 lines and images past 10 MB per side show a placeholder with a way through.</li>
+          <li>The commit message box has no inspections yet; git's own hooks are the only check.</li>
+          <li>Diff settings are per window and forgotten when it closes.</li>
+          <li>In <strong>New worktree…</strong>, the grey <code>../feature-worktree</code> in the path box is a placeholder. Pressing Enter on an empty box cancels silently, so type the path.</li>
+          <li>Porcelain isn't on Open VSX yet, so Cursor installs go through the VSIX.</li>
+          <li>Settings and command IDs may still change in a minor version before 1.0.</li>
+        </ul>
+        <p>Found something else? <a href="https://github.com/sultanofcardio/porcelain/issues">Open an issue</a>.</p>
+      

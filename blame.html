@@ -1,0 +1,28 @@
+---
+layout: default
+title: Blame & file history
+---
+        <h1>Blame &amp; file history</h1>
+
+        <h2>Annotate with Git Blame</h2>
+        <p>In the editor context menu, or from the Git Operations popup. It draws an author-and-date column beside every line, and hovering a line shows the commit's subject, author, date and short hash. Uncommitted lines are marked as such. Run it again to hide the column.</p>
+        <figure><img src="assets/images/blame.png" alt="pool.ts open with the blame column on: each line prefixed by the author's initials and the date, shaded by age, RP 2026-08-01 for the older lines and AT 2026-08-07 for the newer ones."><figcaption>Annotate with Git Blame: initials and date per line, shaded by age.</figcaption></figure>
+
+        <h2>Blame Options…</h2>
+        <div class="tablewrap"><table>
+          <thead><tr><th style="width:28%">Option</th><th>Values</th></tr></thead>
+          <tbody>
+            <tr><td>Colour lines</td><td>By age, by author, or not at all.</td></tr>
+            <tr><td>Names</td><td>Initials, full name, or email.</td></tr>
+            <tr><td>Ignore whitespace</td><td>Blame through re-indents (<code>-w</code>).</td></tr>
+            <tr><td>Follow moved lines</td><td>Within a file (<code>-M</code>), or across files (<code>-C</code>).</td></tr>
+          </tbody>
+        </table></div>
+        <figure><img src="assets/images/blame-options.png" alt="The Annotation options quick pick: Colors by age, by author, off; Names initials, full name, email; Ignore whitespace on, off; Detect movements within file, across files, off."><figcaption>Blame Options is a quick pick; the current value of each option is marked.</figcaption></figure>
+
+        <h2>Show File History</h2>
+        <p>In the editor and explorer context menus. The Git Log filters to the commits that touched the file, shown as a chip in the toolbar, and every commit's changed-files pane offers <strong>Show Diff</strong>, <strong>Open Repository Version</strong> and <strong>History Up to Here</strong>, which re-roots the history at that commit.</p>
+
+        <h2>Search Commits</h2>
+        <p><strong>Search Commits…</strong> in the Command Palette or the operations popup finds a commit by message or by hash, then copies its revision.</p>
+      

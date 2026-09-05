@@ -1,0 +1,28 @@
+---
+layout: default
+title: Shelf & Stash
+---
+        <h1>Shelf &amp; Stash</h1>
+        <p>Two tabs beside Commit. Both put changes aside; they differ in where the changes go.</p>
+
+        <h2>Shelf</h2>
+        <p>The shelf is IntelliJ's. Each shelved change is a patch under <code>.idea/shelf/&lt;name&gt;/shelved.patch</code> with the matching entry in <code>.idea/shelf/</code>'s XML, so a repository shelved from IntelliJ shows up here and vice versa. Shelves are per working copy, survive branch switches, and aren't part of git's own state.</p>
+        <ul>
+          <li><strong>Shelve</strong> the ticked changes with a message, from the Commit tab.</li>
+          <li><strong>Unshelve</strong> (<span class="keys"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>U</kbd></span>): apply and remove, or apply and keep. Individual files can be unshelved on their own.</li>
+          <li><strong>Delete</strong> a shelf, and <strong>Import a patch</strong> file as a new shelf.</li>
+          <li>Any patch under <code>.idea/shelf/</code> that IntelliJ wrote is readable, including its description.</li>
+        </ul>
+        <figure><img src="assets/images/shelf-tab.png" alt="The Shelf tab: one shelf, wip: pagination cursor, 2 files, just now, expanded to README.md and config.ts."><figcaption>The Shelf tab, with a shelf expanded to its files.</figcaption></figure>
+        <div class="callout"><p>Unsafe shelf mutations are refused before the repository changes. The index is protected during the operation, and staged changes that aren't part of the shelf are preserved.</p></div>
+
+        <h2>Stash</h2>
+        <p>The Stash tab is native <code>git stash</code>.</p>
+        <ul>
+          <li><strong>Stash</strong> with a message, <strong>keep index</strong>, and <strong>include untracked</strong>.</li>
+          <li><strong>Pop</strong>, <strong>Apply</strong> and <strong>Drop</strong> per entry.</li>
+          <li><strong>Stash to branch</strong>: turn a stash into a new branch checked out at the stash's base.</li>
+        </ul>
+        <figure><img src="assets/images/stash-tab.png" alt="The Stash tab: one stash, wip: session cookie flag, 2 files, expanded to webhooks.ts and server.ts."><figcaption>The Stash tab.</figcaption></figure>
+        <p>Smart checkout and Update Project use the stash too, transparently: they stash, do the switch or the update, then restore, and the stash entry is gone afterwards.</p>
+      

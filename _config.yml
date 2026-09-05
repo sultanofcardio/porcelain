@@ -1,0 +1,15 @@
+title: Porcelain
+description: Switch editors, not your Git workflow.
+url: https://sultanofcardio.github.io
+baseurl: /porcelain
+markdown: kramdown
+kramdown:
+  input: GFM
+  smart_quotes: [apos, apos, quot, quot]
+  hard_wrap: false
+exclude:
+  - README.md
+  - _tools
+  - _preview
+  - Gemfile
+  - Gemfile.lock

@@ -1,0 +1,47 @@
+---
+layout: default
+title: Branches, tags & remotes
+---
+        <h1>Branches, tags &amp; remotes</h1>
+        <p>The branch tree on the left of the Git Log is IntelliJ's branch popup, kept open. It's searchable, and each section collapses.</p>
+
+        <h2>What's in the tree</h2>
+        <ul>
+          <li><strong>Current Branch</strong> at the top.</li>
+          <li><strong>Recent</strong>: the branches you checked out last, read from the reflog.</li>
+          <li><strong>Local</strong>, grouped by prefix (<code>feature/</code>, <code>fix/</code>) or flat, per the <strong>Flatten List</strong> toolbar toggle. Favourites carry a star and sort first.</li>
+          <li><strong>Remote</strong>, one folder per remote.</li>
+          <li><strong>Tags</strong>.</li>
+        </ul>
+        <p>Each local branch shows ahead/behind against its upstream, plus incoming/outgoing counts read from the refs the last fetch brought in, so they cost no network round-trip. The tree's own toolbar has New Branch, Update Selected, Delete Branch, Fetch, Mark as Favourite, Navigate Log to Selected Ref Head, Flatten List, and the gear. The gear menu chooses what a single click does (<strong>Update Branch Filter</strong> or <strong>Navigate Log to Ref Head</strong>), toggles <strong>Show Tags</strong>, and opens <strong>Clean Up Branches…</strong> and <strong>Manage Remotes…</strong>.</p><figure><img src="assets/images/branch-settings-menu.png" alt="The branch pane gear menu open: On single click with Update Branch Filter ticked and Navigate Log to Ref Head, Show Tags ticked, then Clean Up Branches… and Manage Remotes…."><figcaption>The gear menu on the branch pane.</figcaption></figure>
+
+        <h2>Context menu on a branch</h2>
+        <div class="tablewrap"><table>
+          <thead><tr><th style="width:32%">Item</th><th>Does</th></tr></thead>
+          <tbody>
+            <tr><td>Checkout</td><td>Switches. When local changes would block the switch, Porcelain offers the smart checkout: stash, switch, restore.</td></tr>
+            <tr><td>Update</td><td>Fast-forwards from the tracked branch. Disabled, with the reason, when there's no upstream.</td></tr>
+            <tr><td>Push…</td><td>Opens the push panel targeting this branch.</td></tr>
+            <tr><td>Merge '…' into current · Rebase current onto '…' · Checkout and Rebase onto current</td><td>The three ways of bringing two branches together. Merge and rebase take options; see <a href="history.html">Rewriting history</a>.</td></tr>
+            <tr><td>Compare with Current</td><td>The comparison tab.</td></tr>
+            <tr><td>New Branch from '…'</td><td>Name, checkout, and overwrite if the name is taken. Names go through <code>git check-ref-format</code> before anything runs.</td></tr>
+            <tr><td>Rename</td><td>Local branches.</td></tr>
+            <tr><td>Delete</td><td>A branch with unmerged commits is refused first; the force option names the commits it would discard, and counts them.</td></tr>
+            <tr><td>Delete on Remote</td><td>For remote branches.</td></tr>
+            <tr><td>Reset to upstream</td><td>On the checked-out branch only: drop local commits to match the tracked branch, with confirmation.</td></tr>
+            <tr><td>Mark / Unmark as Favourite</td><td>Star it.</td></tr>
+          </tbody>
+        </table></div>
+        <figure><img src="assets/images/branch-menu.png" alt="The context menu on feature/webhooks: Mark as Favorite, Checkout, New Branch from feature/webhooks…, Compare with Current, Checkout and Rebase onto main, Rebase main onto feature/webhooks, Merge feature/webhooks into main, Rename…, Delete, Update greyed out, Push…."><figcaption>The branch context menu. Update is greyed because feature/webhooks has no upstream, and the menu says so on hover.</figcaption></figure>
+
+        <h2>Tags</h2>
+        <p><strong>Checkout Tag</strong>, <strong>Push Tag</strong>, <strong>Delete Tag</strong> and <strong>Delete Tag on Remote</strong>. The two remote-bound items are disabled when the repository has no remote. New tags come from a commit's context menu in the log; give the tag a message and it's annotated.</p>
+
+        <h2>Manage Remotes</h2>
+        <p>From the branch pane's gear menu: a Name/URL table for adding, renaming, re-pointing and removing remotes. Names and URLs that look like git options are rejected before they reach the command line. Every remote reference in Porcelain resolves through the default remote or the branch's upstream, so a repository whose remote isn't called <code>origin</code> works the same.</p>
+        <figure><img src="assets/images/manage-remotes.png" alt="The Manage Remotes dialog over the log: a table with one row, origin and its URL, with Edit and Remove buttons, and Add Remote and Done below."><figcaption>Manage Remotes.</figcaption></figure>
+
+        <h2>Clean Up Branches</h2>
+        <p>Also in the gear menu: a table of local branches with last-commit date, tracked branch and merge status, filtered by a directory-style prefix. Merged branches are pre-selected. Unmerged ones are only ever deleted with an explicit, counted force.</p>
+        <figure><img src="assets/images/cleanup-branches.png" alt="The Clean Up Branches dialog: a Filter by prefix field, and a table of five local branches with last commit date, tracked branch and merge status. The three merged branches are ticked; the button reads Delete 3."><figcaption>Clean Up Branches: merged branches pre-selected, the button counts what it will delete.</figcaption></figure>
+      

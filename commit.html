@@ -1,0 +1,36 @@
+---
+layout: default
+title: Commit
+---
+        <h1>Commit</h1>
+        <p>The <strong>Commit</strong> view in the activity bar is IntelliJ's Commit tool window. Tick the files you want and commit. Staging never enters into it: the checkboxes are the commit, and a file is committed as it is on disk.</p>
+
+        <figure>
+          <img src="assets/images/commit-tool-window.png" alt="The Commit tool window. A Changes group lists five files with checkboxes, some ticked and some not, each marked with its status letter. Unversioned files sit in their own group below. A commit message is typed underneath, above Commit and Commit and Push buttons.">
+          <figcaption>Changes and Unversioned Files, grouped by directory, with the status letter on the right and the message box below.</figcaption>
+        </figure>
+
+        <h2>The tree</h2>
+        <ul>
+          <li><strong>Changes</strong> with a checkbox on every file and directory; a directory checkbox ticks everything under it. <strong>Unversioned Files</strong> below, unticked by default.</li>
+          <li>During a merge, rebase or cherry-pick a <strong>Merge Conflicts</strong> group appears nested inside Changes, the way IntelliJ shows it, with a <strong>Resolve</strong> link. A banner above names the operation and offers to continue or abort.</li>
+          <li>Multi-selection, and a context menu per file: <strong>Show Diff</strong> (<span class="keys"><kbd>⌘</kbd><kbd>D</kbd></span>), <strong>Jump to Source</strong>, <strong>Open in System Folder</strong>, <strong>Rollback…</strong> (<span class="keys"><kbd>⌥</kbd><kbd>⌘</kbd><kbd>Z</kbd></span>), <strong>Shelve Changes…</strong> and <strong>Delete…</strong>. Unversioned files add <strong>Add to .gitignore</strong>, which won't duplicate an entry that's already there.</li>
+          <li>The toolbar refreshes, rolls back, shelves, and expands or collapses the tree. <span class="keys"><kbd>⌘</kbd><kbd>F7</kbd></span> and <span class="keys"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>F7</kbd></span> step through the changed files' diffs from an editor.</li>
+        </ul>
+        <figure><img src="assets/images/commit-file-menu.png" alt="The Commit view with the context menu open on router.ts: Show Diff ⌘D, Jump to Source, Open in System Folder, Rollback… ⌥⌘Z, Shelve Changes…, Delete…."><figcaption>The file context menu in the Commit view.</figcaption></figure>
+
+        <h2>Hunks and lines</h2>
+        <p>Open a changed file's diff and the working-tree side has gutter controls per change: include this hunk, exclude it, or revert it. A change can also be addressed by its line range, which is how the diff reaches exactly the block you pointed at when git has merged neighbouring changes into one hunk. Porcelain rebuilds a patch from just the chosen hunks and lets git apply it with context still verified, so a file that changed underneath refuses to apply in the wrong place. The tree checkbox and the per-hunk state stay in sync.</p>
+        <figure><img src="assets/images/diff-working-tree-window.png" alt="A HEAD ↔ Working Tree diff of src/router.ts opened from the Commit view. The one changed line, response.setHeader, is highlighted on the working-tree side, with a checkbox in the centre gutter beside it and a Revert this change control."><figcaption>A working-tree diff from the Commit view. The checkbox in the gutter is the hunk's inclusion; Revert this change sits beside it.</figcaption></figure>
+
+        <h2>The message</h2>
+        <ul>
+          <li>An empty message is seeded from <code>commit.template</code>, or from git's own <code>MERGE_MSG</code> while a merge is in progress.</li>
+          <li>The history dropdown recalls recent messages.</li>
+          <li><strong>Amend</strong> and <strong>Sign-off</strong> sit under the box. The options panel adds <strong>Skip commit hooks</strong> and an <strong>Author</strong> override, which is rejected before it reaches git if it looks like an option.</li>
+          <li><strong>Commit</strong> (<span class="keys"><kbd>⌘</kbd><kbd>⏎</kbd></span>) or <strong>Commit and Push…</strong>, which opens the push panel after the commit.</li>
+        </ul>
+
+        <h2>Rollback</h2>
+        <p><strong>Rollback</strong> on a selection reverts those files to HEAD, after a dialog that lists them. For added files it offers to delete the local copies, the way IntelliJ's dialog does. Per-hunk rollback from the editor gutter is VS Code's own quick-diff revert, and I've left that alone.</p>
+      

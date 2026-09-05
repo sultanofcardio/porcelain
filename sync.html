@@ -1,0 +1,27 @@
+---
+layout: default
+title: Push, update & fetch
+---
+        <h1>Push, update &amp; fetch</h1>
+        <p>IntelliJ's sync story is defined by its guard rails, and those guard rails are what keep a repository safe from data loss. Porcelain keeps them.</p>
+
+        <h2>Push</h2>
+        <p><span class="keys"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>K</kbd></span> opens the push panel: the branch, its target (editable), and a preview of the commits that will go. Options:</p>
+        <ul>
+          <li><strong>Set upstream</strong> when pushing a branch that has none.</li>
+          <li><strong>Push tags</strong>.</li>
+          <li><strong>Skip pre-push hooks</strong>.</li>
+          <li><strong>Force push</strong>, which always uses <code>--force-with-lease</code>, so it declines when the remote moved in a way Porcelain hasn't seen.</li>
+        </ul>
+        <figure><img src="assets/images/push-panel.png" alt="The Push Commits to main tab: main → origin : main in the header, two commits listed on the left with chore: release 0.4.0 selected, its files and details on the right, and Cancel and Push buttons with a dropdown for the options."><figcaption>The push panel: the target is editable in the header, the commits that will go are listed, and the options sit under the Push button's dropdown.</figcaption></figure>
+        <p>Branches matching <code>porcelain.push.protectedBranches</code> (regular expressions, <code>main</code> and <code>master</code> by default) refuse a force push outright; there's no confirmation to click through. A rejected push offers to update by merge or rebase and try again.</p>
+
+        <h2>Update Project</h2>
+        <p>One action, in the operations popup and the Command Palette: fetch, then bring the current branch up to date by merge or rebase per <code>porcelain.update.method</code>. Uncommitted work is carried across with an autostash, and the commits that arrived are reported afterwards. Your own rebased commits aren't counted as new.</p>
+
+        <h2>Fetch</h2>
+        <p>From the branch tree's toolbar. <code>porcelain.fetch.tags</code> chooses whether tags come along: follow the git configuration, always, or never. Incoming and outgoing counts per branch are read from the refs the fetch brought in, so they need no further network. There's no automatic fetch yet; see the <a href="roadmap.html">roadmap</a>.</p>
+
+        <h2>Pull</h2>
+        <p>Pull and pull with rebase from the branch menu, with a dialog for <code>--ff-only</code>, <code>--no-ff</code>, <code>--squash</code> and <code>--no-commit</code>. Update Project is the better habit; pull is there for when you want the flags.</p>
+      

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% if page.url == "/" %}Porcelain{% else %}{{ page.title }} · Porcelain{% endif %}</title>
+<meta name="description" content="Switch editors, not your Git workflow. A JetBrains-style Git workflow for VS Code and Cursor: Git log and branch tree, Commit tool window with Shelf and Stash, interactive rebase, blame, floating diff windows and a three-way merge editor.">
+<link rel="icon" type="image/png" href="{{ site.baseurl }}/assets/images/logo.png">
+<link rel="stylesheet" href="{{ site.baseurl }}/assets/css/site.css">
+<link rel="stylesheet" href="{{ site.baseurl }}/assets/css/roadmap.css">
+<script defer src="{{ site.baseurl }}/assets/js/site.js"></script>
+</head>
+<body>
+<div class="site">
+  <button type="button" class="navrail" id="navrail" title="Show sidebar" aria-label="Show sidebar" hidden><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M12.5 1C13.881 1 15 2.119 15 3.5V12.5C15 13.881 13.881 15 12.5 15H3.5C2.119 15 1 13.881 1 12.5V3.5C1 2.119 2.119 1 3.5 1H12.5ZM12.5 14C13.328 14 14 13.328 14 12.5V3.5C14 2.672 13.328 2 12.5 2H7V14H12.5Z"/></svg></button>
+  <nav id="nav">
+    <div class="brand"><img src="{{ site.baseurl }}/assets/images/logo.png" alt=""> <span>Porcelain</span><button type="button" class="navhide" id="navhide" title="Hide sidebar" aria-label="Hide sidebar"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M1 3.5V12.5C1 13.879 2.122 15 3.5 15H12.5C13.878 15 15 13.879 15 12.5V3.5C15 2.122 13.878 1 12.5 1H3.5C2.122 1 1 2.122 1 3.5ZM12.5 14H7V2H12.5C13.327 2 14 2.673 14 3.5V12.5C14 13.327 13.327 14 12.5 14ZM2 3.5C2 2.673 2.673 2 3.5 2H6V14H3.5C2.673 14 2 13.327 2 12.5V3.5Z"/></svg></button></div>
+    <a class="item{% if page.url == "/" %} active{% endif %}" href="{{ site.baseurl }}/">Home</a>
+    <div class="group">Using it</div>
+    <a class="item{% if page.url == "/git-log.html" %} active{% endif %}" href="{{ site.baseurl }}/git-log.html">Git Log</a>
+    <a class="item{% if page.url == "/branches.html" %} active{% endif %}" href="{{ site.baseurl }}/branches.html">Branches, tags &amp; remotes</a>
+    <a class="item{% if page.url == "/commit.html" %} active{% endif %}" href="{{ site.baseurl }}/commit.html">Commit</a>
+    <a class="item{% if page.url == "/shelf-and-stash.html" %} active{% endif %}" href="{{ site.baseurl }}/shelf-and-stash.html">Shelf &amp; Stash</a>
+    <a class="item{% if page.url == "/history.html" %} active{% endif %}" href="{{ site.baseurl }}/history.html">Rewriting history</a>
+    <a class="item{% if page.url == "/diffs.html" %} active{% endif %}" href="{{ site.baseurl }}/diffs.html">Diffs</a>
+    <a class="item{% if page.url == "/merge.html" %} active{% endif %}" href="{{ site.baseurl }}/merge.html">Merge &amp; conflicts</a>
+    <a class="item{% if page.url == "/blame.html" %} active{% endif %}" href="{{ site.baseurl }}/blame.html">Blame &amp; file history</a>
+    <a class="item{% if page.url == "/sync.html" %} active{% endif %}" href="{{ site.baseurl }}/sync.html">Push, update &amp; fetch</a>
+    <a class="item{% if page.url == "/worktrees.html" %} active{% endif %}" href="{{ site.baseurl }}/worktrees.html">Worktrees &amp; multi-root</a>
+    <a class="item{% if page.url == "/settings.html" %} active{% endif %}" href="{{ site.baseurl }}/settings.html">Settings &amp; shortcuts</a>
+    <a class="item{% if page.url == "/known-limits.html" %} active{% endif %}" href="{{ site.baseurl }}/known-limits.html">Known limits</a>
+    <div class="group">Project</div>
+    <a class="item{% if page.url == "/changelog.html" %} active{% endif %}" href="{{ site.baseurl }}/changelog.html">Changelog</a>
+    <a class="item{% if page.url == "/roadmap.html" %} active{% endif %}" href="{{ site.baseurl }}/roadmap.html">Roadmap</a>
+    <div class="group">Links</div>
+    <a class="ext" href="https://github.com/sultanofcardio/porcelain">GitHub<span>↗</span></a>
+    <a class="ext" href="https://marketplace.visualstudio.com/items?itemName=sultanofcardio.porcelain">Marketplace<span>↗</span></a>
+    <a class="ext" href="https://github.com/sultanofcardio/porcelain/releases">Releases<span>↗</span></a>
+    <a class="ext" href="https://github.com/sultanofcardio/porcelain/issues">Report an issue<span>↗</span></a>
+  </nav>
+  <article class="page">
+{{ content }}
+  </article>
+</div>
+</body>
+</html>

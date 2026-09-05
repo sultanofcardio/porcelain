@@ -1,0 +1,34 @@
+---
+layout: default
+title: Merge & conflicts
+---
+        <h1>Merge &amp; conflicts</h1>
+        <p>A conflicted merge is three steps, and Porcelain gives each one a surface.</p>
+
+        <h2>1. Notice</h2>
+        <p>Unmerged files appear as a <strong>Merge Conflicts</strong> group nested inside Changes, the way IntelliJ shows them, so the same file never appears twice. A banner names the branch being merged and offers to continue or abort.</p>
+        <figure>
+          <img src="assets/images/merge-conflicts-commit-window.png" alt="The Commit tool window during a merge. A banner reads Merging fix/pool-leak with continue and abort buttons. Below it, a Changes group contains a nested Merge Conflicts group with a Resolve link, holding a single conflicted file.">
+        </figure>
+
+        <h2>2. Triage</h2>
+        <p><strong>Resolve</strong> opens the conflict list in its own compact window, showing how each side touched every file. Take one side wholesale with <strong>Accept Yours</strong> or <strong>Accept Theirs</strong>, or <strong>Merge</strong> to work through it.</p>
+        <figure>
+          <img src="assets/images/merge-conflicts-floating-window.png" style="max-width:720px" alt="A compact floating window titled Conflicts. It lists one conflicted file with columns showing that both Yours and Theirs modified it, and buttons for Accept Yours, Accept Theirs and Merge.">
+        </figure>
+
+        <h2>3. Resolve</h2>
+        <p>Double-clicking a conflicted file opens the three-way editor in its own window: your side on the left, the working result in the middle, theirs on the right, in IntelliJ's order.</p>
+        <figure>
+          <img src="assets/images/merge-conflicts-3-way-resolution.png" alt="The three-way merge editor. Three syntax-highlighted columns: main on the left marked Yours, the editable Result in the middle, fix/pool-leak on the right marked Theirs. The conflicting region is highlighted in red on both outer columns, with accept and ignore controls in the gutters, and the toolbar reads 1 conflict, 0 resolved.">
+        </figure>
+        <ul>
+          <li>The verbs ride the gutter connectors: <strong>accept</strong> (<code>≫</code> / <code>≪</code>), <strong>ignore</strong>, <strong>revert to base</strong>. Accepting the second side after the first gives you both, IntelliJ-style.</li>
+          <li>The Result pane is a real editor. Click anywhere and type; typing inside a conflict resolves it. Selection, clipboard, IME composition and word movement all work, and one undo/redo timeline covers typed edits and gutter verbs alike.</li>
+          <li>A side that's still takeable stays red, with its connector tapering to the exact row an accept would splice at. A side that landed, or a conflict resolved by typing, goes green.</li>
+          <li><strong>Apply non-conflicting changes</strong> takes every region only one side touched. <strong>Resolve automatically</strong> combines both sides wherever their edits hit different base lines, and deliberately leaves anything overlapping for you.</li>
+          <li>Conflict stepping, collapse of unchanged regions and per-pane find (<span class="keys"><kbd>⌘</kbd><kbd>F</kbd></span>) come with the shared diff stack.</li>
+          <li><strong>Apply</strong> stays disabled until every conflict is resolved. Cancelling confirms first.</li>
+        </ul>
+        <p>Porcelain also registers with VS Code's Source Control view, so a conflicted file there offers <strong>Open in Porcelain Merge Editor</strong>, and conflicts raised by a terminal merge land in the same places.</p>
+      

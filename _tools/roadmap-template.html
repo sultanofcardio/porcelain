@@ -1,0 +1,57 @@
+{{DATA}}
+        <div class="kicker">IntelliJ parity</div>
+        <h1>Roadmap</h1>
+        <p>Everything the IntelliJ Git client does, and the bar is what <a href="https://github.com/DetachHead/rebased">Rebased</a> ships as a standalone product: git4idea plus the platform's log, diff and merge. Each tile is a feature, ranked by how much it matters to a day's work, left to right and top to bottom. Glazed tiles are supported. Bisque tiles are fired before 1.0, and the gold seam is where 1.0 gets cut. Hover a tile to see what it is; click it to find it in the log below.</p>
+
+        <div class="stats">
+          <div class="stat-big"><span class="stat-n">{{DONE}}</span><span class="stat-of">of {{TOTAL}}</span><span class="stat-lbl">features supported</span></div>
+          <ul class="legend">
+            <li><i class="sw-l st-done"></i><b>{{DONE}}</b> supported</li>
+            <li><i class="sw-l st-v1"></i><b>{{V1}}</b> before 1.0</li>
+            <li><i class="sw-l st-after"></i><b>{{AFTER}}</b> after 1.0</li>
+            <li><i class="sw-l st-never"></i><b>{{NEVER}}</b> not planned</li>
+            <li><i class="sw-l st-next"></i>next up</li>
+          </ul>
+        </div>
+
+        <div class="cloth" id="cloth">
+          <div class="cloth-bar">
+            <span class="cloth-title">The glaze, rank 1 to {{TOTAL}}</span>
+            <div class="seg"><button type="button" class="on" data-mode="rank">By rank</button><button type="button" data-mode="area">By area</button></div>
+          </div>
+          <div class="cloth-body">
+            <div class="cloth-grid" id="cloth-grid">{{TILES}}</div>
+            <div class="cloth-areas" id="cloth-areas" hidden></div>
+            <svg class="seam" id="seam" aria-hidden="true"></svg>
+            <div class="tip" id="tip" hidden></div>
+          </div>
+        </div>
+        <div class="v1box">
+          <div class="v1box-ver">1.0</div>
+          <div>
+            <strong>What 1.0 means.</strong> The top {{ABOVE}} tiles, the essential and important tiers, all glazed, and the settings and command IDs frozen. That's {{TOGO}} to go. Until then the extension stays in preview and a minor version may still rename a <code>porcelain.*</code> setting.
+            <div class="nextup"><span>Next up</span> {{NEXT_NAMES}}</div>
+          </div>
+        </div>
+
+        <h2>The log</h2>
+        <p>The same {{TOTAL}} features as a log, in the same order: rank is importance, so everything before 1.0 sits above the seam and everything after it below. One lane per area, a node per feature, and every lane merging into 1.0 before it fans out again. Filled nodes are supported, rings are waiting. Every ring expands into a mock of the feature drawn on the real surface.</p>
+        <div class="listbar">
+          <div class="filters">
+            <button type="button" class="fbtn on" data-stage="all">All {{TOTAL}}</button>
+            <button type="button" class="fbtn" data-stage="done">Supported {{DONE}}</button>
+            <button type="button" class="fbtn" data-stage="v1">Before 1.0 {{V1}}</button>
+            <button type="button" class="fbtn" data-stage="after">After 1.0 {{AFTER}}</button>
+            <button type="button" class="fbtn" data-stage="never">Not planned {{NEVER}}</button>
+          </div>
+          <select class="asel" id="area-select" aria-label="Area"><option value="">Every area</option><option value="log">Log &amp; graph</option><option value="branches">Branches, tags &amp; remotes</option><option value="rewrite">History rewriting</option><option value="commit">Commit, shelf &amp; stash</option><option value="sync">Push, update &amp; fetch</option><option value="blame">Blame &amp; file history</option><option value="diff">Diff &amp; merge</option><option value="platform">Platform</option></select>
+        </div>
+        <div class="plist" id="plist">
+          <svg class="loggraph" id="loggraph" aria-hidden="true"></svg>
+          <div class="lanehead"><span></span><span></span><span class="lanekeys" id="lanekeys"></span></div>
+{{LIST}}
+        </div>
+
+        <h2>How things get on this page</h2>
+        <p>The tiers are my judgement of how often a feature is felt in a day's work, so the order will move as I use the thing. I build what I actually use, and the seam exists so the long tail can never hold up 1.0. The last tier is outside the bar on purpose: features IntelliJ itself lacks, or that VS Code already provides, count as parity by integration rather than by rebuilding. If there is something in IntelliJ's Git you use every week and it's ranked too low, <a href="https://github.com/sultanofcardio/porcelain/issues">open an issue</a> and say what it's for.</p>
+      

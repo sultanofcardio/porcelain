@@ -1,0 +1,68 @@
+---
+layout: default
+title: Git Log
+---
+        <h1>Git Log</h1>
+        <p>The <strong>Porcelain</strong> panel is IntelliJ's Git tool window: branch tree on the left, the graph in the middle, and the changed files and details of the selected commit on the right. Every column can be resized or hidden, and the whole panel drags to the side or maximises like any other VS Code panel.</p>
+
+        <h2>The graph</h2>
+        <ul>
+          <li>Colour-coded lanes with merge bubbles. Commits outside the current branch are dimmed. I tried tinting the current branch instead, but most rows are reachable, so that washed the whole log in one hue.</li>
+          <li>Linear runs collapse: click a fragment to fold it, or use <strong>Collapse Linear Branches</strong> and <strong>Expand Linear Branches</strong> in View Options for all of them at once.</li>
+          <li>Edges longer than 30 rows become a pair of arrow stubs, and clicking a stub jumps to the edge's other end. <strong>Show Long Edges</strong> draws them in full.</li>
+          <li>Ref chips on the row: HEAD, local and remote branches, tags. <strong>Compact References</strong> shows the first and a "+N".</li>
+        </ul>
+
+        <h2>Toolbar</h2>
+        <div class="tablewrap"><table>
+          <thead><tr><th style="width:24%">Control</th><th>Does</th></tr></thead>
+          <tbody>
+            <tr><td>Search</td><td>Filters by message, literal and case-insensitive by default. The <code>Cc</code> toggle matches case; <code>.*</code> treats the text as a regular expression.</td></tr>
+            <tr><td>Branch</td><td>Multi-select. The dropdown stays open while you tick branches, and the log shows the union of everything reachable from them. A plain click in the branch tree replaces the filter with that one ref.</td></tr>
+            <tr><td>User</td><td>Every author in the repository, most commits first, with your configured <code>user.name</code> pinned to the top as "(me)".</td></tr>
+            <tr><td>Date</td><td>Today, last 7, 30 or 90 days, or a custom After/Before pair, sent to git as inclusive day bounds.</td></tr>
+            <tr><td>Paths</td><td>One pathspec per line. Narrows the log to commits touching those files or folders. <strong>Show File History</strong> from an editor adds a file-history chip here.</td></tr>
+            <tr><td>Go to</td><td><span class="keys"><kbd>⌘</kbd><kbd>G</kbd></span>. Branch and tag completion; free text resolves as a full or abbreviated hash. The log navigates there and clears any filter that would've hidden it.</td></tr>
+            <tr><td>View Options</td><td>The eye. Graph modes, highlighters, presentation and columns, below.</td></tr>
+          </tbody>
+        </table></div>
+        <figure><img src="assets/images/log-branch-filter.png" alt="The Branch filter dropdown open over the log: a Select branches field, All branches, then every local and remote branch with a checkbox, main ticked."><figcaption>The Branch filter stays open while you tick branches. The log shows the union.</figcaption></figure><figure><img src="assets/images/log-goto.png" alt="The Go to popup over the log with v0. typed, listing the tags v0.1.0, v0.2.0 and v0.3.0 with v0.1.0 highlighted."><figcaption>Go to (<span class="keys"><kbd>⌘</kbd><kbd>G</kbd></span>) filters branches and tags as you type; free text resolves as a hash.</figcaption></figure>
+
+        <h2>View Options</h2>
+        <div class="tablewrap"><table>
+          <thead><tr><th style="width:24%">Group</th><th>Options</th></tr></thead>
+          <tbody>
+            <tr><td>Graph</td><td><strong>Sort Topologically</strong>, <strong>First Parent Only</strong>, <strong>No Merge Commits</strong>, <strong>Show Long Edges</strong>, and the collapse and expand actions. These map to <code>--topo-order</code>, <code>--first-parent</code> and <code>--no-merges</code>.</td></tr>
+            <tr><td>Highlight</td><td><strong>My Commits</strong> emphasises commits by your configured <code>user.name</code>. <strong>Dim Merge Commits</strong>. <strong>Fade Other Branches</strong> is the reachability dimming, now toggleable. All persisted.</td></tr>
+            <tr><td>Presentation</td><td><strong>Compact References</strong>, <strong>Tag Names</strong> on or off, and <strong>Commit Timestamp</strong> to show the committer date in place of the author date.</td></tr>
+            <tr><td>Columns</td><td>Author, Date and Hash can each be hidden. Widths are dragged and remembered.</td></tr>
+          </tbody>
+        </table></div>
+        <figure><img src="assets/images/log-view-options.png" alt="The Porcelain panel maximised with the View Options menu open: Columns with Author, Date and Hash ticked; Graph with Sort Topologically, First Parent Only, No Merge Commits, Show Long Edges, Collapse and Expand Linear Branches; Presentation with Compact References, Tag Names ticked, Commit Timestamp; Highlight below."><figcaption>View Options, with the panel maximised. Everything in it persists.</figcaption></figure>
+
+        <h2>The details pane</h2>
+        <p>Selecting one commit shows its changed files, grouped by directory, and below them the full message, author, date, the ref chips, and <strong>In N branches</strong>: which local and remote branches contain it, loaded lazily, with Show all and Hide. Double-clicking a file opens its diff. The file context menu adds <strong>Show Diff</strong>, <strong>Open Repository Version</strong>, <strong>History Up to Here</strong>, <strong>Edit Source</strong>, <strong>Revert Selected Changes</strong>, <strong>Cherry-Pick Selected Changes</strong>, and Copy Path and Copy File Name.</p>
+
+        <h2>Commit context menu</h2>
+        <div class="tablewrap"><table>
+          <thead><tr><th style="width:34%">Item</th><th>Does</th></tr></thead>
+          <tbody>
+            <tr><td>Checkout Revision</td><td>Detached HEAD at the commit.</td></tr>
+            <tr><td>Reset Current Branch to Here (Soft / Mixed / Hard)…</td><td>The three resets, each with a confirmation.</td></tr>
+            <tr><td>Revert Commit · Drop Commit</td><td>Revert creates the inverse commit. Drop rewrites it out of the branch.</td></tr>
+            <tr><td>Cherry-Pick · Cherry-Pick N Commits</td><td>A multi-selection is applied oldest first in one invocation, so a stop mid-sequence lands in the same continue/abort/skip banner.</td></tr>
+            <tr><td>Interactively Rebase from Here… · Edit Commit Message… · Squash N Commits… · Fixup… · Undo Commit</td><td>The rewriting verbs. See <a href="history.html">Rewriting history</a>.</td></tr>
+            <tr><td>Compare Versions</td><td>With two commits selected: everything that differs between the two snapshots, always read oldest to newest whichever order you selected them in, so work that was added and later reverted between them correctly shows as no change.</td></tr>
+            <tr><td>New Branch… · New Tag…</td><td>From the commit. A tag with a message is annotated.</td></tr>
+            <tr><td>Copy Revision Number · Show in Git Log</td><td>Copies the hash; navigates a comparison log back to the main log.</td></tr>
+          </tbody>
+        </table></div>
+        <figure>
+          <img src="assets/images/compare-versions.png" alt="The commit list with two commits highlighted and the context menu open. Compare Versions is highlighted; the single-commit actions are greyed out.">
+          <figcaption>With two commits selected the single-commit verbs grey out, because the row you happened to right-click isn't an obvious target for a reset.</figcaption>
+        </figure>
+
+        <h2>Compare with Current</h2>
+        <p>Right-click a local branch, remote branch or tag and choose <strong>Compare with Current</strong>. Porcelain opens a dedicated editor tab with the commits unique to each side, independent filters per side, and the same changed-files and details panes. The commit context actions work there too.</p>
+        <figure><img src="assets/images/compare-with-current.png" alt="A Compare: feature/webhooks ↔ main editor tab. The top half lists the two commits in feature/webhooks not in main, the bottom half the three commits in main not in feature/webhooks, each with its own filters, changed files and details."><figcaption>Compare with Current: each side has its own filter row, changed files and details.</figcaption></figure>
+      
