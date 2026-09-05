@@ -26,7 +26,8 @@ import {
   PANE_TEXT_PADDING,
   paneContentWidth,
   useCharWidth,
-  widestLine,
+  useLineMeasurer,
+  widestLineWidth,
 } from "./components/metrics";
 import { RevisionHeader } from "./components/RevisionHeader";
 import { UnifiedPane } from "./components/UnifiedPane";
@@ -432,22 +433,24 @@ export function DiffApp() {
   const visibleLines = Math.ceil(viewportHeight / LINE_HEIGHT);
 
   // The horizontal axis: each pane scrolls sideways on its own, in lockstep
-  // while synchronised scrolling is on. A pane's scrollable width comes from
-  // the whole document's widest line rather than from the rows on screen, so
-  // the scrollbar keeps one range as the rows beneath it change; under sync
-  // both panes take the wider of the two, so neither stops short of the other.
+  // while synchronised scrolling is on. A pane's scrollable width is measured
+  // from the whole document's widest line rather than from the rows on
+  // screen, so the scrollbar keeps one range as the rows beneath it change;
+  // under sync both panes take the wider of the two, so neither stops short
+  // of the other.
   const charWidth = useCharWidth(viewportRef);
+  const measureLine = useLineMeasurer(viewportRef);
   const horizontal = useHorizontalScroll(SIDES, store.syncScroll);
-  const leftColumns = useMemo(
-    () => widestLine(splitLines(store.left)),
-    [store.left],
+  const leftTextWidth = useMemo(
+    () => widestLineWidth(splitLines(store.left), charWidth, measureLine),
+    [store.left, charWidth, measureLine],
   );
-  const rightColumns = useMemo(
-    () => widestLine(splitLines(store.right)),
-    [store.right],
+  const rightTextWidth = useMemo(
+    () => widestLineWidth(splitLines(store.right), charWidth, measureLine),
+    [store.right, charWidth, measureLine],
   );
-  const leftWidth = paneContentWidth(leftColumns, charWidth);
-  const rightWidth = paneContentWidth(rightColumns, charWidth);
+  const leftWidth = paneContentWidth(leftTextWidth);
+  const rightWidth = paneContentWidth(rightTextWidth);
   const sharedWidth = Math.max(leftWidth, rightWidth);
   // The hook's padding on top: equal content across panes of unequal width
   // would still leave their scroll ranges ending at different maxima.

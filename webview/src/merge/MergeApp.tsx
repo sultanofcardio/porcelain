@@ -16,7 +16,8 @@ import {
   PANE_TEXT_PADDING,
   paneContentWidth,
   useCharWidth,
-  widestLine,
+  useLineMeasurer,
+  widestLineWidth,
 } from "../diff/components/metrics";
 import { type DisplayMapping, EditablePane } from "../diff/editor/EditablePane";
 import { visualCol } from "../diff/editor/editor-model";
@@ -235,13 +236,22 @@ export function MergeApp() {
   // per-pane padding, without which the result pane's wider grid track would
   // end its range before the other two reached theirs.
   const charWidth = useCharWidth(viewportRef);
+  const measureLine = useLineMeasurer(viewportRef);
   const horizontal = useHorizontalScroll(PANES, true);
-  const oursColumns = useMemo(() => widestLine(oursLines), [oursLines]);
-  const resultColumns = useMemo(() => widestLine(resultLines), [resultLines]);
-  const theirsColumns = useMemo(() => widestLine(theirsLines), [theirsLines]);
+  const oursTextWidth = useMemo(
+    () => widestLineWidth(oursLines, charWidth, measureLine),
+    [oursLines, charWidth, measureLine],
+  );
+  const resultTextWidth = useMemo(
+    () => widestLineWidth(resultLines, charWidth, measureLine),
+    [resultLines, charWidth, measureLine],
+  );
+  const theirsTextWidth = useMemo(
+    () => widestLineWidth(theirsLines, charWidth, measureLine),
+    [theirsLines, charWidth, measureLine],
+  );
   const contentWidth = paneContentWidth(
-    Math.max(oursColumns, resultColumns, theirsColumns),
-    charWidth,
+    Math.max(oursTextWidth, resultTextWidth, theirsTextWidth),
   );
 
   const leftMetrics = gutterMetrics(
