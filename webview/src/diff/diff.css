@@ -534,9 +534,10 @@ button.diff-menu-step:focus-visible {
 /*
  * The decoupled left pane's wrapper: a real box, not `display: contents`.
  * Its non-passive wheel listener is what holds the shared axis still while
- * synchronised scrolling is off, and the compositor only waits for a blocking
- * listener whose element has a layout box — with none, it scrolls first and
- * asks later, and preventDefault arrives too late to matter.
+ * synchronised scrolling is off, driving both of the pane's axes itself, and
+ * the compositor only waits for a blocking listener whose element has a
+ * layout box — with none, it scrolls first and asks later, and preventDefault
+ * arrives too late to matter.
  */
 .diff-left-scroller {
   min-width: 0;

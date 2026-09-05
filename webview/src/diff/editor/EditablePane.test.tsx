@@ -289,6 +289,85 @@ describe("EditablePane", () => {
 });
 
 /**
+ * The wrapped pane's horizontal scrollbar is a child of the host, so its
+ * press arrives here first, and Blink only hands the press to the scrollbar
+ * when the mousedown was not defaulted. A press in that band has to fall
+ * straight through, or dragging the thumb selects text instead of scrolling.
+ */
+describe("EditablePane and the wrapped pane's scrollbar", () => {
+  /** A host whose pane is 100px tall inside a 106px box: a 6px band. */
+  function PanedHarness() {
+    const store = useMergeStore();
+    return (
+      <EditablePane
+        lines={store.result.lines}
+        cursor={store.cursor}
+        composition={store.composition}
+        offset={0}
+        visibleLines={20}
+        mapping={{ toDisplayRow: (line) => line, toSourceLine: (row) => row }}
+        label="Merge result editor"
+        onSetCursor={(selection, goal) =>
+          useMergeStore.getState().setCursor(selection, goal)
+        }
+        onEdit={(selection, text, key) =>
+          useMergeStore.getState().editAt(selection, text, key)
+        }
+        onCompositionBegin={() => useMergeStore.getState().beginComposition()}
+        onCompositionUpdate={(text) =>
+          useMergeStore.getState().updateComposition(text)
+        }
+        onCompositionEnd={(text) =>
+          useMergeStore.getState().endComposition(text)
+        }
+        onUndo={() => useMergeStore.getState().undo()}
+        onRedo={() => useMergeStore.getState().redo()}
+        onRevealRow={() => {}}
+      >
+        <div className="diff-pane" />
+      </EditablePane>
+    );
+  }
+
+  const PANE_HEIGHT = 100;
+  const PANE_WIDTH = 200;
+
+  beforeEach(() => {
+    load("a\nb\nc\n", "a\nOURS\nc\n", "a\nTHEIRS\nc\n");
+    render(<PanedHarness />);
+    const paneEl = document.querySelector(".diff-pane") as HTMLElement;
+    Object.defineProperty(paneEl, "clientHeight", { value: PANE_HEIGHT });
+    Object.defineProperty(paneEl, "clientWidth", { value: PANE_WIDTH });
+  });
+  afterEach(cleanup);
+
+  const press = (clientX: number, clientY: number) => {
+    const host = document.querySelector(".diff-editor-host") as HTMLElement;
+    return fireEvent.mouseDown(host, { clientX, clientY, detail: 1 });
+  };
+
+  it("leaves a press on the horizontal scrollbar to the scrollbar", () => {
+    // The pane's box starts at 0,0 in jsdom, so below its clientHeight is
+    // the band the scrollbar occupies.
+    const notDefaulted = press(40, PANE_HEIGHT + 3);
+    expect(useMergeStore.getState().cursor).toBeNull();
+    expect(notDefaulted).toBe(true);
+  });
+
+  it("leaves a press on the vertical scrollbar band alone too", () => {
+    const notDefaulted = press(PANE_WIDTH + 3, 4);
+    expect(useMergeStore.getState().cursor).toBeNull();
+    expect(notDefaulted).toBe(true);
+  });
+
+  it("still places the caret on a press inside the pane", () => {
+    const notDefaulted = press(12, PANE_HEIGHT - 4);
+    expect(useMergeStore.getState().cursor).not.toBeNull();
+    expect(notDefaulted).toBe(false);
+  });
+});
+
+/**
  * The caret-drift regression: the cell width must be measured in the editor
  * font the rows render in (`--editor-font`), never in the host's computed
  * font, which inherits the app's UI face. jsdom has no canvas or cascade, so

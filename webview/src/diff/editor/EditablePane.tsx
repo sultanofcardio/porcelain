@@ -143,6 +143,19 @@ export function EditablePane({
     (event: React.MouseEvent) => {
       // Fold rows are buttons with their own behaviour; buttons stay buttons.
       if ((event.target as HTMLElement).closest("button")) return;
+      // The wrapped pane's scrollbars sit inside the host, and Blink only
+      // starts a thumb drag when the mousedown was not defaulted: a press in
+      // either band belongs to the scrollbar, not to the caret.
+      const pane = hostRef.current?.querySelector(".diff-pane");
+      if (pane) {
+        const bounds = pane.getBoundingClientRect();
+        if (
+          event.clientY >= bounds.top + pane.clientHeight ||
+          event.clientX >= bounds.left + pane.clientWidth
+        ) {
+          return;
+        }
+      }
       const position = positionFromEvent(event);
       if (!position) return;
       event.preventDefault();
@@ -490,9 +503,14 @@ export function EditablePane({
       <textarea
         ref={inputRef}
         className="diff-editor-input"
-        // Kept inside the host: a caret scrolled out to the left would
-        // otherwise park the input over the neighbouring column.
-        style={{ top: caretTop, left: Math.max(0, caretLeft) }}
+        // Kept inside the host at both edges: a caret scrolled out either
+        // way would otherwise park the input — and any IME candidate window
+        // it opens — over a neighbouring column. The drawn caret above keeps
+        // its exact position; only this 2px input is clamped.
+        style={{
+          top: caretTop,
+          left: `clamp(0px, ${caretLeft}px, calc(100% - 2px))`,
+        }}
         aria-label={label}
         wrap="off"
         spellCheck={false}

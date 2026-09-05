@@ -5,7 +5,13 @@ import { useHorizontalScroll } from "./useHorizontalScroll";
 const KEYS = ["a", "b"] as const;
 
 /** Two panes on one axis, wired the way the diff surfaces wire theirs. */
-function Harness({ synced }: { synced: boolean }) {
+function Harness({
+  synced,
+  mountB = true,
+}: {
+  synced: boolean;
+  mountB?: boolean;
+}) {
   const axis = useHorizontalScroll(KEYS, synced);
   return (
     <div>
@@ -16,13 +22,15 @@ function Harness({ synced }: { synced: boolean }) {
           axis.onScrollX("a", event.currentTarget.scrollLeft)
         }
       />
-      <div
-        data-testid="b"
-        ref={axis.refFor("b")}
-        onScroll={(event) =>
-          axis.onScrollX("b", event.currentTarget.scrollLeft)
-        }
-      />
+      {mountB && (
+        <div
+          data-testid="b"
+          ref={axis.refFor("b")}
+          onScroll={(event) =>
+            axis.onScrollX("b", event.currentTarget.scrollLeft)
+          }
+        />
+      )}
       <output data-testid="positions">{JSON.stringify(axis.positions)}</output>
       <div
         data-testid="viewport"
@@ -45,6 +53,8 @@ function Harness({ synced }: { synced: boolean }) {
 }
 
 const pane = (id: string) => screen.getByTestId(id) as HTMLDivElement;
+const read = () =>
+  JSON.parse(screen.getByTestId("positions").textContent ?? "");
 const scrollTo = (node: HTMLDivElement, x: number) => {
   node.scrollLeft = x;
   fireEvent.scroll(node);
@@ -57,9 +67,7 @@ describe("useHorizontalScroll", () => {
     render(<Harness synced />);
     scrollTo(pane("a"), 120);
     expect(pane("b").scrollLeft).toBe(120);
-    expect(
-      JSON.parse(screen.getByTestId("positions").textContent ?? ""),
-    ).toEqual({ a: 120 });
+    expect(read()).toEqual({ a: 120, b: 0 });
   });
 
   it("leaves the other panes alone while decoupled", () => {
@@ -81,11 +89,23 @@ describe("useHorizontalScroll", () => {
     expect(pane("a").scrollLeft).toBe(160);
     // The echo is still recorded, and the pane's next real scroll is not
     // mistaken for one.
-    expect(
-      JSON.parse(screen.getByTestId("positions").textContent ?? ""),
-    ).toEqual({ a: 120, b: 120 });
+    expect(read()).toEqual({ a: 120, b: 120 });
     scrollTo(pane("b"), 300);
     expect(pane("a").scrollLeft).toBe(300);
+  });
+
+  it("forgets a pane's position when the pane goes away", () => {
+    // Toggling split to unified and back replaces a pane with a fresh node
+    // that mounts at 0 and fires no scroll event. A position left over from
+    // the old node would be handed to the editor as its scroll offset, and
+    // it would draw the caret and read clicks that far out of step.
+    const view = render(<Harness synced={false} />);
+    scrollTo(pane("b"), 400);
+    expect(read()).toEqual({ a: 0, b: 400 });
+    view.rerender(<Harness synced={false} mountB={false} />);
+    expect(read()).toEqual({ a: 0 });
+    view.rerender(<Harness synced={false} />);
+    expect(read()).toEqual({ a: 0, b: 0 });
   });
 
   it("does not chase a sub-pixel disagreement between panes", () => {

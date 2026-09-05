@@ -526,22 +526,22 @@ export function DiffApp() {
     );
   }, [activeMatchKey]);
 
-  // With sync off the left pane scrolls on its own. React registers `wheel`
-  // as a passive root listener, so a synthetic onWheel's preventDefault is a
-  // no-op and the wheel would still scroll `.diff-viewport` (moving the right
-  // pane too). A native non-passive listener is the only way preventDefault
-  // holds the axis still.
+  // With sync off the left pane scrolls on its own, and this listener owns
+  // both of its axes. React registers `wheel` as a passive root listener, so
+  // a synthetic onWheel's preventDefault is a no-op and the wheel would still
+  // scroll `.diff-viewport` (moving the right pane too). A native
+  // non-passive listener is the only way preventDefault holds the axis still
+  // — and it has to cancel every gesture, since a diagonal one left to the
+  // browser would leak its vertical remainder up to the shared axis.
   useEffect(() => {
     const node = leftScrollerRef.current;
     if (!node || store.syncScroll || unified || layout.mode === "single") {
       return;
     }
     const onWheel = (event: WheelEvent) => {
-      // A sideways gesture is the pane's own native horizontal scroll;
-      // cancelling the event here would swallow that too.
-      if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
       event.preventDefault();
       scrollLeftPane(event.deltaY / LINE_HEIGHT, leftLines.length - 1);
+      horizontal.scrollBy("left", event.deltaX);
     };
     node.addEventListener("wheel", onWheel, { passive: false });
     return () => node.removeEventListener("wheel", onWheel);
@@ -550,6 +550,7 @@ export function DiffApp() {
     unified,
     layout.mode,
     scrollLeftPane,
+    horizontal.scrollBy,
     leftLines.length,
   ]);
 

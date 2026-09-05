@@ -42,8 +42,24 @@ export function useHorizontalScroll<K extends string>(
     const callbacks = new Map<K, (node: HTMLDivElement | null) => void>();
     for (const key of keys) {
       callbacks.set(key, (node) => {
-        if (node) nodes.current.set(key, node);
-        else nodes.current.delete(key);
+        // The read model never outlives the node it describes: a fresh pane
+        // reports where it actually is (a remount starts at 0 and fires no
+        // scroll event), and a gone pane leaves no position behind.
+        if (node) {
+          nodes.current.set(key, node);
+          const x = node.scrollLeft;
+          setPositions((current) =>
+            current[key] === x ? current : { ...current, [key]: x },
+          );
+        } else {
+          nodes.current.delete(key);
+          setPositions((current) => {
+            if (!(key in current)) return current;
+            const next = { ...current };
+            delete next[key];
+            return next;
+          });
+        }
       });
     }
     return callbacks;
