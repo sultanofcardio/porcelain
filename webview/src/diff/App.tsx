@@ -449,8 +449,14 @@ export function DiffApp() {
   const leftWidth = paneContentWidth(leftColumns, charWidth);
   const rightWidth = paneContentWidth(rightColumns, charWidth);
   const sharedWidth = Math.max(leftWidth, rightWidth);
+  // The hook's padding on top: equal content across panes of unequal width
+  // would still leave their scroll ranges ending at different maxima.
   const contentWidthOf = (side: Side) =>
-    store.syncScroll ? sharedWidth : side === "left" ? leftWidth : rightWidth;
+    (store.syncScroll
+      ? sharedWidth
+      : side === "left"
+        ? leftWidth
+        : rightWidth) + (horizontal.padding[side] ?? 0);
 
   // Both bars' hits highlight; the box goes to the current match of the bar
   // that last acted.
@@ -474,6 +480,19 @@ export function DiffApp() {
   // Which pane the viewport's own sideways keys and the unified view drive:
   // the right, which owns the shared axis, or the only pane there is.
   const scrollOwner: Side = layout.mode === "single" ? layout.side : "right";
+
+  // The sideways twin of the vertical re-coupling `leftAtDecouple` handles:
+  // the panes drift apart while sync is off, so switching it back on has to
+  // bring them together at once rather than leave the split view misaligned
+  // until whichever pane the user touches next fires a scroll event.
+  const wasSynced = useRef(store.syncScroll);
+  const { realign } = horizontal;
+  useEffect(() => {
+    const previous = wasSynced.current;
+    wasSynced.current = store.syncScroll;
+    if (previous || !store.syncScroll) return;
+    realign(scrollOwner);
+  }, [store.syncScroll, realign, scrollOwner]);
 
   // Stepping to a match brings it into view sideways as well as down: the
   // bar's jump moves the axis, and this moves the pane, since a hit at column
@@ -807,7 +826,9 @@ export function DiffApp() {
                   offset={axisPosition}
                   visibleLines={visibleLines}
                   ref={horizontal.refFor(scrollOwner)}
-                  contentWidth={sharedWidth}
+                  contentWidth={
+                    sharedWidth + (horizontal.padding[scrollOwner] ?? 0)
+                  }
                   onScrollX={(x) => horizontal.onScrollX(scrollOwner, x)}
                   onToggleFold={(fold) =>
                     useDiffStore.getState().toggleFold(fold.left.start)

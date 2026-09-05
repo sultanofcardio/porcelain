@@ -1,10 +1,21 @@
 import type { KeyboardEvent } from "react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /** One arrow key's worth of sideways travel, in px: the browser's own step. */
 const ARROW_STEP = 40;
 /** Room kept between a revealed span and the pane edge, in px. */
 const REVEAL_MARGIN = 24;
+
+/** The same record without `key`, or the record itself when it has no `key`. */
+function without<K extends string>(
+  current: Partial<Record<K, number>>,
+  key: K,
+): Partial<Record<K, number>> {
+  if (!(key in current)) return current;
+  const next = { ...current };
+  delete next[key];
+  return next;
+}
 
 /**
  * The horizontal axis of a set of panes, each a native horizontal scroll
@@ -19,8 +30,13 @@ const REVEAL_MARGIN = 24;
  * relationship the vertical axis has with `offset`.
  *
  * With `synced` on, one pane's scroll is written straight to the others. The
- * caller gives synchronised panes one shared content width, so their ranges
- * match and no pane is left behind at a shorter maximum.
+ * caller gives synchronised panes one shared content width, but equal content
+ * over unequal panes still ends at unequal maxima — a pane 26px wider stops
+ * 26px earlier — so the hook measures each pane and offers `padding`, the px
+ * every pane must add to that shared width for all of their ranges to end
+ * together. The widest pane gets a little blank space past the text; nothing
+ * is left unreachable in the narrower ones. `realign` brings the panes back
+ * together when the caller re-couples them.
  *
  * `keys` must be a stable array (a module constant): the ref callbacks are
  * derived from it once.
@@ -31,42 +47,113 @@ export function useHorizontalScroll<K extends string>(
 ) {
   const nodes = useRef(new Map<K, HTMLDivElement>());
   const [positions, setPositions] = useState<Partial<Record<K, number>>>({});
+  const [widths, setWidths] = useState<Partial<Record<K, number>>>({});
   // Panes whose next scroll event is the echo of a write made here. A pane
   // written to fires its own scroll event a frame later, carrying a value
   // the source pane has already moved past when a wheel is animating it;
   // broadcast back, that stale value would yank the source pane and kill
   // its gesture. The echo is recorded in `positions` and goes no further.
   const echoes = useRef(new Set<K>());
+  const observed = useRef(new Map<Element, K>());
+  const observer = useRef<ResizeObserver | null>(null);
+
+  const measure = useCallback((key: K, width: number) => {
+    setWidths((current) =>
+      current[key] === width ? current : { ...current, [key]: width },
+    );
+  }, []);
+
+  // One observer for every pane. Environments without ResizeObserver (jsdom)
+  // fall back to a single read at attach time.
+  const watcher = useCallback(() => {
+    if (typeof ResizeObserver === "undefined") return null;
+    observer.current ??= new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const key = observed.current.get(entry.target);
+        if (key === undefined) continue;
+        measure(key, (entry.target as HTMLElement).clientWidth);
+      }
+    });
+    return observer.current;
+  }, [measure]);
+
+  useEffect(() => () => observer.current?.disconnect(), []);
 
   const refs = useMemo(() => {
     const callbacks = new Map<K, (node: HTMLDivElement | null) => void>();
     for (const key of keys) {
       callbacks.set(key, (node) => {
-        // The read model never outlives the node it describes: a fresh pane
+        // No per-key state outlives the node it describes: a fresh pane
         // reports where it actually is (a remount starts at 0 and fires no
-        // scroll event), and a gone pane leaves no position behind.
-        if (node) {
-          nodes.current.set(key, node);
-          const x = node.scrollLeft;
-          setPositions((current) =>
-            current[key] === x ? current : { ...current, [key]: x },
-          );
-        } else {
-          nodes.current.delete(key);
-          setPositions((current) => {
-            if (!(key in current)) return current;
-            const next = { ...current };
-            delete next[key];
-            return next;
-          });
+        // scroll event), and a gone pane leaves behind no position, no
+        // width and no pending echo.
+        const previous = nodes.current.get(key);
+        if (previous) {
+          observer.current?.unobserve(previous);
+          observed.current.delete(previous);
         }
+        if (!node) {
+          nodes.current.delete(key);
+          echoes.current.delete(key);
+          setPositions((current) => without(current, key));
+          setWidths((current) => without(current, key));
+          return;
+        }
+        nodes.current.set(key, node);
+        const x = node.scrollLeft;
+        setPositions((current) =>
+          current[key] === x ? current : { ...current, [key]: x },
+        );
+        const resize = watcher();
+        if (!resize) {
+          measure(key, node.clientWidth);
+          return;
+        }
+        observed.current.set(node, key);
+        resize.observe(node);
       });
     }
     return callbacks;
-  }, [keys]);
+  }, [keys, watcher, measure]);
 
   /** The ref for a pane's scroll container. */
   const refFor = useCallback((key: K) => refs.get(key), [refs]);
+
+  /**
+   * How much extra content width each pane needs for every synchronised
+   * pane's scroll range to end at the same maximum: its own width less the
+   * narrowest pane's. Zero everywhere while decoupled, where each pane keeps
+   * its own range.
+   */
+  const padding = useMemo(() => {
+    const result: Partial<Record<K, number>> = {};
+    if (!synced) return result;
+    const measured = keys.filter((key) => widths[key] !== undefined);
+    if (measured.length < 2) return result;
+    const narrowest = Math.min(...measured.map((key) => widths[key] as number));
+    for (const key of measured) {
+      result[key] = (widths[key] as number) - narrowest;
+    }
+    return result;
+  }, [keys, synced, widths]);
+
+  /** Carry every pane but `from` to `x`, marking the echoes that will come. */
+  const broadcast = useCallback((from: K, x: number) => {
+    for (const [other, node] of nodes.current) {
+      if (other === from) continue;
+      // A pane already there is left alone: writing an equal value is a
+      // no-op, and a sub-pixel disagreement is not worth an event.
+      if (Math.abs(node.scrollLeft - x) < 1) continue;
+      const before = node.scrollLeft;
+      node.scrollLeft = x;
+      // Any write that moved the pane marks an echo, even one the pane
+      // clamped short of `x` — that scroll event is still this write coming
+      // back, and broadcasting it would drag the source pane down to the
+      // clamped value. A write that did nothing fires no event, and a stale
+      // mark would swallow the pane's next real scroll.
+      if (node.scrollLeft !== before) echoes.current.add(other);
+    }
+  }, []);
 
   /** A pane scrolled to `x`: record it, and carry the others along if synced. */
   const onScrollX = useCallback(
@@ -75,19 +162,22 @@ export function useHorizontalScroll<K extends string>(
         current[key] === x ? current : { ...current, [key]: x },
       );
       if (echoes.current.delete(key) || !synced) return;
-      for (const [other, node] of nodes.current) {
-        if (other === key) continue;
-        // A pane already there is left alone: writing an equal value is a
-        // no-op, and a sub-pixel disagreement is not worth an event.
-        if (Math.abs(node.scrollLeft - x) < 1) continue;
-        node.scrollLeft = x;
-        // Only a write that took marks an echo — a clamped no-op fires none,
-        // and a stale mark would swallow that pane's next real scroll.
-        if (node.scrollLeft !== x) continue;
-        echoes.current.add(other);
-      }
+      broadcast(key, x);
     },
-    [synced],
+    [synced, broadcast],
+  );
+
+  /**
+   * Bring the panes back together at `leader`'s position. Panes drift apart
+   * while decoupled, and re-coupling them has to mean the same thing on this
+   * axis as it does on the vertical one.
+   */
+  const realign = useCallback(
+    (leader: K) => {
+      const node = nodes.current.get(leader);
+      if (node) broadcast(leader, node.scrollLeft);
+    },
+    [broadcast],
   );
 
   /** Move a pane by `delta` px; synced panes follow through its scroll event. */
@@ -141,5 +231,14 @@ export function useHorizontalScroll<K extends string>(
     [scrollBy],
   );
 
-  return { positions, refFor, onScrollX, scrollBy, reveal, arrowScroll };
+  return {
+    positions,
+    padding,
+    refFor,
+    onScrollX,
+    scrollBy,
+    reveal,
+    realign,
+    arrowScroll,
+  };
 }

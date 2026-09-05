@@ -231,8 +231,9 @@ export function MergeApp() {
   const theirsLines = store.theirs.lines;
 
   // The horizontal axis, always in lockstep across the three panes, on one
-  // shared width — the widest line of the three documents — so no pane's
-  // range ends before another's.
+  // shared width — the widest line of the three documents — plus the hook's
+  // per-pane padding, without which the result pane's wider grid track would
+  // end its range before the other two reached theirs.
   const charWidth = useCharWidth(viewportRef);
   const horizontal = useHorizontalScroll(PANES, true);
   const oursColumns = useMemo(() => widestLine(oursLines), [oursLines]);
@@ -510,7 +511,7 @@ export function MergeApp() {
                 offset={offsets.ours}
                 visibleLines={visibleLines}
                 ref={horizontal.refFor("ours")}
-                contentWidth={contentWidth}
+                contentWidth={contentWidth + (horizontal.padding.ours ?? 0)}
                 onScrollX={(x) => horizontal.onScrollX("ours", x)}
                 folds={store.folds.pairO}
                 onToggleFold={(fold) =>
@@ -582,7 +583,7 @@ export function MergeApp() {
                   offset={offsets.result}
                   visibleLines={visibleLines}
                   ref={horizontal.refFor("result")}
-                  contentWidth={contentWidth}
+                  contentWidth={contentWidth + (horizontal.padding.result ?? 0)}
                   onScrollX={(x) => horizontal.onScrollX("result", x)}
                   folds={store.folds.pairO}
                   onToggleFold={(fold) =>
@@ -625,7 +626,7 @@ export function MergeApp() {
                 offset={offsets.theirs}
                 visibleLines={visibleLines}
                 ref={horizontal.refFor("theirs")}
-                contentWidth={contentWidth}
+                contentWidth={contentWidth + (horizontal.padding.theirs ?? 0)}
                 onScrollX={(x) => horizontal.onScrollX("theirs", x)}
                 folds={store.folds.pairT}
                 onToggleFold={(fold) =>

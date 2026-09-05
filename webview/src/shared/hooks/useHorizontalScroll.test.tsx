@@ -1,5 +1,11 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { useHorizontalScroll } from "./useHorizontalScroll";
 
 const KEYS = ["a", "b"] as const;
@@ -32,6 +38,10 @@ function Harness({
         />
       )}
       <output data-testid="positions">{JSON.stringify(axis.positions)}</output>
+      <output data-testid="padding">{JSON.stringify(axis.padding)}</output>
+      <button type="button" onClick={() => axis.realign("a")}>
+        realign on a
+      </button>
       <div
         data-testid="viewport"
         tabIndex={0}
@@ -55,6 +65,19 @@ function Harness({
 const pane = (id: string) => screen.getByTestId(id) as HTMLDivElement;
 const read = () =>
   JSON.parse(screen.getByTestId("positions").textContent ?? "");
+const padding = () =>
+  JSON.parse(screen.getByTestId("padding").textContent ?? "");
+/** A pane that refuses to scroll past `max`, the way a short range does. */
+const clampAt = (node: HTMLDivElement, max: number) => {
+  let value = 0;
+  Object.defineProperty(node, "scrollLeft", {
+    configurable: true,
+    get: () => value,
+    set: (next: number) => {
+      value = Math.min(next, max);
+    },
+  });
+};
 const scrollTo = (node: HTMLDivElement, x: number) => {
   node.scrollLeft = x;
   fireEvent.scroll(node);
@@ -106,6 +129,72 @@ describe("useHorizontalScroll", () => {
     expect(read()).toEqual({ a: 0 });
     view.rerender(<Harness synced={false} />);
     expect(read()).toEqual({ a: 0, b: 0 });
+  });
+
+  it("does not let a pane that clamped the write drag the leader back", () => {
+    // Panes of unequal width have unequal maxima. The follower clamps the
+    // write short, and its scroll event is still that write coming back: sent
+    // on, it would pull the pane the user is dragging down to the clamped
+    // value and leave the two out of lockstep for good.
+    render(<Harness synced />);
+    clampAt(pane("b"), 300);
+    scrollTo(pane("a"), 400);
+    expect(pane("b").scrollLeft).toBe(300);
+    fireEvent.scroll(pane("b"));
+    expect(pane("a").scrollLeft).toBe(400);
+  });
+
+  it("does not leave a pending echo behind for the pane's next mount", () => {
+    // The write marks an echo the pane never gets to deliver; kept, the mark
+    // would swallow the first real scroll of whatever mounts there next.
+    const view = render(<Harness synced />);
+    scrollTo(pane("a"), 120);
+    expect(pane("b").scrollLeft).toBe(120);
+    view.rerender(<Harness synced mountB={false} />);
+    view.rerender(<Harness synced />);
+    scrollTo(pane("b"), 500);
+    expect(pane("a").scrollLeft).toBe(500);
+  });
+
+  it("pads the wider panes so every synchronised range ends together", () => {
+    // 260px of content in a 200px pane and a 300px pane stops at 60 and at
+    // -40: without the padding the narrow pane outruns the wide one by 100px
+    // and the tail of the widest line is unreachable there.
+    let announce: ((entries: { target: Element }[]) => void) | null = null;
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: (entries: { target: Element }[]) => void) {
+          announce = callback;
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    try {
+      const view = render(<Harness synced />);
+      Object.defineProperty(pane("a"), "clientWidth", { value: 200 });
+      Object.defineProperty(pane("b"), "clientWidth", { value: 300 });
+      act(() => announce?.([{ target: pane("a") }, { target: pane("b") }]));
+      expect(padding()).toEqual({ a: 0, b: 100 });
+      // Decoupled, each pane keeps its own range and needs no padding.
+      view.rerender(<Harness synced={false} />);
+      expect(padding()).toEqual({});
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("brings the panes back together on realign", () => {
+    render(<Harness synced={false} />);
+    scrollTo(pane("a"), 300);
+    expect(pane("b").scrollLeft).toBe(0);
+    fireEvent.click(screen.getByRole("button", { name: "realign on a" }));
+    expect(pane("b").scrollLeft).toBe(300);
+    // The follower's echo of that write is swallowed like any other.
+    fireEvent.scroll(pane("b"));
+    expect(pane("a").scrollLeft).toBe(300);
   });
 
   it("does not chase a sub-pixel disagreement between panes", () => {
