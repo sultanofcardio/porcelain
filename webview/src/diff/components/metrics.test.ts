@@ -3,6 +3,7 @@ import {
   createLineMeasurer,
   GUTTER_GAP,
   gutterMetrics,
+  type LineMeasurer,
   measureCharWidth,
   paneContentWidth,
   widestLine,
@@ -84,6 +85,62 @@ describe("widestLineWidth", () => {
     const ascii = "a".repeat(150);
     expect(widestLine([ascii, cjk]) * CHAR_WIDTH).toBe(150);
     expect(widestLineWidth([ascii, cjk], CHAR_WIDTH, stubMeasurer())).toBe(200);
+  });
+
+  it("never measures a document of ASCII code", () => {
+    // ASCII advances one cell per code unit in the monospace face, so the
+    // cell count is already the width and nothing needs the canvas.
+    const calls: string[] = [];
+    const lines = Array.from({ length: 200 }, (_, i) => "a".repeat(200 - i));
+    expect(widestLineWidth(lines, 2, stubMeasurer(calls))).toBe(400);
+    expect(calls).toEqual([]);
+  });
+
+  it("measures only the rows a cell count cannot describe", () => {
+    const cjk = "中".repeat(60);
+    const ascii = Array.from({ length: 100 }, () => "a".repeat(100));
+    const calls: string[] = [];
+    // The CJK row paints 120 against the ASCII rows' 100, so it wins — and
+    // it is the only row of the 101 that the canvas is asked about.
+    expect(
+      widestLineWidth([...ascii, cjk], CHAR_WIDTH, stubMeasurer(calls)),
+    ).toBe(120);
+    expect(calls).toEqual([cjk]);
+
+    // Against ASCII rows of 200 the same row cannot reach the wide-glyph
+    // bound, so it is skipped and the ASCII width stands.
+    const wider = Array.from({ length: 100 }, () => "a".repeat(200));
+    const skipped: string[] = [];
+    expect(
+      widestLineWidth([...wider, cjk], CHAR_WIDTH, stubMeasurer(skipped)),
+    ).toBe(200);
+    expect(skipped).toEqual([]);
+  });
+
+  it("measures a line once however often the width is recomputed", () => {
+    // Every keystroke on an editable side recomputes the whole document's
+    // width; only the edited line is new.
+    let measured = 0;
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
+      () =>
+        ({
+          font: "",
+          measureText: (text: string) => {
+            measured += 1;
+            return { width: text.length * 2 };
+          },
+        }) as unknown as CanvasRenderingContext2D,
+    );
+    try {
+      const measure = createLineMeasurer(document.body) as LineMeasurer;
+      const lines = ["中".repeat(10), "中".repeat(9), "a".repeat(5)];
+      expect(widestLineWidth(lines, CHAR_WIDTH, measure)).toBe(20);
+      expect(measured).toBe(2); // the two rows the cell count cannot describe
+      expect(widestLineWidth(lines, CHAR_WIDTH, measure)).toBe(20);
+      expect(measured).toBe(2); // the same rows, remembered
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it("stops once no remaining row could beat the widest found", () => {

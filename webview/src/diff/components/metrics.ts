@@ -121,17 +121,36 @@ export function widestLine(lines: readonly string[]): number {
 export type LineMeasurer = (line: string) => number;
 
 /**
+ * How many measured lines a measurer remembers. Emptied rather than evicted
+ * one by one: the cache exists so that editing re-measures only the line that
+ * changed, and starting over costs one scan of the lines still on screen.
+ */
+const MEASURE_CACHE_LIMIT = 20000;
+
+/**
  * A measurer for the rows of the pane `element` belongs to, or null where
  * nothing can be measured (no canvas, as under jsdom).
  *
  * Tabs are expanded to their eight-column stops first: the rows are
  * `white-space: pre`, where a tab advances to the next stop rather than
  * carrying a width of its own.
+ *
+ * Widths are remembered by line text. The width of a document is recomputed
+ * on every keystroke of an editable side, and every line but the edited one
+ * comes back identical.
  */
 export function createLineMeasurer(element: Element): LineMeasurer | null {
   const context = editorContext(element);
   if (!context) return null;
-  return (line) => context.measureText(expandTabs(line)).width;
+  const widths = new Map<string, number>();
+  return (line) => {
+    const remembered = widths.get(line);
+    if (remembered !== undefined) return remembered;
+    const width = context.measureText(expandTabs(line)).width;
+    if (widths.size >= MEASURE_CACHE_LIMIT) widths.clear();
+    widths.set(line, width);
+    return width;
+  };
 }
 
 /** The measurer for the pane `ref` points at, created once. */
@@ -175,6 +194,14 @@ function expandTabs(line: string): string {
  */
 const WIDE_GLYPH_FACTOR = 2.5;
 
+/** Whether every code unit of `line` advances by exactly one cell width. */
+function isAscii(line: string): boolean {
+  for (let i = 0; i < line.length; i++) {
+    if (line.charCodeAt(i) >= 0x80) return false;
+  }
+  return true;
+}
+
 /**
  * The rendered width of a document's widest row, in px.
  *
@@ -185,11 +212,15 @@ const WIDE_GLYPH_FACTOR = 2.5;
  * rendering that row past the shared range, breaking the panes' lockstep at
  * exactly the point the estimate ran out.
  *
- * So the widest rows are measured. Ranked by cell count, a row can only beat
- * the best found so far if `cells * charWidth * WIDE_GLYPH_FACTOR` does,
- * which stops the scan after a handful of rows in any document whose widest
- * line is not pathologically wide-glyphed. Without a measurer the cell
- * estimate is all there is.
+ * An ASCII row is not one of those: every code unit below 0x80 advances by
+ * one cell in the monospace face the caret coordinate already assumes, so
+ * `cells * charWidth` is its width exactly and it is never measured. That
+ * leaves only the rows carrying something else as candidates, ranked by cell
+ * count, of which one is measured only while `cells * charWidth *
+ * WIDE_GLYPH_FACTOR` can still beat the widest width found — so a document
+ * of code measures nothing at all, and a document with a wide-glyph comment
+ * measures that comment. Without a measurer the cell estimate is all there
+ * is.
  */
 export function widestLineWidth(
   lines: readonly string[],
@@ -197,11 +228,18 @@ export function widestLineWidth(
   measure: LineMeasurer | null,
 ): number {
   if (!measure) return widestLine(lines) * charWidth;
-  const ranked = lines
-    .map((line) => ({ line, cells: visualCol(line, line.length) }))
-    .sort((a, b) => b.cells - a.cells);
   let widest = 0;
-  for (const { line, cells } of ranked) {
+  const candidates: { line: string; cells: number }[] = [];
+  for (const line of lines) {
+    const cells = visualCol(line, line.length);
+    if (isAscii(line)) {
+      widest = Math.max(widest, cells * charWidth);
+      continue;
+    }
+    candidates.push({ line, cells });
+  }
+  candidates.sort((a, b) => b.cells - a.cells);
+  for (const { line, cells } of candidates) {
     if (cells * charWidth * WIDE_GLYPH_FACTOR <= widest) break;
     const width = measure(line);
     if (width > widest) widest = width;
