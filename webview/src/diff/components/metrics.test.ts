@@ -133,6 +133,7 @@ describe("widestLineWidth", () => {
     );
     try {
       const measure = createLineMeasurer(document.body) as LineMeasurer;
+      measured = 0; // the tab width the measurer takes at creation
       const lines = ["中".repeat(10), "中".repeat(9), "a".repeat(5)];
       expect(widestLineWidth(lines, CHAR_WIDTH, measure)).toBe(20);
       expect(measured).toBe(2); // the two rows the cell count cannot describe
@@ -161,24 +162,40 @@ describe("createLineMeasurer", () => {
     vi.restoreAllMocks();
   });
 
-  it("expands tabs to their stops before measuring", () => {
-    // The rows are `white-space: pre`: a tab has no width of its own, it
-    // advances to the next eight-column stop.
-    const measured: string[] = [];
+  /** A canvas whose face paints two units per wide glyph, one per ASCII. */
+  function stubCanvas() {
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
       () =>
         ({
           font: "",
           measureText: (text: string) => {
-            measured.push(text);
-            return { width: text.length };
+            let width = 0;
+            for (const char of text) {
+              width += char.charCodeAt(0) > 0x2e7f ? 2 : 1;
+            }
+            return { width };
           },
         }) as unknown as CanvasRenderingContext2D,
     );
-    const measure = createLineMeasurer(document.body);
-    expect(measure?.("\tx")).toBe(9);
-    expect(measure?.("ab\tc")).toBe(9);
-    expect(measured).toEqual(["        x", "ab      c"]);
+  }
+
+  it("advances a tab to its stop in rendered space, not in cells", () => {
+    // The rows are `white-space: pre`: a tab has no width of its own, it
+    // advances to the next stop, and the stop is a multiple of eight *space
+    // advances*. Once a row carries glyphs wider than one advance the two
+    // coordinates part company, and only the rendered one is the row's width.
+    stubCanvas();
+    const measure = createLineMeasurer(document.body) as LineMeasurer;
+    // Four full-width glyphs sit at 8 advances, exactly on a stop: the tab
+    // still takes a whole tab width, to 16, and `value` follows.
+    expect(measure("数据处理\tvalue")).toBe(16 + 5);
+    // The cell count of that same line is 4 + tab + 5, which would put the
+    // tab stop at 8 and the row at 13 — 8 advances short of what it paints.
+    expect(measure("ab\tc")).toBe(9);
+    expect(measure("\tx")).toBe(9);
+    // A tab already flush against a stop advances a full tab width.
+    expect(measure("abcdefgh\tx")).toBe(17);
+    expect(measure("value")).toBe(5);
   });
 
   it("is null where nothing can be measured", () => {

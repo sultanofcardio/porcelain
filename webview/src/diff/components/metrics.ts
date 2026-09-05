@@ -131,10 +131,6 @@ const MEASURE_CACHE_LIMIT = 20000;
  * A measurer for the rows of the pane `element` belongs to, or null where
  * nothing can be measured (no canvas, as under jsdom).
  *
- * Tabs are expanded to their eight-column stops first: the rows are
- * `white-space: pre`, where a tab advances to the next stop rather than
- * carrying a width of its own.
- *
  * Widths are remembered by line text. The width of a document is recomputed
  * on every keystroke of an editable side, and every line but the edited one
  * comes back identical.
@@ -142,15 +138,44 @@ const MEASURE_CACHE_LIMIT = 20000;
 export function createLineMeasurer(element: Element): LineMeasurer | null {
   const context = editorContext(element);
   if (!context) return null;
+  // CSS defines `tab-size` against the space advance, and no stylesheet here
+  // overrides its default of eight.
+  const tabWidth = TAB_SIZE * context.measureText(" ").width;
   const widths = new Map<string, number>();
   return (line) => {
     const remembered = widths.get(line);
     if (remembered !== undefined) return remembered;
-    const width = context.measureText(expandTabs(line)).width;
+    const width = measureLine(context, line, tabWidth);
     if (widths.size >= MEASURE_CACHE_LIMIT) widths.clear();
     widths.set(line, width);
     return width;
   };
+}
+
+/**
+ * The rendered width of one `white-space: pre` row, in px.
+ *
+ * A tab is a stop in *rendered* space: the browser advances to the next
+ * multiple of the tab width, which is only the next multiple of eight cells
+ * while every glyph before it is one cell wide. Measuring the row segment by
+ * segment and snapping in px keeps the two in step on a row that mixes tabs
+ * with glyphs wider than a cell, where writing the tabs out as cell-space
+ * spaces would come out short by the difference.
+ */
+function measureLine(
+  context: CanvasRenderingContext2D,
+  line: string,
+  tabWidth: number,
+): number {
+  if (!line.includes("\t")) return context.measureText(line).width;
+  const segments = line.split("\t");
+  let width = context.measureText(segments[0]).width;
+  for (const segment of segments.slice(1)) {
+    // A tab landing exactly on a stop still advances a whole tab width.
+    if (tabWidth > 0) width = (Math.floor(width / tabWidth) + 1) * tabWidth;
+    width += context.measureText(segment).width;
+  }
+  return width;
 }
 
 /** The measurer for the pane `ref` points at, created once. */
@@ -165,26 +190,6 @@ export function useLineMeasurer(
     if (created) setMeasure(() => created);
   }, [ref]);
   return measure;
-}
-
-/** A line with its tabs written out as the spaces they advance across. */
-function expandTabs(line: string): string {
-  if (!line.includes("\t")) return line;
-  let expanded = "";
-  let cells = 0;
-  // Code points, so a surrogate pair counts as the one cell `visualCol` gives
-  // it and the tab stops land where the caret coordinate says they do.
-  for (const char of line) {
-    if (char !== "\t") {
-      expanded += char;
-      cells += 1;
-      continue;
-    }
-    const stop = TAB_SIZE - (cells % TAB_SIZE);
-    expanded += " ".repeat(stop);
-    cells += stop;
-  }
-  return expanded;
 }
 
 /**
