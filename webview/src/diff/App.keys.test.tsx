@@ -99,4 +99,19 @@ describe("diff keyboard bindings", () => {
     expect(useDiffStore.getState().activeChunk).toBe(-1);
     input.remove();
   });
+
+  it("scrolls the panes sideways with left and right from the focused viewport", async () => {
+    // The viewport's own arrows move the axis natively, but it has no
+    // sideways range of its own: left and right drive the pane instead.
+    await renderLoaded();
+    const viewport = screen.getByRole("region", { name: "Diff of a.txt" });
+    const rightPane = [
+      ...document.querySelectorAll<HTMLElement>(".diff-pane"),
+    ].at(-1) as HTMLElement;
+    viewport.focus();
+    fireEvent.keyDown(viewport, { key: "ArrowRight" });
+    expect(rightPane.scrollLeft).toBe(40);
+    fireEvent.keyDown(viewport, { key: "ArrowLeft" });
+    expect(rightPane.scrollLeft).toBe(0);
+  });
 });

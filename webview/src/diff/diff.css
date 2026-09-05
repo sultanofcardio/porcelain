@@ -518,10 +518,41 @@ button.diff-menu-step:focus-visible {
 .diff-columns-single {
   grid-template-columns: auto 1fr;
 }
+/*
+ * Each pane is its own horizontal scroller. The vertical axis stays with the
+ * viewport: a pane cannot scroll that way, so a wheel's vertical half chains
+ * up to it while the horizontal half moves the pane. The scrollbar sits inside
+ * the pane's height, at the foot of its own column.
+ */
 .diff-pane {
   position: relative;
   min-width: 0;
-  overflow: hidden;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+/*
+ * The decoupled left pane's wrapper: a real box, not `display: contents`.
+ * Its non-passive wheel listener is what holds the shared axis still while
+ * synchronised scrolling is off, and the compositor only waits for a blocking
+ * listener whose element has a layout box — with none, it scrolls first and
+ * asks later, and preventDefault arrives too late to matter.
+ */
+.diff-left-scroller {
+  min-width: 0;
+  height: 100%;
+}
+/*
+ * The scrollable extent: as wide as the widest rendered row, never narrower
+ * than the pane, and at least the document's widest line — set inline from
+ * the text, since only the visible rows exist in the DOM. Rows fill it, so a
+ * changed line's colour runs the whole scrollable width rather than the first
+ * pane-width of it.
+ */
+.diff-pane-content {
+  position: relative;
+  width: max-content;
+  min-width: 100%;
 }
 .diff-pane-lines {
   will-change: transform;
@@ -588,6 +619,12 @@ button.diff-fold-row {
   font-size: 11px;
   text-align: left;
   cursor: pointer;
+}
+/* The label holds its place while the row scrolls sideways under it, the way
+   the unified view's line numbers do. */
+.diff-fold-label {
+  position: sticky;
+  left: 10px;
 }
 button.diff-fold-row:hover {
   background: rgba(128, 128, 128, 0.16);
@@ -892,10 +929,13 @@ button.diff-btn-primary:disabled {
 .diff-columns-unified {
   grid-template-columns: 1fr;
 }
+/* Scrolls sideways like the split panes; see `.diff-pane`. */
 .diff-unified {
   position: relative;
   min-width: 0;
-  overflow: hidden;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 /* A unified row is numbers-then-text on one line; the text keeps the panes'
    pre formatting, the numbers read like the gutter's. */
@@ -903,8 +943,17 @@ button.diff-btn-primary:disabled {
   display: flex;
   align-items: stretch;
   padding-left: 0;
+  /* Not clipped like a split-pane row: a box that clips is a scroll
+     container for its sticky descendants, and the numbers must stick to the
+     pane, not to their own row. The text span still clips for itself. */
+  overflow: visible;
 }
+/* The numbers hold their place while the text scrolls under them, the way an
+   editor margin does; each column's `left` is set inline so the second parks
+   after the first. */
 .diff-unified-number {
+  position: sticky;
+  z-index: 1;
   flex: none;
   padding: 0 5px;
   font-size: 11px;

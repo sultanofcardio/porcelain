@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { type Ref, useMemo } from "react";
 import { useShiki } from "../../shared/hooks/useShiki";
 import type { DiffChunk, FoldRegion } from "../utils/diff-model";
 import type { FindMatch } from "../utils/find";
@@ -24,6 +24,15 @@ interface UnifiedPaneProps {
   onToggleFold?: (fold: FoldRegion) => void;
   matches?: FindMatch[];
   activeMatch?: FindMatch | null;
+  /** The pane's element — its horizontal scroll container, as in DiffPane. */
+  ref?: Ref<HTMLDivElement>;
+  /**
+   * The least scrollable width of the *text*, in px; the pane adds its two
+   * number columns in front. See DiffPane for why it comes from the caller.
+   */
+  contentWidth?: number;
+  /** The pane scrolled sideways; `x` is its new scrollLeft. */
+  onScrollX?: (x: number) => void;
 }
 
 /**
@@ -45,6 +54,9 @@ export function UnifiedPane({
   onToggleFold,
   matches = [],
   activeMatch = null,
+  ref,
+  contentWidth,
+  onScrollX,
 }: UnifiedPaneProps) {
   const highlighter = useShiki();
   const metrics = gutterMetrics(Math.max(leftLines.length, rightLines.length));
@@ -155,83 +167,110 @@ export function UnifiedPane({
   ]);
 
   return (
-    <div className="diff-unified">
+    <div
+      className="diff-unified"
+      ref={ref}
+      onScroll={(event) => onScrollX?.(event.currentTarget.scrollLeft)}
+    >
       <div
-        className="diff-pane-lines"
-        style={{
-          transform: `translateY(${-(offset - first) * LINE_HEIGHT}px)`,
-        }}
+        className="diff-pane-content"
+        style={
+          contentWidth === undefined
+            ? undefined
+            : {
+                minWidth: `max(100%, ${metrics.numberWidth * 2 + contentWidth}px)`,
+              }
+        }
       >
-        {rendered.map((entry) =>
-          "fold" in entry ? (
-            <button
-              key={entry.index}
-              type="button"
-              className="diff-fold-row"
-              aria-label={`Expand ${entry.fold.hiddenLines} unchanged lines`}
-              onClick={() => onToggleFold?.(entry.fold)}
-              style={{ paddingLeft: metrics.numberWidth * 2 + 10 }}
-            >
-              <span aria-hidden="true">▸ </span>
-              {entry.fold.hiddenLines} unchanged lines
-            </button>
-          ) : (
-            <div
-              key={entry.index}
-              className={`diff-line diff-unified-line diff-line-${
-                entry.row.chunkKind === "modified"
-                  ? "modified"
-                  : entry.row.chunkKind
-              }`}
-            >
-              <span className="diff-sr-only">
-                {`Line ${
-                  (entry.row.rightNumber ?? entry.row.leftNumber ?? 0) as number
-                }${entry.row.chunkKind === "equal" ? "" : `, ${unifiedKindLabel(entry.row)}`}: `}
-              </span>
-              <span
-                className="diff-unified-number"
-                style={{ width: metrics.numberWidth }}
-                aria-hidden="true"
+        <div
+          className="diff-pane-lines"
+          style={{
+            transform: `translateY(${-(offset - first) * LINE_HEIGHT}px)`,
+          }}
+        >
+          {rendered.map((entry) =>
+            "fold" in entry ? (
+              <button
+                key={entry.index}
+                type="button"
+                className="diff-fold-row"
+                aria-label={`Expand ${entry.fold.hiddenLines} unchanged lines`}
+                onClick={() => onToggleFold?.(entry.fold)}
+                style={{ paddingLeft: metrics.numberWidth * 2 + 10 }}
               >
-                {entry.row.leftNumber ?? ""}
-              </span>
-              <span
-                className="diff-unified-number"
-                style={{ width: metrics.numberWidth }}
-                aria-hidden="true"
+                <span
+                  className="diff-fold-label"
+                  style={{ left: metrics.numberWidth * 2 + 10 }}
+                >
+                  <span aria-hidden="true">▸ </span>
+                  {entry.fold.hiddenLines} unchanged lines
+                </span>
+              </button>
+            ) : (
+              <div
+                key={entry.index}
+                className={`diff-line diff-unified-line diff-line-${
+                  entry.row.chunkKind === "modified"
+                    ? "modified"
+                    : entry.row.chunkKind
+                }`}
               >
-                {entry.row.rightNumber ?? ""}
-              </span>
-              <span className="diff-unified-text">
-                {entry.pieces.length === 0
-                  ? " "
-                  : entry.pieces.map((piece, i) => (
-                      <span
-                        // Pieces are positional slices of one line; there is
-                        // no stable identity beyond where they sit.
-                        key={`${entry.index}-${i}`}
-                        className={
-                          [
-                            piece.changed ? "diff-changed" : "",
-                            piece.activeFound
-                              ? "diff-found-active"
-                              : piece.found
-                                ? "diff-found"
-                                : "",
-                          ]
-                            .filter(Boolean)
-                            .join(" ") || undefined
-                        }
-                        style={{ color: piece.color }}
-                      >
-                        {piece.text}
-                      </span>
-                    ))}
-              </span>
-            </div>
-          ),
-        )}
+                <span className="diff-sr-only">
+                  {`Line ${
+                    (entry.row.rightNumber ??
+                      entry.row.leftNumber ??
+                      0) as number
+                  }${entry.row.chunkKind === "equal" ? "" : `, ${unifiedKindLabel(entry.row)}`}: `}
+                </span>
+                {/* Sticky, so the numbers hold their place while the text
+                  scrolls under them; the second column parks after the first. */}
+                <span
+                  className="diff-unified-number"
+                  style={{ width: metrics.numberWidth, left: 0 }}
+                  aria-hidden="true"
+                >
+                  {entry.row.leftNumber ?? ""}
+                </span>
+                <span
+                  className="diff-unified-number"
+                  style={{
+                    width: metrics.numberWidth,
+                    left: metrics.numberWidth,
+                  }}
+                  aria-hidden="true"
+                >
+                  {entry.row.rightNumber ?? ""}
+                </span>
+                <span className="diff-unified-text">
+                  {entry.pieces.length === 0
+                    ? " "
+                    : entry.pieces.map((piece, i) => (
+                        <span
+                          // Pieces are positional slices of one line; there is
+                          // no stable identity beyond where they sit.
+                          key={`${entry.index}-${i}`}
+                          className={
+                            [
+                              piece.changed ? "diff-changed" : "",
+                              piece.activeFound
+                                ? "diff-found-active"
+                                : piece.found
+                                  ? "diff-found"
+                                  : "",
+                            ]
+                              .filter(Boolean)
+                              .join(" ") || undefined
+                          }
+                          style={{ color: piece.color }}
+                        >
+                          {piece.text}
+                        </span>
+                      ))}
+                </span>
+              </div>
+            ),
+          )}
+        </div>
       </div>
     </div>
   );

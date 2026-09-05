@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { type Ref, useMemo } from "react";
 import { useShiki } from "../../shared/hooks/useShiki";
 import {
   type ChunkKind,
@@ -59,6 +59,20 @@ interface DiffPaneProps {
    * regions are filtered out of that list on purpose.
    */
   extraAnchors?: ReadonlyArray<{ line: number; kind: string }>;
+  /**
+   * The pane's own element, which is its horizontal scroll container — the
+   * handle the shared horizontal axis (useHorizontalScroll) drives it by.
+   */
+  ref?: Ref<HTMLDivElement>;
+  /**
+   * The least scrollable width, in px, the pane offers whatever rows are on
+   * screen. Only the visible window is rendered, so without it the sideways
+   * range would grow and shrink with whichever lines happen to be in view.
+   * Omitted, the pane is only as wide as its rendered rows.
+   */
+  contentWidth?: number;
+  /** The pane scrolled sideways; `x` is its new scrollLeft. */
+  onScrollX?: (x: number) => void;
 }
 
 /**
@@ -102,6 +116,9 @@ export function DiffPane({
   overrideKinds,
   anchorChunks,
   extraAnchors,
+  ref,
+  contentWidth,
+  onScrollX,
 }: DiffPaneProps) {
   const highlighter = useShiki();
 
@@ -215,72 +232,90 @@ export function DiffPane({
     );
 
   return (
-    <div className="diff-pane">
-      {anchors.map((anchor) => (
-        <div
-          key={`anchor-${anchor.line}`}
-          className={`diff-anchor diff-anchor-${anchor.kind}`}
-          style={{ top: (anchor.row - offset) * LINE_HEIGHT }}
-        />
-      ))}
+    <div
+      className="diff-pane"
+      ref={ref}
+      onScroll={(event) => onScrollX?.(event.currentTarget.scrollLeft)}
+    >
+      {/* The scrollable extent (see diff.css): as wide as the widest rendered
+          row, and never narrower than the whole document's widest line, so
+          the scrollbar's range holds still while the rows beneath it change. */}
       <div
-        className="diff-pane-lines"
-        style={{
-          transform: `translateY(${-(offset - first) * LINE_HEIGHT}px)`,
-        }}
+        className="diff-pane-content"
+        style={
+          contentWidth === undefined
+            ? undefined
+            : { minWidth: `max(100%, ${contentWidth}px)` }
+        }
       >
-        {rows.map((row) => {
-          if ("fold" in row) {
+        {anchors.map((anchor) => (
+          <div
+            key={`anchor-${anchor.line}`}
+            className={`diff-anchor diff-anchor-${anchor.kind}`}
+            style={{ top: (anchor.row - offset) * LINE_HEIGHT }}
+          />
+        ))}
+        <div
+          className="diff-pane-lines"
+          style={{
+            transform: `translateY(${-(offset - first) * LINE_HEIGHT}px)`,
+          }}
+        >
+          {rows.map((row) => {
+            if ("fold" in row) {
+              return (
+                <button
+                  key={row.row}
+                  type="button"
+                  className="diff-fold-row"
+                  // The count carries the accessible name; the glyph is decor.
+                  aria-label={`Expand ${row.fold.hiddenLines} unchanged lines`}
+                  onClick={() => onToggleFold?.(row.fold)}
+                >
+                  <span className="diff-fold-label">
+                    <span aria-hidden="true">▸ </span>
+                    {row.fold.hiddenLines} unchanged lines
+                  </span>
+                </button>
+              );
+            }
+            const kind = overrideKinds?.get(row.line) ?? row.kind;
             return (
-              <button
-                key={row.row}
-                type="button"
-                className="diff-fold-row"
-                // The count carries the accessible name; the glyph is decor.
-                aria-label={`Expand ${row.fold.hiddenLines} unchanged lines`}
-                onClick={() => onToggleFold?.(row.fold)}
-              >
-                <span aria-hidden="true">▸ </span>
-                {row.fold.hiddenLines} unchanged lines
-              </button>
-            );
-          }
-          const kind = overrideKinds?.get(row.line) ?? row.kind;
-          return (
-            <div key={row.row} className={`diff-line diff-line-${kind}`}>
-              {/* The row's state lives entirely in a background colour, which
+              <div key={row.row} className={`diff-line diff-line-${kind}`}>
+                {/* The row's state lives entirely in a background colour, which
                   a screen reader cannot see; this prefix is the audible
                   version, and takes no visual space. */}
-              <span className="diff-sr-only">
-                {`Line ${row.line + 1}${kind === "equal" ? "" : `, ${kind}`}: `}
-              </span>
-              {row.pieces.length === 0
-                ? " "
-                : row.pieces.map((piece, i) => (
-                    <span
-                      // Pieces are positional slices of one line; there is no
-                      // stable identity to key on beyond where they sit.
-                      key={`${row.row}-${i}`}
-                      className={
-                        [
-                          piece.changed ? "diff-changed" : "",
-                          piece.activeFound
-                            ? "diff-found-active"
-                            : piece.found
-                              ? "diff-found"
-                              : "",
-                        ]
-                          .filter(Boolean)
-                          .join(" ") || undefined
-                      }
-                      style={{ color: piece.color }}
-                    >
-                      {piece.text}
-                    </span>
-                  ))}
-            </div>
-          );
-        })}
+                <span className="diff-sr-only">
+                  {`Line ${row.line + 1}${kind === "equal" ? "" : `, ${kind}`}: `}
+                </span>
+                {row.pieces.length === 0
+                  ? " "
+                  : row.pieces.map((piece, i) => (
+                      <span
+                        // Pieces are positional slices of one line; there is no
+                        // stable identity to key on beyond where they sit.
+                        key={`${row.row}-${i}`}
+                        className={
+                          [
+                            piece.changed ? "diff-changed" : "",
+                            piece.activeFound
+                              ? "diff-found-active"
+                              : piece.found
+                                ? "diff-found"
+                                : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" ") || undefined
+                        }
+                        style={{ color: piece.color }}
+                      >
+                        {piece.text}
+                      </span>
+                    ))}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

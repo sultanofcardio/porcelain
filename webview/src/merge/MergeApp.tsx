@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -9,8 +10,16 @@ import { ChangeStripe } from "../diff/components/ChangeStripe";
 import { DiffGutter } from "../diff/components/DiffGutter";
 import { DiffPane } from "../diff/components/DiffPane";
 import { FindBarView } from "../diff/components/FindBar";
-import { gutterMetrics, LINE_HEIGHT } from "../diff/components/metrics";
+import {
+  gutterMetrics,
+  LINE_HEIGHT,
+  PANE_TEXT_PADDING,
+  paneContentWidth,
+  useCharWidth,
+  widestLine,
+} from "../diff/components/metrics";
 import { type DisplayMapping, EditablePane } from "../diff/editor/EditablePane";
+import { visualCol } from "../diff/editor/editor-model";
 import {
   displayLine,
   displayToSource,
@@ -18,6 +27,7 @@ import {
 } from "../diff/utils/diff-model";
 import { bridge } from "../shared/bridge";
 import type { FileVersionsResult } from "../shared/bridge/types";
+import { useHorizontalScroll } from "../shared/hooks/useHorizontalScroll";
 import {
   PANE_SIDE,
   paneFolds,
@@ -36,6 +46,9 @@ import {
   resultRegionAnchors,
 } from "./utils/merge-model";
 import "../diff/diff.css";
+
+/** The panes the horizontal axis addresses; a module constant, as in DiffApp. */
+const PANES: readonly MergePane[] = ["ours", "result", "theirs"];
 
 /**
  * The rebuilt 3-way merge editor: three diff panes on one shared axis.
@@ -217,6 +230,19 @@ export function MergeApp() {
   const resultLines = store.result.lines;
   const theirsLines = store.theirs.lines;
 
+  // The horizontal axis, always in lockstep across the three panes, on one
+  // shared width — the widest line of the three documents — so no pane's
+  // range ends before another's.
+  const charWidth = useCharWidth(viewportRef);
+  const horizontal = useHorizontalScroll(PANES, true);
+  const oursColumns = useMemo(() => widestLine(oursLines), [oursLines]);
+  const resultColumns = useMemo(() => widestLine(resultLines), [resultLines]);
+  const theirsColumns = useMemo(() => widestLine(theirsLines), [theirsLines]);
+  const contentWidth = paneContentWidth(
+    Math.max(oursColumns, resultColumns, theirsColumns),
+    charWidth,
+  );
+
   const leftMetrics = gutterMetrics(
     Math.max(oursLines.length, resultLines.length),
   );
@@ -328,6 +354,45 @@ export function MergeApp() {
   const activeFind = activePane ? store.findPanes[activePane] : null;
   const activeMatch = activeFind?.matches[activeFind.activeMatch] ?? null;
 
+  // The active match comes into view sideways too — see DiffApp for why this
+  // is keyed on the match alone and reads its geometry through a ref.
+  const activeMatchKey =
+    activePane && activeMatch
+      ? `${activePane}:${activeMatch.line}:${activeMatch.start}:${activeMatch.end}`
+      : null;
+  const paneLines: Record<MergePane, readonly string[]> = {
+    ours: oursLines,
+    result: resultLines,
+    theirs: theirsLines,
+  };
+  const matchGeometry = useRef({
+    activePane,
+    activeMatch,
+    paneLines,
+    charWidth,
+    reveal: horizontal.reveal,
+  });
+  matchGeometry.current = {
+    activePane,
+    activeMatch,
+    paneLines,
+    charWidth,
+    reveal: horizontal.reveal,
+  };
+  useEffect(() => {
+    if (activeMatchKey === null) return;
+    const geometry = matchGeometry.current;
+    const pane = geometry.activePane;
+    const match = geometry.activeMatch;
+    if (!pane || !match) return;
+    const text = geometry.paneLines[pane][match.line] ?? "";
+    geometry.reveal(
+      pane,
+      PANE_TEXT_PADDING + visualCol(text, match.start) * geometry.charWidth,
+      PANE_TEXT_PADDING + visualCol(text, match.end) * geometry.charWidth,
+    );
+  }, [activeMatchKey]);
+
   // The result pane's editor mapping: source result lines ↔ display rows
   // under pair O's folds (the coordinate the result pane renders in).
   const resultMapping: DisplayMapping = {
@@ -424,6 +489,7 @@ export function MergeApp() {
           className="diff-viewport"
           ref={viewportRef}
           onScroll={onScroll}
+          onKeyDown={(event) => horizontal.arrowScroll("result", event)}
           tabIndex={0}
           role="region"
           aria-label={`Merge of ${filePath}`}
@@ -443,6 +509,9 @@ export function MergeApp() {
                 granularity="word"
                 offset={offsets.ours}
                 visibleLines={visibleLines}
+                ref={horizontal.refFor("ours")}
+                contentWidth={contentWidth}
+                onScrollX={(x) => horizontal.onScrollX("ours", x)}
                 folds={store.folds.pairO}
                 onToggleFold={(fold) =>
                   useMergeStore.getState().toggleFold(fold.right.start)
@@ -477,6 +546,8 @@ export function MergeApp() {
                 composition={store.composition}
                 offset={offsets.result}
                 visibleLines={visibleLines}
+                scrollX={horizontal.positions.result ?? 0}
+                onRevealX={(from, to) => horizontal.reveal("result", from, to)}
                 mapping={resultMapping}
                 label={`Merge result editor for ${filePath}. A full text editor: type anywhere; edits inside a conflict resolve it.`}
                 onSetCursor={(selection, goal) =>
@@ -510,6 +581,9 @@ export function MergeApp() {
                   granularity="word"
                   offset={offsets.result}
                   visibleLines={visibleLines}
+                  ref={horizontal.refFor("result")}
+                  contentWidth={contentWidth}
+                  onScrollX={(x) => horizontal.onScrollX("result", x)}
                   folds={store.folds.pairO}
                   onToggleFold={(fold) =>
                     useMergeStore.getState().toggleFold(fold.right.start)
@@ -550,6 +624,9 @@ export function MergeApp() {
                 granularity="word"
                 offset={offsets.theirs}
                 visibleLines={visibleLines}
+                ref={horizontal.refFor("theirs")}
+                contentWidth={contentWidth}
+                onScrollX={(x) => horizontal.onScrollX("theirs", x)}
                 folds={store.folds.pairT}
                 onToggleFold={(fold) =>
                   useMergeStore.getState().toggleFold(fold.left.start)
