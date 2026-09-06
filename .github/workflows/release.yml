@@ -79,3 +79,18 @@ jobs:
             --title "Porcelain ${TAG#v}" \
             --notes-file release-notes.md \
             "porcelain-${TAG#v}.vsix"
+
+      - name: Docs site changelog
+        # The changelog page on gh-pages is rendered from CHANGELOG.md, never hand-edited.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch --depth=1 origin gh-pages
+          git worktree add ../docs-site origin/gh-pages
+          CHANGELOG="$PWD/CHANGELOG.md" python3 ../docs-site/_tools/build.py changelog
+          cd ../docs-site
+          if git diff --quiet -- changelog.html; then echo "changelog page unchanged"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "docs: changelog page for ${TAG#v}" -- changelog.html
+          git push origin HEAD:gh-pages

@@ -30,6 +30,8 @@ Porcelain keeps the Git habits you already know from JetBrains IDEs: a visual br
 
 > **Preview.** Porcelain is pre-1.0: everything described below is shipped, but rough edges remain, and settings or command IDs may still change in a minor version before 1.0. Found something off? [Open an issue](https://github.com/sultanofcardio/porcelain/issues).
 
+> **Docs.** The full documentation is at [sultanofcardio.github.io/porcelain](https://sultanofcardio.github.io/porcelain/): one page per surface, the known limits, the changelog and the roadmap with where 1.0 gets cut.
+
 > Porcelain is an independent open-source project and is not affiliated with or endorsed by JetBrains, Microsoft, GitHub, or Cursor.
 
 > This project is a fork of [VitalHex/branchshift](https://github.com/VitalHex/branchshift). Upstream repositories and their contributors remain credited under [Project lineage](#project-lineage).
