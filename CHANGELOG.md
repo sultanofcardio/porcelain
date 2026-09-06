@@ -1,5 +1,11 @@
 # Changelog / 更新日志
 
+## [Unreleased]
+
+### Fixed
+- **Horizontal scrolling in the diff viewer and merge editor** - long lines were cut off at the pane edge with no way to reach the rest. Every pane now scrolls sideways on its own; the two sides stay in lockstep under Synchronise scrolling and snap back together when it is switched on again, and the merge editor's three panes always move as one. The working-tree editor keeps its caret in place while scrolled and follows it on End and Home, find stepping brings a match into view sideways, and the unified view's line numbers and fold labels stay put while the text scrolls under them. Left and Right on the focused diff scroll the pane
+- **Decoupled scrolling no longer leaks into the shared axis** - with Synchronise scrolling off, a wheel over the left pane moved the right pane as well; the left pane now owns both of its axes
+
 ## [0.9.0] - 2026-09-03
 
 ### Added
