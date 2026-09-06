@@ -512,6 +512,7 @@ export function DiffApp() {
     unified,
     scrollOwner,
     charWidth,
+    measureLine,
     reveal: horizontal.reveal,
   });
   matchGeometry.current = {
@@ -521,6 +522,7 @@ export function DiffApp() {
     unified,
     scrollOwner,
     charWidth,
+    measureLine,
     reveal: horizontal.reveal,
   };
   useEffect(() => {
@@ -540,10 +542,20 @@ export function DiffApp() {
         ).numberWidth * 2
       : 0;
     const inset = numbers + PANE_TEXT_PADDING;
+    // Rendered pixels, like the pane's width: a match past a run of
+    // full-width glyphs paints twice as far along as its cells suggest. The
+    // editor's own caret, selection and click mapping stay in cells on
+    // purpose — that coordinate is the editor's model — so only find reads
+    // through the measurer; without one (jsdom) cells are all there is.
+    const xAt = (col: number) =>
+      inset +
+      (geometry.measureLine
+        ? geometry.measureLine.prefix(text, col)
+        : visualCol(text, col) * geometry.charWidth);
     geometry.reveal(
       geometry.unified ? geometry.scrollOwner : match.side,
-      inset + visualCol(text, match.start) * geometry.charWidth,
-      inset + visualCol(text, match.end) * geometry.charWidth,
+      xAt(match.start),
+      xAt(match.end),
       numbers,
     );
   }, [activeMatchKey]);
@@ -554,7 +566,11 @@ export function DiffApp() {
   // scroll `.diff-viewport` (moving the right pane too). A native
   // non-passive listener is the only way preventDefault holds the axis still
   // — and it has to cancel every gesture, since a diagonal one left to the
-  // browser would leak its vertical remainder up to the shared axis.
+  // browser would leak its vertical remainder up to the shared axis. A single
+  // wheel event cannot be split, so the sideways half is applied from here
+  // too: momentum still arrives as the platform's own momentum events, and
+  // only the rubber-band overscroll is given up, only while decoupled. That
+  // trade was weighed against the leak and chosen.
   useEffect(() => {
     const node = leftScrollerRef.current;
     if (!node || store.syncScroll || unified || layout.mode === "single") {

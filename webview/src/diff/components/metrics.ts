@@ -117,8 +117,16 @@ export function widestLine(lines: readonly string[]): number {
   return widest;
 }
 
-/** Measures one line of text as the pane renders it, in px. */
-export type LineMeasurer = (line: string) => number;
+/**
+ * Measures text as the pane renders it, in px. Calling it measures a whole
+ * line, remembered by text; `prefix` measures the start of a line up to a
+ * column — where a find match sits in rendered space — and is not remembered,
+ * since a prefix is asked for once per step and would only crowd the cache.
+ */
+export interface LineMeasurer {
+  (line: string): number;
+  prefix(line: string, col: number): number;
+}
 
 /**
  * How many measured lines a measurer remembers. Emptied rather than evicted
@@ -142,14 +150,17 @@ export function createLineMeasurer(element: Element): LineMeasurer | null {
   // overrides its default of eight.
   const tabWidth = TAB_SIZE * context.measureText(" ").width;
   const widths = new Map<string, number>();
-  return (line) => {
+  const measure = ((line: string) => {
     const remembered = widths.get(line);
     if (remembered !== undefined) return remembered;
     const width = measureLine(context, line, tabWidth);
     if (widths.size >= MEASURE_CACHE_LIMIT) widths.clear();
     widths.set(line, width);
     return width;
-  };
+  }) as LineMeasurer;
+  measure.prefix = (line, col) =>
+    measureLine(context, line.slice(0, col), tabWidth);
+  return measure;
 }
 
 /**

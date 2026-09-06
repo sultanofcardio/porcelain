@@ -198,6 +198,43 @@ describe("createLineMeasurer", () => {
     expect(measure("value")).toBe(5);
   });
 
+  it("measures a line's prefix in rendered space", () => {
+    // A find match past a run of full-width glyphs paints twice as far along
+    // as its column count says; the reveal has to aim at the rendered x.
+    stubCanvas();
+    const measure = createLineMeasurer(document.body) as LineMeasurer;
+    const line = `${"中".repeat(200)}needle`;
+    expect(measure.prefix(line, 200)).toBe(400);
+    expect(measure.prefix(line, 206)).toBe(406);
+    // A prefix ending right after a tab lands on the tab stop.
+    expect(measure.prefix("数据处理\tvalue", 5)).toBe(16);
+    expect(measure.prefix("ab\tc", 0)).toBe(0);
+  });
+
+  it("keeps prefixes out of the whole-line cache", () => {
+    let measured = 0;
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
+      () =>
+        ({
+          font: "",
+          measureText: (text: string) => {
+            measured += 1;
+            return { width: text.length };
+          },
+        }) as unknown as CanvasRenderingContext2D,
+    );
+    const measure = createLineMeasurer(document.body) as LineMeasurer;
+    measured = 0; // the tab width the measurer takes at creation
+    measure.prefix("abcdef", 3);
+    measure.prefix("abcdef", 3);
+    // Asked twice, measured twice: a prefix is never remembered…
+    expect(measured).toBe(2);
+    measure("abcdef");
+    measure("abcdef");
+    // …while a whole line still is.
+    expect(measured).toBe(3);
+  });
+
   it("is null where nothing can be measured", () => {
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
     expect(createLineMeasurer(document.body)).toBeNull();

@@ -381,6 +381,7 @@ export function MergeApp() {
     activeMatch,
     paneLines,
     charWidth,
+    measureLine,
     reveal: horizontal.reveal,
   });
   matchGeometry.current = {
@@ -388,6 +389,7 @@ export function MergeApp() {
     activeMatch,
     paneLines,
     charWidth,
+    measureLine,
     reveal: horizontal.reveal,
   };
   useEffect(() => {
@@ -397,11 +399,14 @@ export function MergeApp() {
     const match = geometry.activeMatch;
     if (!pane || !match) return;
     const text = geometry.paneLines[pane][match.line] ?? "";
-    geometry.reveal(
-      pane,
-      PANE_TEXT_PADDING + visualCol(text, match.start) * geometry.charWidth,
-      PANE_TEXT_PADDING + visualCol(text, match.end) * geometry.charWidth,
-    );
+    // Rendered pixels, like the pane's width (see DiffApp); the result
+    // editor's own caret stays in cells on purpose.
+    const xAt = (col: number) =>
+      PANE_TEXT_PADDING +
+      (geometry.measureLine
+        ? geometry.measureLine.prefix(text, col)
+        : visualCol(text, col) * geometry.charWidth);
+    geometry.reveal(pane, xAt(match.start), xAt(match.end));
   }, [activeMatchKey]);
 
   // The result pane's editor mapping: source result lines ↔ display rows
