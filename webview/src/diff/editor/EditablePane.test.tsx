@@ -289,6 +289,77 @@ describe("EditablePane", () => {
 });
 
 /**
+ * The wrapped pane's horizontal scrollbar is a child of the host, so its
+ * press arrives here first, and Blink only hands the press to the scrollbar
+ * when the mousedown was not defaulted. A press in that band has to fall
+ * straight through, or dragging the thumb selects text instead of scrolling.
+ */
+describe("EditablePane and the wrapped pane's scrollbar", () => {
+  /** A host whose pane is 100px tall inside a 106px box: a 6px band. */
+  function PanedHarness() {
+    const store = useMergeStore();
+    return (
+      <EditablePane
+        lines={store.result.lines}
+        cursor={store.cursor}
+        composition={store.composition}
+        offset={0}
+        visibleLines={20}
+        mapping={{ toDisplayRow: (line) => line, toSourceLine: (row) => row }}
+        label="Merge result editor"
+        onSetCursor={(selection, goal) =>
+          useMergeStore.getState().setCursor(selection, goal)
+        }
+        onEdit={(selection, text, key) =>
+          useMergeStore.getState().editAt(selection, text, key)
+        }
+        onCompositionBegin={() => useMergeStore.getState().beginComposition()}
+        onCompositionUpdate={(text) =>
+          useMergeStore.getState().updateComposition(text)
+        }
+        onCompositionEnd={(text) =>
+          useMergeStore.getState().endComposition(text)
+        }
+        onUndo={() => useMergeStore.getState().undo()}
+        onRedo={() => useMergeStore.getState().redo()}
+        onRevealRow={() => {}}
+      >
+        <div className="diff-pane" />
+      </EditablePane>
+    );
+  }
+
+  const PANE_HEIGHT = 100;
+
+  beforeEach(() => {
+    load("a\nb\nc\n", "a\nOURS\nc\n", "a\nTHEIRS\nc\n");
+    render(<PanedHarness />);
+    const paneEl = document.querySelector(".diff-pane") as HTMLElement;
+    Object.defineProperty(paneEl, "clientHeight", { value: PANE_HEIGHT });
+  });
+  afterEach(cleanup);
+
+  const press = (clientX: number, clientY: number) => {
+    const host = document.querySelector(".diff-editor-host") as HTMLElement;
+    return fireEvent.mouseDown(host, { clientX, clientY, detail: 1 });
+  };
+
+  it("leaves a press on the horizontal scrollbar to the scrollbar", () => {
+    // The pane's box starts at 0,0 in jsdom, so below its clientHeight is
+    // the band the scrollbar occupies.
+    const notDefaulted = press(40, PANE_HEIGHT + 3);
+    expect(useMergeStore.getState().cursor).toBeNull();
+    expect(notDefaulted).toBe(true);
+  });
+
+  it("still places the caret on a press inside the pane", () => {
+    const notDefaulted = press(12, PANE_HEIGHT - 4);
+    expect(useMergeStore.getState().cursor).not.toBeNull();
+    expect(notDefaulted).toBe(false);
+  });
+});
+
+/**
  * The caret-drift regression: the cell width must be measured in the editor
  * font the rows render in (`--editor-font`), never in the host's computed
  * font, which inherits the app's UI face. jsdom has no canvas or cascade, so
@@ -367,5 +438,110 @@ describe("EditablePane caret metrics", () => {
     ) as HTMLElement;
     expect(rect.style.left).toBe(`${10 + 2 * EDITOR_CELL}px`);
     expect(rect.style.width).toBe(`${4 * EDITOR_CELL}px`);
+  });
+});
+
+/**
+ * The overlay draws in the pane's *visible* coordinates. Once the pane has
+ * scrolled sideways everything it places shifts by that much, a click reads
+ * back through the same offset, and a caret that moves asks the pane to
+ * follow it.
+ */
+describe("EditablePane under horizontal scroll", () => {
+  const CELL = 7;
+
+  function ScrolledHarness({
+    scrollX,
+    onRevealX,
+  }: {
+    scrollX: number;
+    onRevealX?: (from: number, to: number) => void;
+  }) {
+    const store = useMergeStore();
+    return (
+      <EditablePane
+        lines={store.result.lines}
+        cursor={store.cursor}
+        composition={store.composition}
+        offset={0}
+        visibleLines={20}
+        scrollX={scrollX}
+        onRevealX={onRevealX}
+        mapping={{ toDisplayRow: (line) => line, toSourceLine: (row) => row }}
+        label="Merge result editor"
+        onSetCursor={(selection, goal) =>
+          useMergeStore.getState().setCursor(selection, goal)
+        }
+        onEdit={(selection, text, key) =>
+          useMergeStore.getState().editAt(selection, text, key)
+        }
+        onCompositionBegin={() => useMergeStore.getState().beginComposition()}
+        onCompositionUpdate={(text) =>
+          useMergeStore.getState().updateComposition(text)
+        }
+        onCompositionEnd={(text) =>
+          useMergeStore.getState().endComposition(text)
+        }
+        onUndo={() => useMergeStore.getState().undo()}
+        onRedo={() => useMergeStore.getState().redo()}
+        onRevealRow={() => {}}
+      >
+        <div />
+      </EditablePane>
+    );
+  }
+
+  beforeEach(() => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
+      () =>
+        ({
+          font: "",
+          measureText: () => ({ width: CELL }),
+        }) as unknown as CanvasRenderingContext2D,
+    );
+    load("abcdefghij\n", "abcdefghij\n", "abcdefghij\n");
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("shifts the caret and selection left by the scroll offset", () => {
+    render(<ScrolledHarness scrollX={21} />);
+    act(() =>
+      useMergeStore.getState().setCursor({
+        anchor: { line: 0, col: 2 },
+        head: { line: 0, col: 6 },
+      }),
+    );
+    const caretEl = document.querySelector(".diff-editor-caret") as HTMLElement;
+    expect(caretEl.style.left).toBe(`${10 + 6 * CELL - 21}px`);
+    const rect = document.querySelector(
+      ".diff-editor-selection",
+    ) as HTMLElement;
+    expect(rect.style.left).toBe(`${10 + 2 * CELL - 21}px`);
+    expect(rect.style.width).toBe(`${4 * CELL}px`);
+  });
+
+  it("reads a click back through the scroll offset", () => {
+    render(<ScrolledHarness scrollX={2 * CELL} />);
+    const host = document.querySelector(".diff-editor-host") as HTMLElement;
+    // 12px from the pane edge is column 0 unscrolled; two cells of scroll
+    // put column 2 under the same pixel.
+    fireEvent.mouseDown(host, { clientX: 12, clientY: 4, detail: 1 });
+    expect(useMergeStore.getState().cursor?.head).toEqual({ line: 0, col: 2 });
+  });
+
+  it("asks the pane to reveal the caret's span when it moves", () => {
+    const revealed: Array<[number, number]> = [];
+    render(
+      <ScrolledHarness
+        scrollX={0}
+        onRevealX={(from, to) => revealed.push([from, to])}
+      />,
+    );
+    caret(0, 4);
+    expect(revealed.at(-1)).toEqual([10 + 4 * CELL, 10 + 4 * CELL + 2]);
   });
 });

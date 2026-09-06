@@ -1,12 +1,9 @@
+import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
 import {
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { LINE_HEIGHT } from "../components/metrics";
+  LINE_HEIGHT,
+  PANE_TEXT_PADDING,
+  useCharWidth,
+} from "../components/metrics";
 import {
   caretAt,
   colAtVisual,
@@ -54,44 +51,20 @@ interface EditablePaneProps {
   onRedo: () => void;
   /** Scroll the surface so a display row sits inside the viewport. */
   onRevealRow: (displayRow: number) => void;
+  /**
+   * How far the pane beneath is scrolled sideways, in px. The overlay draws
+   * in the pane's *visible* coordinates, so the caret and selection shift
+   * left by this much and a click's x reads back through it.
+   */
+  scrollX?: number;
+  /** Scroll the pane sideways so the content span [from, to] px is in view. */
+  onRevealX?: (from: number, to: number) => void;
   /** The porcelain-rendered pane this editor sits over. */
   children: ReactNode;
 }
 
-const PANE_TEXT_PADDING = 10;
-
-/**
- * Width of one monospace cell in the *editor* font, in px.
- *
- * Measured from the `--editor-font` custom properties, never from the host's
- * computed font: the host inherits the app's UI font, and a cell width taken
- * from 13px sans-serif overshoots the mono rows' true width — which drew the
- * caret a few columns right of where edits actually landed, growing with
- * indent depth (the hand-test's "text is 4 places left of the caret").
- */
-function useCharWidth(host: React.RefObject<HTMLDivElement | null>): number {
-  const [width, setWidth] = useState(7.2);
-  useEffect(() => {
-    const element = host.current;
-    if (!element) return;
-    const style = window.getComputedStyle(element);
-    const fontSize =
-      style.getPropertyValue("--editor-font-size").trim() ||
-      style.fontSize ||
-      "12px";
-    const fontFamily =
-      style.getPropertyValue("--editor-font").trim() ||
-      style.fontFamily ||
-      "monospace";
-    const canvas = document.createElement("canvas");
-    const context = canvas.getContext("2d");
-    if (!context) return;
-    context.font = `${fontSize} ${fontFamily}`;
-    const measured = context.measureText("0").width;
-    if (measured > 0) setWidth(measured);
-  }, [host]);
-  return width;
-}
+/** The drawn caret's width; matches `.diff-editor-caret` in diff.css. */
+const CARET_WIDTH = 2;
 
 /**
  * The hand-built editor core's surface half: a hidden input receiver, a drawn
@@ -122,6 +95,8 @@ export function EditablePane({
   onUndo,
   onRedo,
   onRevealRow,
+  scrollX = 0,
+  onRevealX,
   children,
 }: EditablePaneProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -153,11 +128,11 @@ export function EditablePane({
       const row = Math.floor(offset + (event.clientY - rect.top) / LINE_HEIGHT);
       const line = mapping.toSourceLine(Math.max(0, row));
       if (line === null) return null;
-      const x = event.clientX - rect.left - PANE_TEXT_PADDING;
+      const x = event.clientX - rect.left - PANE_TEXT_PADDING + scrollX;
       const col = colAtVisual(lines[line] ?? "", Math.max(0, x / charWidth));
       return { line: Math.min(line, Math.max(0, lines.length - 1)), col };
     },
-    [offset, mapping, lines, charWidth],
+    [offset, mapping, lines, charWidth, scrollX],
   );
 
   const focusInput = useCallback(() => {
@@ -168,6 +143,16 @@ export function EditablePane({
     (event: React.MouseEvent) => {
       // Fold rows are buttons with their own behaviour; buttons stay buttons.
       if ((event.target as HTMLElement).closest("button")) return;
+      // The wrapped pane's horizontal scrollbar sits inside the host, along
+      // the pane's bottom edge, and Blink only starts a thumb drag when the
+      // mousedown was not defaulted: a press in that band belongs to the
+      // scrollbar, not to the caret. (The pane never grows a vertical one:
+      // its overflow-y is hidden, so there is no right-hand band to guard.)
+      const pane = hostRef.current?.querySelector(".diff-pane");
+      if (pane) {
+        const bounds = pane.getBoundingClientRect();
+        if (event.clientY >= bounds.top + pane.clientHeight) return;
+      }
       const position = positionFromEvent(event);
       if (!position) return;
       event.preventDefault();
@@ -369,8 +354,9 @@ export function EditablePane({
   const xOf = useCallback(
     (position: Position) =>
       PANE_TEXT_PADDING +
-      visualCol(lines[position.line] ?? "", position.col) * charWidth,
-    [lines, charWidth],
+      visualCol(lines[position.line] ?? "", position.col) * charWidth -
+      scrollX,
+    [lines, charWidth, scrollX],
   );
   const yOf = useCallback(
     (line: number) => (mapping.toDisplayRow(line) - offset) * LINE_HEIGHT,
@@ -405,7 +391,7 @@ export function EditablePane({
         rects.push({
           key: `${kind}-${line}`,
           top: (row - offset) * LINE_HEIGHT,
-          left: from,
+          left: from - scrollX,
           width: to === "flex" ? "flex" : Math.max(0, to - from),
           kind,
         });
@@ -419,14 +405,39 @@ export function EditablePane({
       );
     }
     return rects;
-  }, [cursor, composition, lines, mapping, offset, visibleLines, charWidth]);
+  }, [
+    cursor,
+    composition,
+    lines,
+    mapping,
+    offset,
+    visibleLines,
+    charWidth,
+    scrollX,
+  ]);
 
   // Follow the caret: a move or edit that leaves the viewport scrolls to it.
   // Keyed on the caret's identity alone — everything else is read through a
   // ref, because scrolling (which changes `offset`) must not re-trigger it.
   const headKey = cursor ? `${cursor.head.line}:${cursor.head.col}` : null;
-  const revealRef = useRef({ mapping, offset, visibleLines, onRevealRow });
-  revealRef.current = { mapping, offset, visibleLines, onRevealRow };
+  const revealRef = useRef({
+    mapping,
+    offset,
+    visibleLines,
+    onRevealRow,
+    lines,
+    charWidth,
+    onRevealX,
+  });
+  revealRef.current = {
+    mapping,
+    offset,
+    visibleLines,
+    onRevealRow,
+    lines,
+    charWidth,
+    onRevealX,
+  };
   useEffect(() => {
     if (headKey === null) return;
     const {
@@ -434,11 +445,22 @@ export function EditablePane({
       offset: at,
       visibleLines: rows,
       onRevealRow: go,
+      lines: text,
+      charWidth: cell,
+      onRevealX: goX,
     } = revealRef.current;
-    const headLine = Number(headKey.split(":")[0]);
+    const [lineKey, colKey] = headKey.split(":");
+    const headLine = Number(lineKey);
     const row = map.toDisplayRow(headLine);
     if (row < at + 0.5 || row > at + rows - 1.5) {
       go(Math.max(0, row - Math.floor(rows / 2)));
+    }
+    // And sideways: the caret's span in the pane's own (unscrolled) x.
+    if (goX) {
+      const x =
+        PANE_TEXT_PADDING +
+        visualCol(text[headLine] ?? "", Number(colKey)) * cell;
+      goX(x, x + CARET_WIDTH);
     }
   }, [headKey]);
 
@@ -478,7 +500,14 @@ export function EditablePane({
       <textarea
         ref={inputRef}
         className="diff-editor-input"
-        style={{ top: caretTop, left: caretLeft }}
+        // Kept inside the host at both edges: a caret scrolled out either
+        // way would otherwise park the input - and any IME candidate window
+        // it opens - over a neighbouring column. The drawn caret above keeps
+        // its exact position; only this 2px input is clamped.
+        style={{
+          top: caretTop,
+          left: `clamp(0px, ${caretLeft}px, calc(100% - 2px))`,
+        }}
         aria-label={label}
         wrap="off"
         spellCheck={false}

@@ -12,6 +12,7 @@ import {
   type DiffSidesResult,
   WORKING_TREE_REF,
 } from "../shared/bridge/types";
+import { useHorizontalScroll } from "../shared/hooks/useHorizontalScroll";
 import { editableSide, useDiffStore } from "../shared/store/diff-store";
 import { ChangeStripe, splitStripeMarks } from "./components/ChangeStripe";
 import { DiffFallback } from "./components/DiffFallback";
@@ -19,10 +20,19 @@ import { DiffGutter } from "./components/DiffGutter";
 import { DiffPane } from "./components/DiffPane";
 import { DiffToolbar } from "./components/DiffToolbar";
 import { FindBar } from "./components/FindBar";
-import { gutterMetrics, LINE_HEIGHT } from "./components/metrics";
+import {
+  gutterMetrics,
+  LINE_HEIGHT,
+  PANE_TEXT_PADDING,
+  paneContentWidth,
+  useCharWidth,
+  useLineMeasurer,
+  widestLineWidth,
+} from "./components/metrics";
 import { RevisionHeader } from "./components/RevisionHeader";
 import { UnifiedPane } from "./components/UnifiedPane";
 import { type DisplayMapping, EditablePane } from "./editor/EditablePane";
+import { useRevealMatch } from "./hooks/useRevealMatch";
 import {
   axisToSide,
   chooseLayout,
@@ -36,6 +46,12 @@ import {
 } from "./utils/diff-model";
 import { unifiedRows, unifiedStripeMarks } from "./utils/unified";
 import "./diff.css";
+
+/**
+ * The panes the horizontal axis addresses. A module constant: the hook derives
+ * its ref callbacks from the array's identity.
+ */
+const SIDES: readonly Side[] = ["left", "right"];
 
 export function DiffApp() {
   const store = useDiffStore();
@@ -416,6 +432,35 @@ export function DiffApp() {
   const rightLines = splitLines(store.right);
   const visibleLines = Math.ceil(viewportHeight / LINE_HEIGHT);
 
+  // The horizontal axis: each pane scrolls sideways on its own, in lockstep
+  // while synchronised scrolling is on. A pane's scrollable width is measured
+  // from the whole document's widest line rather than from the rows on
+  // screen, so the scrollbar keeps one range as the rows beneath it change;
+  // under sync both panes take the wider of the two, so neither stops short
+  // of the other.
+  const charWidth = useCharWidth(viewportRef);
+  const measureLine = useLineMeasurer(viewportRef);
+  const horizontal = useHorizontalScroll(SIDES, store.syncScroll);
+  const leftTextWidth = useMemo(
+    () => widestLineWidth(splitLines(store.left), charWidth, measureLine),
+    [store.left, charWidth, measureLine],
+  );
+  const rightTextWidth = useMemo(
+    () => widestLineWidth(splitLines(store.right), charWidth, measureLine),
+    [store.right, charWidth, measureLine],
+  );
+  const leftWidth = paneContentWidth(leftTextWidth);
+  const rightWidth = paneContentWidth(rightTextWidth);
+  const sharedWidth = Math.max(leftWidth, rightWidth);
+  // The hook's padding on top: equal content across panes of unequal width
+  // would still leave their scroll ranges ending at different maxima.
+  const contentWidthOf = (side: Side) =>
+    (store.syncScroll
+      ? sharedWidth
+      : side === "left"
+        ? leftWidth
+        : rightWidth) + (horizontal.padding[side] ?? 0);
+
   // Both bars' hits highlight; the box goes to the current match of the bar
   // that last acted.
   const { findLeft, findRight, activeFindSide } = store;
@@ -435,12 +480,58 @@ export function DiffApp() {
   // and the unified toggle has nothing to unify there.
   const layout = chooseLayout(store.left, store.right);
   const unified = store.viewMode === "unified" && layout.mode === "split";
+  // Which pane the viewport's own sideways keys and the unified view drive:
+  // the right, which owns the shared axis, or the only pane there is.
+  const scrollOwner: Side = layout.mode === "single" ? layout.side : "right";
 
-  // With sync off the left pane scrolls on its own. React registers `wheel`
-  // as a passive root listener, so a synthetic onWheel's preventDefault is a
-  // no-op and the wheel would still scroll `.diff-viewport` (moving the right
-  // pane too). A native non-passive listener is the only way preventDefault
-  // holds the axis still.
+  // The sideways twin of the vertical re-coupling `leftAtDecouple` handles:
+  // the panes drift apart while sync is off, so switching it back on has to
+  // bring them together at once rather than leave the split view misaligned
+  // until whichever pane the user touches next fires a scroll event.
+  const wasSynced = useRef(store.syncScroll);
+  const { realign } = horizontal;
+  useEffect(() => {
+    const previous = wasSynced.current;
+    wasSynced.current = store.syncScroll;
+    if (previous || !store.syncScroll) return;
+    realign(scrollOwner);
+  }, [store.syncScroll, realign, scrollOwner]);
+
+  // Stepping to a match brings it into view sideways as well as down; see
+  // useRevealMatch. A unified row carries both number columns before its
+  // text, and they stay put while it scrolls, so the match must clear them.
+  const numberColumns = unified
+    ? gutterMetrics(Math.max(leftLines.length, rightLines.length)).numberWidth *
+      2
+    : 0;
+  useRevealMatch(
+    activeMatch && {
+      pane: unified ? scrollOwner : activeMatch.side,
+      document: activeMatch.side,
+      text:
+        (activeMatch.side === "left" ? leftLines : rightLines)[
+          activeMatch.line
+        ] ?? "",
+      line: activeMatch.line,
+      start: activeMatch.start,
+      end: activeMatch.end,
+      inset: numberColumns + PANE_TEXT_PADDING,
+      obscuredLeft: numberColumns,
+    },
+    { charWidth, measure: measureLine, reveal: horizontal.reveal },
+  );
+
+  // With sync off the left pane scrolls on its own, and this listener owns
+  // both of its axes. React registers `wheel` as a passive root listener, so
+  // a synthetic onWheel's preventDefault is a no-op and the wheel would still
+  // scroll `.diff-viewport` (moving the right pane too). A native
+  // non-passive listener is the only way preventDefault holds the axis still
+  // - and it has to cancel every gesture, since a diagonal one left to the
+  // browser would leak its vertical remainder up to the shared axis. A single
+  // wheel event cannot be split, so the sideways half is applied from here
+  // too: momentum still arrives as the platform's own momentum events, and
+  // only the rubber-band overscroll is given up, only while decoupled. That
+  // trade was weighed against the leak and chosen.
   useEffect(() => {
     const node = leftScrollerRef.current;
     if (!node || store.syncScroll || unified || layout.mode === "single") {
@@ -449,6 +540,7 @@ export function DiffApp() {
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
       scrollLeftPane(event.deltaY / LINE_HEIGHT, leftLines.length - 1);
+      horizontal.scrollBy("left", event.deltaX);
     };
     node.addEventListener("wheel", onWheel, { passive: false });
     return () => node.removeEventListener("wheel", onWheel);
@@ -457,6 +549,7 @@ export function DiffApp() {
     unified,
     layout.mode,
     scrollLeftPane,
+    horizontal.scrollBy,
     leftLines.length,
   ]);
 
@@ -483,6 +576,8 @@ export function DiffApp() {
         composition={store.composition}
         offset={offset}
         visibleLines={visibleLines}
+        scrollX={horizontal.positions[side] ?? 0}
+        onRevealX={(from, to) => horizontal.reveal(side, from, to)}
         mapping={editorMapping(side)}
         label={`Working-tree editor for ${filePath}. A full text editor: type anywhere; Cmd+S saves.`}
         onSetCursor={(selection, goal) =>
@@ -683,11 +778,14 @@ export function DiffApp() {
       <div className="diff-body">
         {/* Focusable so the keyboard can drive it: a focused scroll
             container gets arrow, page and Home/End scrolling natively, which
-            is the whole pane-navigation story the audit found missing. */}
+            is the whole pane-navigation story the audit found missing. Left
+            and right have no range of their own here - the sideways axis
+            belongs to the panes - so they drive the pane that owns it. */}
         <div
           className="diff-viewport"
           ref={viewportRef}
           onScroll={onScroll}
+          onKeyDown={(event) => horizontal.arrowScroll(scrollOwner, event)}
           tabIndex={0}
           role="region"
           aria-label={`Diff of ${filePath}`}
@@ -707,6 +805,11 @@ export function DiffApp() {
                   granularity={store.granularity}
                   offset={axisPosition}
                   visibleLines={visibleLines}
+                  ref={horizontal.refFor(scrollOwner)}
+                  contentWidth={
+                    sharedWidth + (horizontal.padding[scrollOwner] ?? 0)
+                  }
+                  onScrollX={(x) => horizontal.onScrollX(scrollOwner, x)}
                   onToggleFold={(fold) =>
                     useDiffStore.getState().toggleFold(fold.left.start)
                   }
@@ -737,6 +840,9 @@ export function DiffApp() {
                       granularity={store.granularity}
                       offset={layout.side === "left" ? leftOffset : rightOffset}
                       visibleLines={visibleLines}
+                      ref={horizontal.refFor(layout.side)}
+                      contentWidth={contentWidthOf(layout.side)}
+                      onScrollX={(x) => horizontal.onScrollX(layout.side, x)}
                       folds={store.folds}
                       onToggleFold={(fold) =>
                         useDiffStore.getState().toggleFold(fold.left.start)
@@ -754,11 +860,7 @@ export function DiffApp() {
                       because React's synthetic wheel listener is passive, so
                       preventDefault there is a no-op and the axis would move
                       too. */}
-                  <div
-                    ref={leftScrollerRef}
-                    className="diff-left-scroller"
-                    style={{ display: "contents" }}
-                  >
+                  <div ref={leftScrollerRef} className="diff-left-scroller">
                     {wrapEditable(
                       "left",
                       <DiffPane
@@ -770,6 +872,9 @@ export function DiffApp() {
                         granularity={store.granularity}
                         offset={leftOffset}
                         visibleLines={visibleLines}
+                        ref={horizontal.refFor("left")}
+                        contentWidth={contentWidthOf("left")}
+                        onScrollX={(x) => horizontal.onScrollX("left", x)}
                         folds={store.folds}
                         onToggleFold={(fold) =>
                           useDiffStore.getState().toggleFold(fold.left.start)
@@ -801,6 +906,9 @@ export function DiffApp() {
                       granularity={store.granularity}
                       offset={rightOffset}
                       visibleLines={visibleLines}
+                      ref={horizontal.refFor("right")}
+                      contentWidth={contentWidthOf("right")}
+                      onScrollX={(x) => horizontal.onScrollX("right", x)}
                       folds={store.folds}
                       onToggleFold={(fold) =>
                         useDiffStore.getState().toggleFold(fold.left.start)

@@ -84,8 +84,8 @@ describe("gitService.stageLines", () => {
 
     // Take the first replacement only: -old one / +new one.
     const body = hunks[0].lines;
-    const removeOne = body.findIndex((line) => line === "-old one");
-    const addOne = body.findIndex((line) => line === "+new one");
+    const removeOne = body.indexOf("-old one");
+    const addOne = body.indexOf("+new one");
     assert.ok(removeOne >= 0 && addOne >= 0);
 
     const staged = await service.stageLines(
@@ -117,8 +117,8 @@ describe("gitService.stageLines", () => {
     const { repo, service } = await seeded();
     const hunks = await service.getFileHunks("f.txt");
     const body = hunks[0].lines;
-    const removeTwo = body.findIndex((line) => line === "-old two");
-    const addTwo = body.findIndex((line) => line === "+new two");
+    const removeTwo = body.indexOf("-old two");
+    const addTwo = body.indexOf("+new two");
 
     await service.stageLines(
       "f.txt",
@@ -140,7 +140,7 @@ describe("gitService.stageLines", () => {
     const service = serviceFor(repo);
 
     const hunks = await service.getFileHunks("f.txt");
-    const added = hunks[0].lines.findIndex((line) => line === "+inserted");
+    const added = hunks[0].lines.indexOf("+inserted");
     await service.stageLines("f.txt", new Map([[0, new Set([added])]]));
 
     assert.strictEqual(

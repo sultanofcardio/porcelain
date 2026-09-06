@@ -1,4 +1,4 @@
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { computeChunks } from "../utils/diff-model";
 import { DiffPane } from "./DiffPane";
@@ -189,5 +189,38 @@ describe("DiffPane", () => {
     expect(rows[1].querySelector(".diff-changed")).toBeNull();
     expect(rows[2].className).toContain("diff-line-modified");
     expect(rows[2].querySelector(".diff-changed")).toBeTruthy();
+  });
+});
+
+describe("DiffPane horizontal scrolling", () => {
+  afterEach(cleanup);
+
+  it("offers at least the document's widest line as its scrollable width", () => {
+    // Only the visible rows exist in the DOM, so the range would otherwise
+    // grow and shrink with whichever lines happen to be on screen.
+    const { container } = renderPane({ contentWidth: 640 });
+    const content = container.querySelector(
+      ".diff-pane-content",
+    ) as HTMLElement;
+    expect(content.style.minWidth).toBe("max(100%, 640px)");
+  });
+
+  it("is only as wide as its rows when no width is given", () => {
+    const { container } = renderPane();
+    const content = container.querySelector(
+      ".diff-pane-content",
+    ) as HTMLElement;
+    expect(content.style.minWidth).toBe("");
+  });
+
+  it("exposes its scroller through the ref and reports sideways scrolling", () => {
+    const seen: number[] = [];
+    const ref = { current: null as HTMLDivElement | null };
+    renderPane({ ref, onScrollX: (x) => seen.push(x) });
+    const scroller = ref.current as HTMLDivElement;
+    expect(scroller.classList.contains("diff-pane")).toBe(true);
+    scroller.scrollLeft = 120;
+    fireEvent.scroll(scroller);
+    expect(seen).toEqual([120]);
   });
 });

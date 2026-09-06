@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -98,5 +99,37 @@ describe("diff keyboard bindings", () => {
 
     expect(useDiffStore.getState().activeChunk).toBe(-1);
     input.remove();
+  });
+
+  it("brings the panes back together when sync scrolling is switched on", async () => {
+    // Vertically, re-coupling snaps the left pane to the axis at once. It has
+    // to mean the same thing sideways, or the split view sits visibly
+    // misaligned until the next scroll event of either pane.
+    await renderLoaded();
+    act(() => useDiffStore.getState().toggleSyncScroll());
+    expect(useDiffStore.getState().syncScroll).toBe(false);
+    const panes = [...document.querySelectorAll<HTMLElement>(".diff-pane")];
+    const [leftPane, rightPane] = [panes[0], panes.at(-1) as HTMLElement];
+    fireEvent.scroll(rightPane, { target: { scrollLeft: 200 } });
+    fireEvent.scroll(leftPane, { target: { scrollLeft: 300 } });
+    expect(rightPane.scrollLeft).toBe(200);
+
+    act(() => useDiffStore.getState().toggleSyncScroll());
+    expect(leftPane.scrollLeft).toBe(200);
+  });
+
+  it("scrolls the panes sideways with left and right from the focused viewport", async () => {
+    // The viewport's own arrows move the axis natively, but it has no
+    // sideways range of its own: left and right drive the pane instead.
+    await renderLoaded();
+    const viewport = screen.getByRole("region", { name: "Diff of a.txt" });
+    const rightPane = [
+      ...document.querySelectorAll<HTMLElement>(".diff-pane"),
+    ].at(-1) as HTMLElement;
+    viewport.focus();
+    fireEvent.keyDown(viewport, { key: "ArrowRight" });
+    expect(rightPane.scrollLeft).toBe(40);
+    fireEvent.keyDown(viewport, { key: "ArrowLeft" });
+    expect(rightPane.scrollLeft).toBe(0);
   });
 });

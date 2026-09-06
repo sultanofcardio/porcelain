@@ -1,7 +1,8 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { computeChunks, computeFolds, splitLines } from "../utils/diff-model";
 import { unifiedRows } from "../utils/unified";
+import { gutterMetrics } from "./metrics";
 import { UnifiedPane } from "./UnifiedPane";
 
 const lines = (...values: string[]) => `${values.join("\n")}\n`;
@@ -121,5 +122,45 @@ describe("UnifiedPane", () => {
       "Line 2, modified, old: ",
       "Line 2, modified, new: ",
     ]);
+  });
+});
+
+describe("UnifiedPane horizontal scrolling", () => {
+  afterEach(cleanup);
+
+  it("offers the text width plus both number columns as its scrollable width", () => {
+    const { container } = renderUnified(lines("a"), lines("b"), {
+      contentWidth: 500,
+    });
+    const content = container.querySelector(
+      ".diff-pane-content",
+    ) as HTMLElement;
+    const { numberWidth } = gutterMetrics(1);
+    expect(content.style.minWidth).toBe(
+      `max(100%, ${numberWidth * 2 + 500}px)`,
+    );
+  });
+
+  it("parks the second number column after the first so both stay put", () => {
+    const { container } = renderUnified(lines("a"), lines("a"));
+    const [first, second] = [
+      ...container.querySelectorAll<HTMLElement>(".diff-unified-number"),
+    ];
+    expect(first.style.left).toBe("0px");
+    expect(second.style.left).toBe(`${gutterMetrics(1).numberWidth}px`);
+  });
+
+  it("reports sideways scrolling through the scroller it exposes", () => {
+    const seen: number[] = [];
+    const ref = { current: null as HTMLDivElement | null };
+    renderUnified(lines("a"), lines("b"), {
+      ref,
+      onScrollX: (x) => seen.push(x),
+    });
+    const scroller = ref.current as HTMLDivElement;
+    expect(scroller.classList.contains("diff-unified")).toBe(true);
+    scroller.scrollLeft = 48;
+    fireEvent.scroll(scroller);
+    expect(seen).toEqual([48]);
   });
 });
