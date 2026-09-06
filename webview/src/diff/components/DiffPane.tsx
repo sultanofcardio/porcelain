@@ -60,7 +60,7 @@ interface DiffPaneProps {
    */
   extraAnchors?: ReadonlyArray<{ line: number; kind: string }>;
   /**
-   * The pane's own element, which is its horizontal scroll container — the
+   * The pane's own element, which is its horizontal scroll container - the
    * handle the shared horizontal axis (useHorizontalScroll) drives it by.
    */
   ref?: Ref<HTMLDivElement>;

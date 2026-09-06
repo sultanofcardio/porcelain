@@ -55,12 +55,12 @@ export function gutterMetrics(maxLineNumber: number): GutterMetrics {
 const DEFAULT_CHAR_WIDTH = 7.2;
 
 /**
- * Width of one monospace cell in the *editor* font, in px — or null where
+ * Width of one monospace cell in the *editor* font, in px - or null where
  * nothing can be measured (no canvas, as under jsdom).
  *
  * Measured from the `--editor-font` custom properties, never from the
  * element's computed font: the element inherits the app's UI font, and a cell
- * width taken from 13px sans-serif overshoots the mono rows' true width —
+ * width taken from 13px sans-serif overshoots the mono rows' true width -
  * which drew the caret a few columns right of where edits actually landed,
  * growing with indent depth (the hand-test's "text is 4 places left of the
  * caret").
@@ -103,7 +103,7 @@ export function useCharWidth(ref: RefObject<HTMLElement | null>): number {
 
 /**
  * The widest line of a document, in visual cells: tabs expand to their stops
- * and a surrogate pair is one cell — the coordinate the editor's caret uses.
+ * and a surrogate pair is one cell - the coordinate the editor's caret uses.
  * Every cell counts as one column, exact for the monospace rows; a pane also
  * sizes to whatever it actually renders (`.diff-pane-content`), so a wide
  * glyph on screen stays reachable even where the estimate falls short.
@@ -120,7 +120,7 @@ export function widestLine(lines: readonly string[]): number {
 /**
  * Measures text as the pane renders it, in px. Calling it measures a whole
  * line, remembered by text; `prefix` measures the start of a line up to a
- * column — where a find match sits in rendered space — and is not remembered,
+ * column - where a find match sits in rendered space - and is not remembered,
  * since a prefix is asked for once per step and would only crowd the cache.
  */
 export interface LineMeasurer {
@@ -223,7 +223,7 @@ function isAscii(line: string): boolean {
  *
  * Cells alone are not it: `visualCol` counts a full-width East Asian glyph as
  * one cell where the row paints two, so a CJK document estimated at
- * `widestLine * charWidth` would come out at half its width — and the
+ * `widestLine * charWidth` would come out at half its width - and the
  * `max-content` fallback would then lift whichever pane happens to be
  * rendering that row past the shared range, breaking the panes' lockstep at
  * exactly the point the estimate ran out.
@@ -233,7 +233,7 @@ function isAscii(line: string): boolean {
  * `cells * charWidth` is its width exactly and it is never measured. That
  * leaves only the rows carrying something else as candidates, ranked by cell
  * count, of which one is measured only while `cells * charWidth *
- * WIDE_GLYPH_FACTOR` can still beat the widest width found — so a document
+ * WIDE_GLYPH_FACTOR` can still beat the widest width found - so a document
  * of code measures nothing at all, and a document with a wide-glyph comment
  * measures that comment. Without a measurer the cell estimate is all there
  * is.
@@ -266,7 +266,7 @@ export function widestLineWidth(
 /**
  * The scrollable width a pane needs for text `textWidth` px wide: the text
  * inset on the left and the same again on the right, so the widest line's
- * end — and a caret after it — never sits flush against the pane edge.
+ * end - and a caret after it - never sits flush against the pane edge.
  */
 export function paneContentWidth(textWidth: number): number {
   return PANE_TEXT_PADDING * 2 + Math.ceil(textWidth);

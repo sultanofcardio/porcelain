@@ -504,8 +504,8 @@ export function EditablePane({
         ref={inputRef}
         className="diff-editor-input"
         // Kept inside the host at both edges: a caret scrolled out either
-        // way would otherwise park the input — and any IME candidate window
-        // it opens — over a neighbouring column. The drawn caret above keeps
+        // way would otherwise park the input - and any IME candidate window
+        // it opens - over a neighbouring column. The drawn caret above keeps
         // its exact position; only this 2px input is clamped.
         style={{
           top: caretTop,

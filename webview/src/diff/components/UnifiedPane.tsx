@@ -24,7 +24,7 @@ interface UnifiedPaneProps {
   onToggleFold?: (fold: FoldRegion) => void;
   matches?: FindMatch[];
   activeMatch?: FindMatch | null;
-  /** The pane's element — its horizontal scroll container, as in DiffPane. */
+  /** The pane's element - its horizontal scroll container, as in DiffPane. */
   ref?: Ref<HTMLDivElement>;
   /**
    * The least scrollable width of the *text*, in px; the pane adds its two

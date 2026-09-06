@@ -500,8 +500,8 @@ export function DiffApp() {
   // Stepping to a match brings it into view sideways as well as down: the
   // bar's jump moves the axis, and this moves the pane, since a hit at column
   // 150 of a wide line is otherwise highlighted off-screen. Keyed on the match
-  // itself, with the geometry read through a ref, so a scroll — which
-  // re-renders — cannot re-run it and fight the user's own scrolling.
+  // itself, with the geometry read through a ref, so a scroll - which
+  // re-renders - cannot re-run it and fight the user's own scrolling.
   const activeMatchKey = activeMatch
     ? `${activeMatch.side}:${activeMatch.line}:${activeMatch.start}:${activeMatch.end}`
     : null;
@@ -545,7 +545,7 @@ export function DiffApp() {
     // Rendered pixels, like the pane's width: a match past a run of
     // full-width glyphs paints twice as far along as its cells suggest. The
     // editor's own caret, selection and click mapping stay in cells on
-    // purpose — that coordinate is the editor's model — so only find reads
+    // purpose - that coordinate is the editor's model - so only find reads
     // through the measurer; without one (jsdom) cells are all there is.
     const xAt = (col: number) =>
       inset +
@@ -565,7 +565,7 @@ export function DiffApp() {
   // a synthetic onWheel's preventDefault is a no-op and the wheel would still
   // scroll `.diff-viewport` (moving the right pane too). A native
   // non-passive listener is the only way preventDefault holds the axis still
-  // — and it has to cancel every gesture, since a diagonal one left to the
+  // - and it has to cancel every gesture, since a diagonal one left to the
   // browser would leak its vertical remainder up to the shared axis. A single
   // wheel event cannot be split, so the sideways half is applied from here
   // too: momentum still arrives as the platform's own momentum events, and
@@ -818,8 +818,8 @@ export function DiffApp() {
         {/* Focusable so the keyboard can drive it: a focused scroll
             container gets arrow, page and Home/End scrolling natively, which
             is the whole pane-navigation story the audit found missing. Left
-            and right have no range of their own here — the sideways axis
-            belongs to the panes — so they drive the pane that owns it. */}
+            and right have no range of their own here - the sideways axis
+            belongs to the panes - so they drive the pane that owns it. */}
         <div
           className="diff-viewport"
           ref={viewportRef}

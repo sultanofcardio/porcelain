@@ -24,15 +24,15 @@ function without<K extends string>(
  * The DOM owns the positions. Panes scroll natively and report through
  * `onScrollX`; every programmatic move writes `scrollLeft` directly. No
  * effect ever pushes a React value back into a pane, so a stale render can
- * never yank a pane mid-gesture — the failure mode of a controlled scroller.
+ * never yank a pane mid-gesture - the failure mode of a controlled scroller.
  * React keeps a read model of the positions for whatever draws in pane
  * coordinates (the editor's caret), one scroll event behind the DOM, the same
  * relationship the vertical axis has with `offset`.
  *
  * With `synced` on, one pane's scroll is written straight to the others. The
  * caller gives synchronised panes one shared content width, but equal content
- * over unequal panes still ends at unequal maxima — a pane 26px wider stops
- * 26px earlier — so the hook measures each pane and offers `padding`, the px
+ * over unequal panes still ends at unequal maxima - a pane 26px wider stops
+ * 26px earlier - so the hook measures each pane and offers `padding`, the px
  * every pane must add to that shared width for all of their ranges to end
  * together. The widest pane gets a little blank space past the text; nothing
  * is left unreachable in the narrower ones. `realign` brings the panes back
@@ -147,7 +147,7 @@ export function useHorizontalScroll<K extends string>(
       const before = node.scrollLeft;
       node.scrollLeft = x;
       // Any write that moved the pane marks an echo, even one the pane
-      // clamped short of `x` — that scroll event is still this write coming
+      // clamped short of `x` - that scroll event is still this write coming
       // back, and broadcasting it would drag the source pane down to the
       // clamped value. A write that did nothing fires no event, and a stale
       // mark would swallow the pane's next real scroll.
@@ -191,7 +191,7 @@ export function useHorizontalScroll<K extends string>(
    * `[from, to]` (px, pane coordinates) into view, with a margin. A span
    * already in view leaves the pane where the user put it; one wider than
    * the pane shows its start. `obscuredLeft` is the width of the pane's left
-   * edge that content scrolls under — sticky line numbers — and so does not
+   * edge that content scrolls under - sticky line numbers - and so does not
    * count as in view.
    */
   const reveal = useCallback(
@@ -214,7 +214,7 @@ export function useHorizontalScroll<K extends string>(
   /**
    * Arrow keys on a focused viewport. Up and down scroll the viewport
    * natively; left and right have nothing to move there, since the sideways
-   * axis belongs to the panes — so they drive the pane that owns the axis.
+   * axis belongs to the panes - so they drive the pane that owns the axis.
    * Only the viewport's own keys: an element focused inside it (a fold
    * button, the editor's input) keeps its arrows.
    */

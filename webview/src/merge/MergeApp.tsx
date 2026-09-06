@@ -232,7 +232,7 @@ export function MergeApp() {
   const theirsLines = store.theirs.lines;
 
   // The horizontal axis, always in lockstep across the three panes, on one
-  // shared width — the widest line of the three documents — plus the hook's
+  // shared width - the widest line of the three documents - plus the hook's
   // per-pane padding, without which the result pane's wider grid track would
   // end its range before the other two reached theirs.
   const charWidth = useCharWidth(viewportRef);
@@ -365,7 +365,7 @@ export function MergeApp() {
   const activeFind = activePane ? store.findPanes[activePane] : null;
   const activeMatch = activeFind?.matches[activeFind.activeMatch] ?? null;
 
-  // The active match comes into view sideways too — see DiffApp for why this
+  // The active match comes into view sideways too - see DiffApp for why this
   // is keyed on the match alone and reads its geometry through a ref.
   const activeMatchKey =
     activePane && activeMatch

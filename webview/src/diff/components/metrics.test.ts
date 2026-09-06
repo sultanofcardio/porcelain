@@ -58,7 +58,7 @@ describe("paneContentWidth", () => {
 
 /**
  * A stand-in for canvas text measurement: one unit per ASCII character, two
- * per full-width East Asian character — the ratio a monospace face actually
+ * per full-width East Asian character - the ratio a monospace face actually
  * paints, and the one the cell count gets wrong.
  */
 function stubMeasurer(calls: string[] = []) {
@@ -100,7 +100,7 @@ describe("widestLineWidth", () => {
     const cjk = "中".repeat(60);
     const ascii = Array.from({ length: 100 }, () => "a".repeat(100));
     const calls: string[] = [];
-    // The CJK row paints 120 against the ASCII rows' 100, so it wins — and
+    // The CJK row paints 120 against the ASCII rows' 100, so it wins - and
     // it is the only row of the 101 that the canvas is asked about.
     expect(
       widestLineWidth([...ascii, cjk], CHAR_WIDTH, stubMeasurer(calls)),
@@ -190,7 +190,7 @@ describe("createLineMeasurer", () => {
     // still takes a whole tab width, to 16, and `value` follows.
     expect(measure("数据处理\tvalue")).toBe(16 + 5);
     // The cell count of that same line is 4 + tab + 5, which would put the
-    // tab stop at 8 and the row at 13 — 8 advances short of what it paints.
+    // tab stop at 8 and the row at 13 - 8 advances short of what it paints.
     expect(measure("ab\tc")).toBe(9);
     expect(measure("\tx")).toBe(9);
     // A tab already flush against a stop advances a full tab width.

@@ -536,7 +536,7 @@ button.diff-menu-step:focus-visible {
  * Its non-passive wheel listener is what holds the shared axis still while
  * synchronised scrolling is off, driving both of the pane's axes itself, and
  * the compositor only waits for a blocking listener whose element has a
- * layout box — with none, it scrolls first and asks later, and preventDefault
+ * layout box - with none, it scrolls first and asks later, and preventDefault
  * arrives too late to matter.
  */
 .diff-left-scroller {
@@ -545,7 +545,7 @@ button.diff-menu-step:focus-visible {
 }
 /*
  * The scrollable extent: as wide as the widest rendered row, never narrower
- * than the pane, and at least the document's widest line — set inline from
+ * than the pane, and at least the document's widest line - set inline from
  * the text, since only the visible rows exist in the DOM. Rows fill it, so a
  * changed line's colour runs the whole scrollable width rather than the first
  * pane-width of it.
