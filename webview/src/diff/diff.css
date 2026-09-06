@@ -962,7 +962,16 @@ button.diff-btn-primary:disabled {
   text-align: right;
   color: var(--vscode-editorLineNumber-foreground, #6e7175);
   user-select: none;
-  background: var(--vscode-editorGutter-background, rgba(0, 0, 0, 0.12));
+  /* Text scrolls under these now, so the backing must be opaque: the gutter
+     colour is painted over the editor background, which is how a gutter is
+     composed anyway, in case a theme gives the gutter token an alpha or the
+     token is missing and the translucent fallback is all there is. */
+  background:
+    linear-gradient(
+      var(--vscode-editorGutter-background, rgba(0, 0, 0, 0.12)),
+      var(--vscode-editorGutter-background, rgba(0, 0, 0, 0.12))
+    ),
+    var(--app-bg);
 }
 .diff-unified-number + .diff-unified-number {
   border-right: 1px solid var(--border);

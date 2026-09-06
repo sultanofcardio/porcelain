@@ -330,14 +330,12 @@ describe("EditablePane and the wrapped pane's scrollbar", () => {
   }
 
   const PANE_HEIGHT = 100;
-  const PANE_WIDTH = 200;
 
   beforeEach(() => {
     load("a\nb\nc\n", "a\nOURS\nc\n", "a\nTHEIRS\nc\n");
     render(<PanedHarness />);
     const paneEl = document.querySelector(".diff-pane") as HTMLElement;
     Object.defineProperty(paneEl, "clientHeight", { value: PANE_HEIGHT });
-    Object.defineProperty(paneEl, "clientWidth", { value: PANE_WIDTH });
   });
   afterEach(cleanup);
 
@@ -350,12 +348,6 @@ describe("EditablePane and the wrapped pane's scrollbar", () => {
     // The pane's box starts at 0,0 in jsdom, so below its clientHeight is
     // the band the scrollbar occupies.
     const notDefaulted = press(40, PANE_HEIGHT + 3);
-    expect(useMergeStore.getState().cursor).toBeNull();
-    expect(notDefaulted).toBe(true);
-  });
-
-  it("leaves a press on the vertical scrollbar band alone too", () => {
-    const notDefaulted = press(PANE_WIDTH + 3, 4);
     expect(useMergeStore.getState().cursor).toBeNull();
     expect(notDefaulted).toBe(true);
   });

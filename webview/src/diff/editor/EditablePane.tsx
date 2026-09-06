@@ -143,18 +143,15 @@ export function EditablePane({
     (event: React.MouseEvent) => {
       // Fold rows are buttons with their own behaviour; buttons stay buttons.
       if ((event.target as HTMLElement).closest("button")) return;
-      // The wrapped pane's scrollbars sit inside the host, and Blink only
-      // starts a thumb drag when the mousedown was not defaulted: a press in
-      // either band belongs to the scrollbar, not to the caret.
+      // The wrapped pane's horizontal scrollbar sits inside the host, along
+      // the pane's bottom edge, and Blink only starts a thumb drag when the
+      // mousedown was not defaulted: a press in that band belongs to the
+      // scrollbar, not to the caret. (The pane never grows a vertical one:
+      // its overflow-y is hidden, so there is no right-hand band to guard.)
       const pane = hostRef.current?.querySelector(".diff-pane");
       if (pane) {
         const bounds = pane.getBoundingClientRect();
-        if (
-          event.clientY >= bounds.top + pane.clientHeight ||
-          event.clientX >= bounds.left + pane.clientWidth
-        ) {
-          return;
-        }
+        if (event.clientY >= bounds.top + pane.clientHeight) return;
       }
       const position = positionFromEvent(event);
       if (!position) return;
