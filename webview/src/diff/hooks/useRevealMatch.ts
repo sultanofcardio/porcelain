@@ -6,6 +6,12 @@ import { visualCol } from "../editor/editor-model";
 export interface MatchTarget<K extends string> {
   /** The pane the match is revealed in. */
   pane: K;
+  /**
+   * The document the line comes from, where one pane shows more than one:
+   * the unified view renders both sides, and two matches at the same line
+   * and columns on opposite sides are different matches.
+   */
+  document?: string;
   /** The text of the line the match sits on, and its position on it. */
   text: string;
   line: number;
@@ -43,7 +49,7 @@ export function useRevealMatch<K extends string>(
   geometry: RevealGeometry<K>,
 ): void {
   const key = target
-    ? `${target.pane}:${target.line}:${target.start}:${target.end}`
+    ? `${target.pane}:${target.document ?? ""}:${target.line}:${target.start}:${target.end}`
     : null;
   const latest = useRef({ target, geometry });
   latest.current = { target, geometry };

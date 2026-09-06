@@ -507,6 +507,7 @@ export function DiffApp() {
   useRevealMatch(
     activeMatch && {
       pane: unified ? scrollOwner : activeMatch.side,
+      document: activeMatch.side,
       text:
         (activeMatch.side === "left" ? leftLines : rightLines)[
           activeMatch.line

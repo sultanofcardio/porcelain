@@ -81,6 +81,30 @@ describe("useRevealMatch", () => {
     expect(reveal).toHaveBeenCalledTimes(2);
   });
 
+  it("tells apart same-position matches from different documents", () => {
+    // The unified view shows both sides in one pane: a step from the left
+    // bar's match to the right bar's at the same line and columns is a new
+    // match with its own rendered x.
+    const reveal = vi.fn();
+    const { rerender } = render(
+      <Harness
+        target={match({ pane: "right", document: "left" })}
+        charWidth={7}
+        measure={null}
+        reveal={reveal}
+      />,
+    );
+    rerender(
+      <Harness
+        target={match({ pane: "right", document: "right" })}
+        charWidth={7}
+        measure={null}
+        reveal={reveal}
+      />,
+    );
+    expect(reveal).toHaveBeenCalledTimes(2);
+  });
+
   it("does nothing without a match", () => {
     const reveal = vi.fn();
     render(
