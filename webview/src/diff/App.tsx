@@ -32,7 +32,7 @@ import {
 import { RevisionHeader } from "./components/RevisionHeader";
 import { UnifiedPane } from "./components/UnifiedPane";
 import { type DisplayMapping, EditablePane } from "./editor/EditablePane";
-import { visualCol } from "./editor/editor-model";
+import { useRevealMatch } from "./hooks/useRevealMatch";
 import {
   axisToSide,
   chooseLayout,
@@ -497,68 +497,28 @@ export function DiffApp() {
     realign(scrollOwner);
   }, [store.syncScroll, realign, scrollOwner]);
 
-  // Stepping to a match brings it into view sideways as well as down: the
-  // bar's jump moves the axis, and this moves the pane, since a hit at column
-  // 150 of a wide line is otherwise highlighted off-screen. Keyed on the match
-  // itself, with the geometry read through a ref, so a scroll - which
-  // re-renders - cannot re-run it and fight the user's own scrolling.
-  const activeMatchKey = activeMatch
-    ? `${activeMatch.side}:${activeMatch.line}:${activeMatch.start}:${activeMatch.end}`
-    : null;
-  const matchGeometry = useRef({
-    activeMatch,
-    leftLines,
-    rightLines,
-    unified,
-    scrollOwner,
-    charWidth,
-    measureLine,
-    reveal: horizontal.reveal,
-  });
-  matchGeometry.current = {
-    activeMatch,
-    leftLines,
-    rightLines,
-    unified,
-    scrollOwner,
-    charWidth,
-    measureLine,
-    reveal: horizontal.reveal,
-  };
-  useEffect(() => {
-    if (activeMatchKey === null) return;
-    const geometry = matchGeometry.current;
-    const match = geometry.activeMatch;
-    if (!match) return;
-    const text =
-      (match.side === "left" ? geometry.leftLines : geometry.rightLines)[
-        match.line
-      ] ?? "";
-    // A unified row carries both number columns before its text, and they
-    // stay put while it scrolls, so the match must clear them too.
-    const numbers = geometry.unified
-      ? gutterMetrics(
-          Math.max(geometry.leftLines.length, geometry.rightLines.length),
-        ).numberWidth * 2
-      : 0;
-    const inset = numbers + PANE_TEXT_PADDING;
-    // Rendered pixels, like the pane's width: a match past a run of
-    // full-width glyphs paints twice as far along as its cells suggest. The
-    // editor's own caret, selection and click mapping stay in cells on
-    // purpose - that coordinate is the editor's model - so only find reads
-    // through the measurer; without one (jsdom) cells are all there is.
-    const xAt = (col: number) =>
-      inset +
-      (geometry.measureLine
-        ? geometry.measureLine.prefix(text, col)
-        : visualCol(text, col) * geometry.charWidth);
-    geometry.reveal(
-      geometry.unified ? geometry.scrollOwner : match.side,
-      xAt(match.start),
-      xAt(match.end),
-      numbers,
-    );
-  }, [activeMatchKey]);
+  // Stepping to a match brings it into view sideways as well as down; see
+  // useRevealMatch. A unified row carries both number columns before its
+  // text, and they stay put while it scrolls, so the match must clear them.
+  const numberColumns = unified
+    ? gutterMetrics(Math.max(leftLines.length, rightLines.length)).numberWidth *
+      2
+    : 0;
+  useRevealMatch(
+    activeMatch && {
+      pane: unified ? scrollOwner : activeMatch.side,
+      text:
+        (activeMatch.side === "left" ? leftLines : rightLines)[
+          activeMatch.line
+        ] ?? "",
+      line: activeMatch.line,
+      start: activeMatch.start,
+      end: activeMatch.end,
+      inset: numberColumns + PANE_TEXT_PADDING,
+      obscuredLeft: numberColumns,
+    },
+    { charWidth, measure: measureLine, reveal: horizontal.reveal },
+  );
 
   // With sync off the left pane scrolls on its own, and this listener owns
   // both of its axes. React registers `wheel` as a passive root listener, so

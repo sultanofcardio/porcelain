@@ -20,7 +20,7 @@ import {
   widestLineWidth,
 } from "../diff/components/metrics";
 import { type DisplayMapping, EditablePane } from "../diff/editor/EditablePane";
-import { visualCol } from "../diff/editor/editor-model";
+import { useRevealMatch } from "../diff/hooks/useRevealMatch";
 import {
   displayLine,
   displayToSource,
@@ -365,49 +365,25 @@ export function MergeApp() {
   const activeFind = activePane ? store.findPanes[activePane] : null;
   const activeMatch = activeFind?.matches[activeFind.activeMatch] ?? null;
 
-  // The active match comes into view sideways too - see DiffApp for why this
-  // is keyed on the match alone and reads its geometry through a ref.
-  const activeMatchKey =
-    activePane && activeMatch
-      ? `${activePane}:${activeMatch.line}:${activeMatch.start}:${activeMatch.end}`
-      : null;
+  // The active match comes into view sideways too; see useRevealMatch.
   const paneLines: Record<MergePane, readonly string[]> = {
     ours: oursLines,
     result: resultLines,
     theirs: theirsLines,
   };
-  const matchGeometry = useRef({
-    activePane,
-    activeMatch,
-    paneLines,
-    charWidth,
-    measureLine,
-    reveal: horizontal.reveal,
-  });
-  matchGeometry.current = {
-    activePane,
-    activeMatch,
-    paneLines,
-    charWidth,
-    measureLine,
-    reveal: horizontal.reveal,
-  };
-  useEffect(() => {
-    if (activeMatchKey === null) return;
-    const geometry = matchGeometry.current;
-    const pane = geometry.activePane;
-    const match = geometry.activeMatch;
-    if (!pane || !match) return;
-    const text = geometry.paneLines[pane][match.line] ?? "";
-    // Rendered pixels, like the pane's width (see DiffApp); the result
-    // editor's own caret stays in cells on purpose.
-    const xAt = (col: number) =>
-      PANE_TEXT_PADDING +
-      (geometry.measureLine
-        ? geometry.measureLine.prefix(text, col)
-        : visualCol(text, col) * geometry.charWidth);
-    geometry.reveal(pane, xAt(match.start), xAt(match.end));
-  }, [activeMatchKey]);
+  useRevealMatch(
+    activePane && activeMatch
+      ? {
+          pane: activePane,
+          text: paneLines[activePane][activeMatch.line] ?? "",
+          line: activeMatch.line,
+          start: activeMatch.start,
+          end: activeMatch.end,
+          inset: PANE_TEXT_PADDING,
+        }
+      : null,
+    { charWidth, measure: measureLine, reveal: horizontal.reveal },
+  );
 
   // The result pane's editor mapping: source result lines ↔ display rows
   // under pair O's folds (the coordinate the result pane renders in).

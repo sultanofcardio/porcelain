@@ -163,6 +163,9 @@ export function createLineMeasurer(element: Element): LineMeasurer | null {
   return measure;
 }
 
+/** Rounding slack for the tab snap, in px: far below a glyph, far above an ulp. */
+const TAB_SNAP_SLACK = 1e-6;
+
 /**
  * The rendered width of one `white-space: pre` row, in px.
  *
@@ -182,8 +185,13 @@ function measureLine(
   const segments = line.split("\t");
   let width = context.measureText(segments[0]).width;
   for (const segment of segments.slice(1)) {
-    // A tab landing exactly on a stop still advances a whole tab width.
-    if (tabWidth > 0) width = (Math.floor(width / tabWidth) + 1) * tabWidth;
+    // A tab landing exactly on a stop still advances a whole tab width. The
+    // slack is for floating point: a run of glyphs the browser accumulates to
+    // one ulp under a stop still sits on that stop, and without it the snap
+    // would fall a whole tab width short of where the row actually paints.
+    if (tabWidth > 0) {
+      width = (Math.floor((width + TAB_SNAP_SLACK) / tabWidth) + 1) * tabWidth;
+    }
     width += context.measureText(segment).width;
   }
   return width;

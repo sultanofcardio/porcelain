@@ -235,6 +235,25 @@ describe("createLineMeasurer", () => {
     expect(measured).toBe(3);
   });
 
+  it("snaps a run measured one ulp under a stop to that stop's next tab", () => {
+    // Eight advances of 7.2 accumulate to 57.599999999999994 in the browser
+    // while the tab width is computed as 8 * 7.2 = 57.6: without slack the
+    // snap would treat the run as short of the stop and land a whole tab
+    // width before where the row paints.
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
+      () =>
+        ({
+          font: "",
+          measureText: (text: string) => ({
+            width: text === "abcdefgh" ? 57.599999999999994 : text.length * 7.2,
+          }),
+        }) as unknown as CanvasRenderingContext2D,
+    );
+    const measure = createLineMeasurer(document.body) as LineMeasurer;
+    expect(measure("abcdefgh\tx")).toBeCloseTo(115.2 + 7.2, 6);
+    expect(measure("abcdefg\tx")).toBeCloseTo(57.6 + 7.2, 6);
+  });
+
   it("is null where nothing can be measured", () => {
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
     expect(createLineMeasurer(document.body)).toBeNull();
