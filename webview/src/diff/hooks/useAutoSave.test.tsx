@@ -1,26 +1,54 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  handlers: [] as Array<(event: string, data: unknown) => void>,
+}));
+
+vi.mock("../../shared/bridge", () => ({
+  bridge: {
+    request: vi.fn(),
+    onEvent: vi.fn((handler: (event: string, data: unknown) => void) => {
+      mocks.handlers.push(handler);
+      return () => {
+        mocks.handlers = mocks.handlers.filter((h) => h !== handler);
+      };
+    }),
+  },
+}));
+
 import type { AutoSaveMode } from "../../shared/bridge/types";
 import { WORKING_TREE_REF } from "../../shared/bridge/types";
 import { useDiffStore } from "../../shared/store/diff-store";
 import { caretAt } from "../editor/editor-model";
-import { type AutoSaveControls, useAutoSave } from "./useAutoSave";
+import {
+  type AutoSaveControls,
+  type SurfacePresentation,
+  useAutoSave,
+} from "./useAutoSave";
 
 const pristine = useDiffStore.getState();
+
+/** The host's windowStateChanged, as the bridge delivers it. */
+const broadcast = (event: string, data: unknown) => {
+  for (const handler of mocks.handlers) handler(event, data);
+};
 
 function Harness({
   mode,
   delay,
   save,
+  presentation,
   expose,
 }: {
   mode: AutoSaveMode;
   delay: number;
   save: () => Promise<boolean>;
+  presentation: SurfacePresentation;
   expose: (controls: AutoSaveControls) => void;
 }) {
   const saveRef = { current: save };
-  expose(useAutoSave(mode, delay, saveRef));
+  expose(useAutoSave(mode, delay, saveRef, presentation));
   return null;
 }
 
@@ -33,13 +61,19 @@ function writingSave() {
   });
 }
 
-function mount(mode: AutoSaveMode, delay: number, save = writingSave()) {
+function mount(
+  mode: AutoSaveMode,
+  delay: number,
+  save = writingSave(),
+  presentation: SurfacePresentation = "floatingWindow",
+) {
   let controls: AutoSaveControls | null = null;
   const view = render(
     <Harness
       mode={mode}
       delay={delay}
       save={save}
+      presentation={presentation}
       expose={(c) => {
         controls = c;
       }}
@@ -51,6 +85,7 @@ function mount(mode: AutoSaveMode, delay: number, save = writingSave()) {
         mode={nextMode}
         delay={nextDelay}
         save={save}
+        presentation={presentation}
         expose={(c) => {
           controls = c;
         }}
@@ -69,6 +104,7 @@ const type = (text: string, line = 1, col = 3) =>
 describe("useAutoSave", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    mocks.handlers = [];
     useDiffStore.setState(pristine, true);
     useDiffStore.getState().setSides({
       kind: "text",
@@ -237,6 +273,74 @@ describe("useAutoSave", () => {
       await act(async () => window.dispatchEvent(new Event("blur")));
       expect(save).toHaveBeenCalledTimes(1);
     });
+
+    it("ignores the host's window state in a floating window", async () => {
+      const { save } = mount("onWindowChange", 1000);
+      type("!");
+      await act(async () =>
+        broadcast("windowStateChanged", { focused: false }),
+      );
+      expect(save).not.toHaveBeenCalled();
+    });
+
+    // Docked, the webview's own blur is focus leaving the iframe, which
+    // happens on the way to the Explorer or the terminal. Only the host can
+    // say the window itself went away.
+    it("on an editor tab ignores its own blur and waits for the host", async () => {
+      const { save } = mount(
+        "onWindowChange",
+        1000,
+        writingSave(),
+        "editorTab",
+      );
+      type("!");
+      await act(async () => window.dispatchEvent(new Event("blur")));
+      expect(save).not.toHaveBeenCalled();
+      await act(async () => broadcast("windowStateChanged", { focused: true }));
+      expect(save).not.toHaveBeenCalled();
+      await act(async () =>
+        broadcast("windowStateChanged", { focused: false }),
+      );
+      expect(save).toHaveBeenCalledTimes(1);
+      expect(useDiffStore.getState().dirty).toBe(false);
+    });
+
+    it("still saves on the editor's blur under onFocusChange when docked", async () => {
+      const { save, blurEditor } = mount(
+        "onFocusChange",
+        1000,
+        writingSave(),
+        "editorTab",
+      );
+      type("!");
+      await act(async () => blurEditor());
+      expect(save).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("does not write again after a save that failed", async () => {
+    let release: () => void = () => {};
+    const save = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          release = () => resolve(false);
+        }),
+    );
+    const { blurEditor } = mount("onFocusChange", 1000, save);
+    type("!");
+    // Both triggers of one gesture: the pane blurs, then the window does.
+    await act(async () => {
+      blurEditor();
+      window.dispatchEvent(new Event("blur"));
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+    await act(async () => release());
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(useDiffStore.getState().dirty).toBe(true);
+    // The next edit is free to try again.
+    type("?", 1, 4);
+    await act(async () => blurEditor());
+    expect(save).toHaveBeenCalledTimes(2);
   });
 
   it("drops its listeners when the mode changes", async () => {

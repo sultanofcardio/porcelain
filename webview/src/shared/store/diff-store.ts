@@ -139,6 +139,12 @@ export interface DiffStoreState {
   /** The file changed on disk while there are unsaved edits. */
   diskChanged: boolean;
   /**
+   * Why the last write to disk failed, kept apart from `error`, which is
+   * about loading the diff. A save that succeeds clears it.
+   */
+  saveError: string | null;
+  setSaveError: (message: string | null) => void;
+  /**
    * The VS Code settings the surface honours, as the host forwards them:
    * seeded from the webview's data-* payload, replaced on `configChanged`.
    */
@@ -674,6 +680,8 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
   dirty: false,
   savedText: null,
   diskChanged: false,
+  saveError: null,
+  setSaveError: (saveError) => set({ saveError }),
   settings: DEFAULT_EDITOR_SETTINGS,
   setSettings: (settings) => set({ settings }),
   readOnlyCarets: { left: null, right: null },

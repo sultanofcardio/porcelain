@@ -176,6 +176,7 @@ export class DiffViewerManager {
   /** The diff on screen: what a settings change is resolved against. */
   private current: DiffSpec | undefined;
   private readonly settingsListener: vscode.Disposable;
+  private readonly windowStateListener: vscode.Disposable;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -198,6 +199,16 @@ export class DiffViewerManager {
         );
       },
     );
+    // The docked half of onWindowChange autosave. A webview iframe's own
+    // blur fires whenever focus leaves it, which is focus-change semantics,
+    // so a diff on an editor tab learns about the window from the host
+    // instead. A floating diff window is its own window and uses its blur.
+    this.windowStateListener = vscode.window.onDidChangeWindowState((state) => {
+      if (!this.panel) return;
+      this.messageRouter.broadcastEvent("windowStateChanged", {
+        focused: state.focused,
+      });
+    });
   }
 
   show(spec: DiffSpec): Promise<void> {
@@ -254,19 +265,17 @@ export class DiffViewerManager {
   }
 
   private html(webview: vscode.Webview, spec: DiffSpec): string {
-    return getWebviewHtml(webview, this.extensionUri, "diff", {
-      "repo-id": spec.repoId,
-      "diff-path": spec.path,
-      "left-path": spec.leftPath,
-      "right-path": spec.rightPath,
-      "left-ref": spec.leftRef,
-      "right-ref": spec.rightRef,
-      ...editorSettingsAttrs(readEditorSettings(settingsScope(spec))),
-    });
+    return getWebviewHtml(
+      webview,
+      this.extensionUri,
+      "diff",
+      diffWebviewAttrs(spec),
+    );
   }
 
   dispose(): void {
     this.settingsListener.dispose();
+    this.windowStateListener.dispose();
     this.panel?.dispose();
     this.panel = undefined;
     this.current = undefined;
@@ -285,4 +294,23 @@ export function settingsScope(spec: DiffSpec): vscode.Uri {
       ? spec.leftPath
       : spec.rightPath;
   return vscode.Uri.joinPath(vscode.Uri.file(spec.repoId), path);
+}
+
+/**
+ * The data-* payload a diff webview opens with: which revisions it shows,
+ * the editor settings it honours, and the surface it is rendered on. The
+ * presentation is on the payload because the webview cannot tell a floating
+ * window from an editor tab, and onWindowChange autosave has to.
+ */
+export function diffWebviewAttrs(spec: DiffSpec): Record<string, string> {
+  return {
+    "repo-id": spec.repoId,
+    "diff-path": spec.path,
+    "left-path": spec.leftPath,
+    "right-path": spec.rightPath,
+    "left-ref": spec.leftRef,
+    "right-ref": spec.rightRef,
+    presentation: getSurfacePresentation(),
+    ...editorSettingsAttrs(readEditorSettings(settingsScope(spec))),
+  };
 }

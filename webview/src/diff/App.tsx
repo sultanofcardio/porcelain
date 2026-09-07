@@ -39,7 +39,7 @@ import { RevisionHeader } from "./components/RevisionHeader";
 import { UnifiedPane } from "./components/UnifiedPane";
 import { type DisplayMapping, EditablePane } from "./editor/EditablePane";
 import type { Position } from "./editor/editor-model";
-import { useAutoSave } from "./hooks/useAutoSave";
+import { type SurfacePresentation, useAutoSave } from "./hooks/useAutoSave";
 import { useRevealMatch } from "./hooks/useRevealMatch";
 import {
   axisToSide,
@@ -181,11 +181,12 @@ export function DiffApp() {
     try {
       await bridge.request("writeFileContent", { filePath, content });
       useDiffStore.getState().markSaved(content);
+      useDiffStore.getState().setSaveError(null);
       return true;
     } catch (error) {
       useDiffStore
         .getState()
-        .setError(
+        .setSaveError(
           `Save failed: ${error instanceof Error ? error.message : error}`,
         );
       return false;
@@ -206,10 +207,19 @@ export function DiffApp() {
       useDiffStore.getState().setSettings(editorSettingsFromEvent(data));
     });
   }, []);
+  // Which surface the host rendered this diff on. Read once: the payload is
+  // fixed for the life of the webview, and it decides what "the window" means
+  // to onWindowChange autosave.
+  const [presentation] = useState<SurfacePresentation>(() =>
+    document.getElementById("root")?.dataset.presentation === "editorTab"
+      ? "editorTab"
+      : "floatingWindow",
+  );
   const autoSave = useAutoSave(
     store.settings.autoSave,
     store.settings.autoSaveDelay,
     saveRef,
+    presentation,
   );
 
   // Measured rather than derived, because the number of rows to render depends
@@ -1052,6 +1062,14 @@ export function DiffApp() {
           />
         </div>
         {status && <div className="diff-message">{status}</div>}
+        {/* A write that failed, said in its own words: the load-flavoured
+            status above would blame the diff for a problem with the disk.
+            The next successful save clears it. */}
+        {store.saveError && (
+          <div className="diff-message" role="alert">
+            {store.saveError}
+          </div>
+        )}
         {/* An overlay rather than a replacement, for the same reason as the
             message above: unmounting the viewport would detach its
             ResizeObserver, and "Show anyway" would swap the panes back in

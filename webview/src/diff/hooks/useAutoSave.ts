@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
-import type { AutoSaveMode } from "../../shared/bridge/types";
+import { bridge } from "../../shared/bridge";
+import type { AutoSaveMode, WindowState } from "../../shared/bridge/types";
 import {
   type DiffStoreState,
   editableSide,
@@ -10,6 +11,12 @@ import {
 export interface SaveRef {
   readonly current: () => Promise<boolean>;
 }
+
+/**
+ * Where the host is rendering this diff, as it puts on the webview payload.
+ * A floating window is its own OS window; an editor tab shares VS Code's.
+ */
+export type SurfacePresentation = "floatingWindow" | "editorTab";
 
 export interface AutoSaveControls {
   /** The editable pane lost focus: `onFocusChange` saves here. */
@@ -42,14 +49,22 @@ function editableText(state: DiffStoreState): string | null {
  * `afterDelay` runs one timer that restarts on every edit and fires once the
  * buffer has been quiet for `delay` ms. `onFocusChange` saves when the editor
  * loses focus, whether to another element in the webview or to another part
- * of VS Code. `onWindowChange` saves only when the webview's own window
- * loses focus, which for a floating diff window is leaving that window.
+ * of VS Code. `onWindowChange` saves only when the window loses focus.
  * `off` does nothing. Every mode is subject to `canAutoSave`.
+ *
+ * "The window" depends on where the host put the diff, which is why the
+ * presentation is an argument. A floating diff window is its own window, so
+ * the webview's own blur is the window's blur. An editor tab shares VS
+ * Code's window, and a webview iframe blurs whenever focus leaves it (to the
+ * Explorer, the terminal, another editor group), which is focus-change
+ * semantics rather than window-change. Docked, the hook therefore ignores
+ * its own blur and waits for the host's `windowStateChanged`.
  */
 export function useAutoSave(
   mode: AutoSaveMode,
   delay: number,
   save: SaveRef,
+  presentation: SurfacePresentation = "floatingWindow",
 ): AutoSaveControls {
   // Saves serialise: a second trigger while one write is in flight queues
   // exactly one more, run only if there is still something to save. Two
@@ -63,19 +78,20 @@ export function useAutoSave(
       queued.current = true;
       return;
     }
+    // A save that failed reports false rather than throwing, and a rejection
+    // means the same thing. Either way the queued trigger is dropped without
+    // running: the failure has put its own error up, and writing again at
+    // once would only repeat it. The next edit or blur tries again.
     const run = (): Promise<void> =>
-      save.current().then(
-        () => {
-          if (!queued.current) return;
+      save
+        .current()
+        .catch(() => false)
+        .then((saved) => {
+          const again = queued.current;
           queued.current = false;
+          if (!saved || !again) return;
           if (canAutoSave(useDiffStore.getState())) return run();
-        },
-        () => {
-          // The failed save has put its own error up; retrying on a loop
-          // would only repeat it. The next edit or blur tries again.
-          queued.current = false;
-        },
-      );
+        });
     inFlight.current = run().finally(() => {
       inFlight.current = null;
     });
@@ -120,10 +136,16 @@ export function useAutoSave(
 
   useEffect(() => {
     if (mode !== "onFocusChange" && mode !== "onWindowChange") return;
+    if (mode === "onWindowChange" && presentation === "editorTab") {
+      return bridge.onEvent((event, data) => {
+        if (event !== "windowStateChanged") return;
+        if ((data as WindowState | undefined)?.focused === false) requestSave();
+      });
+    }
     const onBlur = () => requestSave();
     window.addEventListener("blur", onBlur);
     return () => window.removeEventListener("blur", onBlur);
-  }, [mode, requestSave]);
+  }, [mode, presentation, requestSave]);
 
   const onEditorBlur = useCallback(() => {
     if (mode === "onFocusChange") requestSave();

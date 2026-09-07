@@ -72,6 +72,11 @@ export interface EditorSettings {
   hoverDelay: number;
 }
 
+/** VS Code's window focus, as `windowStateChanged` carries it. */
+export interface WindowState {
+  focused: boolean;
+}
+
 /** What both sides of a diff are, independent of what they contain. */
 export interface DiffSidesMeta {
   filePath: string;
@@ -348,7 +353,8 @@ export type EventType =
   | "comparePanelRefresh"
   | "activeRepoChanged"
   | "reposChanged"
-  | "configChanged";
+  | "configChanged"
+  | "windowStateChanged";
 
 export interface RemoteBranchGroup {
   remote: string;

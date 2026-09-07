@@ -36,6 +36,18 @@ const broadcast = (event: string, data: unknown) => {
   for (const handler of mocks.handlers) handler(event, data);
 };
 
+const diffSides = () => ({
+  kind: "text",
+  left: "one\ntwo\nthree\n",
+  right: "one\nTWO\nthree\n",
+  filePath: "a.txt",
+  leftRef: "HEAD",
+  rightRef: WORKING_TREE_REF,
+  leftLabel: "HEAD",
+  rightLabel: "Working tree",
+  language: "plaintext",
+});
+
 /**
  * The settings channel end to end in the webview: the values the host put
  * on the root element reach the store, a configChanged event replaces them,
@@ -61,19 +73,7 @@ describe("diff autosave wiring", () => {
     root.dataset.autoSaveDelay = "250";
     document.body.appendChild(root);
     mocks.request.mockImplementation((command: string) => {
-      if (command === "getDiffSides") {
-        return Promise.resolve({
-          kind: "text",
-          left: "one\ntwo\nthree\n",
-          right: "one\nTWO\nthree\n",
-          filePath: "a.txt",
-          leftRef: "HEAD",
-          rightRef: WORKING_TREE_REF,
-          leftLabel: "HEAD",
-          rightLabel: "Working tree",
-          language: "plaintext",
-        });
-      }
+      if (command === "getDiffSides") return Promise.resolve(diffSides());
       return Promise.resolve(undefined);
     });
   });
@@ -142,5 +142,34 @@ describe("diff autosave wiring", () => {
       }),
     );
     await waitFor(() => expect(useDiffStore.getState().dirty).toBe(false));
+  });
+
+  it("says a save failed in its own words and clears it on the next save", async () => {
+    let fail = true;
+    mocks.request.mockImplementation((command: string) => {
+      if (command === "getDiffSides") return Promise.resolve(diffSides());
+      if (command === "writeFileContent")
+        return fail
+          ? Promise.reject(new Error("EACCES: permission denied"))
+          : Promise.resolve(undefined);
+      return Promise.resolve(undefined);
+    });
+    await renderLoaded();
+    act(() => useDiffStore.getState().editAt(caretAt(1, 3), "!", "type"));
+    const editor = screen.getByRole("textbox", {
+      name: /Working-tree editor/,
+    });
+
+    fireEvent.blur(editor);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe("Save failed: EACCES: permission denied");
+    expect(screen.queryByText(/Could not load this diff/)).toBeNull();
+    expect(useDiffStore.getState().dirty).toBe(true);
+
+    fail = false;
+    act(() => useDiffStore.getState().editAt(caretAt(1, 4), "?", "type"));
+    fireEvent.blur(editor);
+    await waitFor(() => expect(useDiffStore.getState().dirty).toBe(false));
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
