@@ -15,8 +15,10 @@ import {
   computeChunks,
   computeFolds,
   countDifferences,
+  counterpartLine,
   type DiffChunk,
   type FoldRegion,
+  firstChangeLine,
   type Side,
   sideToAxis,
   splitLines,
@@ -132,6 +134,19 @@ export interface DiffStoreState {
   /** The file changed on disk while there are unsaved edits. */
   diskChanged: boolean;
 
+  /**
+   * Carets on the read-only sides. Every pane carries a caret, the way
+   * IntelliJ's diff does, placed on the first changed line when the diff
+   * opens: it is the position Edit Source hands to the native editor, and
+   * the point a fold opens away from. The editable side's caret is `cursor`;
+   * its entry here stays null.
+   */
+  readOnlyCarets: Record<Side, Position | null>;
+  /** The pane clicked or keyed last: whose caret Edit Source hands over. */
+  activePane: Side | null;
+  /** Put a pane's caret somewhere, and make that pane the active one. */
+  placeCaret: (side: Side, position: Position) => void;
+
   /** Place the cursor; folds hiding it expand so the caret is never invisible. */
   setCursor: (
     selection: EditorSelection | null,
@@ -232,6 +247,216 @@ export function editableSide(state: {
   if (state.rightRef === WORKING_TREE_REF) return "right";
   if (state.leftRef === WORKING_TREE_REF) return "left";
   return null;
+}
+
+/**
+ * Where every caret starts: the first changed line on each side. The
+ * editable side's caret is the editor's `cursor`; the others are read-only
+ * carets. The active pane is the editable one, or the right pane when
+ * nothing can be edited, so Edit Source has an answer before any click.
+ */
+function initialCarets(
+  chunks: readonly DiffChunk[],
+  text: { left: string; right: string },
+  editable: Side | null,
+  hasText: boolean,
+): Pick<DiffStoreState, "cursor" | "readOnlyCarets" | "activePane"> {
+  if (!hasText) {
+    return {
+      cursor: null,
+      readOnlyCarets: { left: null, right: null },
+      activePane: null,
+    };
+  }
+  const at = (side: Side): Position => ({
+    line: firstChangeLine(
+      chunks,
+      side,
+      splitLines(side === "left" ? text.left : text.right).length,
+    ),
+    col: 0,
+  });
+  return {
+    cursor: editable ? caretAt(at(editable).line, 0) : null,
+    readOnlyCarets: {
+      left: editable === "left" ? null : at("left"),
+      right: editable === "right" ? null : at("right"),
+    },
+    activePane: editable ?? (text.right !== "" ? "right" : "left"),
+  };
+}
+
+/**
+ * The carets a reload of the *same* document keeps, clamped into the text
+ * that just arrived, or null when there were none to keep.
+ *
+ * A quiet refresh (a formatter rewriting the file under a clean diff) must
+ * leave every caret exactly where the reader put it: the pane follow effects
+ * key on caret identity alone, so re-placing carets on the new first change
+ * would scroll the view out from under them.
+ */
+function keptCarets(
+  state: Pick<DiffStoreState, "cursor" | "readOnlyCarets" | "activePane">,
+  text: { left: string; right: string },
+  editable: Side | null,
+): Pick<DiffStoreState, "cursor" | "readOnlyCarets" | "activePane"> | null {
+  const { cursor, readOnlyCarets } = state;
+  if (!cursor && !readOnlyCarets.left && !readOnlyCarets.right) return null;
+  const linesOf = (side: Side) =>
+    splitLines(side === "left" ? text.left : text.right);
+  const keep = (side: Side) => {
+    const caret = readOnlyCarets[side];
+    if (!caret || editable === side) return null;
+    return clampPosition(linesOf(side), caret);
+  };
+  const head =
+    editable && cursor ? clampPosition(linesOf(editable), cursor.head) : null;
+  return {
+    cursor: head ? caretAt(head.line, head.col) : null,
+    readOnlyCarets: { left: keep("left"), right: keep("right") },
+    activePane: state.activePane,
+  };
+}
+
+/** Where a diff's three carets live, whichever way they were placed. */
+type PaneCarets = Pick<
+  DiffStoreState,
+  "cursor" | "readOnlyCarets" | "activePane"
+>;
+
+/**
+ * A fold derivation with every caret still visible: any run that would hide
+ * the editable cursor or a read-only caret is expanded and the derivation
+ * redone. `placeCaret` and `setCursor` keep that invariant when a caret
+ * moves; this is how it survives the fold list being rebuilt underneath one
+ * that did not.
+ *
+ * `place` is for the paths that put the carets somewhere new from the chunks
+ * this derivation computes, which is what a load and a swap both do: the
+ * carets it returns are part of the result, checked against the folds like
+ * any others.
+ */
+function deriveVisibleFolds(
+  state: Parameters<typeof derive>[0] & Parameters<typeof foldsHidingCarets>[1],
+  place?: (chunks: DiffChunk[]) => PaneCarets,
+) {
+  const derived = derive(state);
+  const placed = place?.(derived.chunks);
+  const carets = placed ? { ...state, ...placed } : state;
+  const hiding = foldsHidingCarets(derived.folds, carets);
+  if (hiding.length === 0) {
+    return { expandedFolds: state.expandedFolds, ...derived, ...placed };
+  }
+  const expandedFolds = new Set(state.expandedFolds);
+  for (const key of hiding) expandedFolds.add(key);
+  return {
+    expandedFolds,
+    ...derive({ ...state, expandedFolds }),
+    ...placed,
+  };
+}
+
+/**
+ * The expansion keys of the folds that would hide a caret, using the same
+ * containment `placeCaret` and `setCursor` apply. A caret must never sit on
+ * hidden content, so a reload that keeps carets has to reopen these runs.
+ */
+function foldsHidingCarets(
+  folds: readonly FoldRegion[],
+  state: Pick<
+    DiffStoreState,
+    "leftRef" | "rightRef" | "cursor" | "readOnlyCarets"
+  >,
+): number[] {
+  const keys: number[] = [];
+  for (const fold of folds) {
+    for (const side of ["left", "right"] as const) {
+      const caret = caretOn(state, side);
+      if (!caret) continue;
+      const hidden = side === "left" ? fold.left : fold.right;
+      if (
+        caret.line >= hidden.start &&
+        caret.line < hidden.start + hidden.count
+      ) {
+        keys.push(fold.left.start);
+        break;
+      }
+    }
+  }
+  return keys;
+}
+
+/**
+ * The scroll position that brings one chunk into view, in whatever units the
+ * current view scrolls in: a unified row, or a position on the shared axis.
+ * Null when there is no such chunk, or the unified row list hides it whole.
+ *
+ * The one place the axis-for-a-chunk rule lives: the toolbar's stepper and
+ * the load-time reveal both read it here.
+ */
+export function chunkAxis(
+  state: Pick<DiffStoreState, "chunks" | "folds" | "viewMode">,
+  index: number,
+): number | null {
+  const { chunks, folds, viewMode } = state;
+  const chunk = chunks[index];
+  if (!chunk) return null;
+  if (viewMode === "unified") {
+    const row = unifiedChunkRow(unifiedRows(chunks, folds), index);
+    return row >= 0 ? row : null;
+  }
+  const side = chunk.right.count > 0 ? "right" : "left";
+  const span = side === "right" ? chunk.right : chunk.left;
+  return sideToAxis(chunks, span.start, side, folds);
+}
+
+/** The caret of one pane, whichever kind it is. */
+export function caretOn(
+  state: Pick<
+    DiffStoreState,
+    "leftRef" | "rightRef" | "cursor" | "readOnlyCarets"
+  >,
+  side: Side,
+): Position | null {
+  if (editableSide(state) === side) return state.cursor?.head ?? null;
+  return state.readOnlyCarets[side];
+}
+
+/**
+ * Where Edit Source opens the file: the active pane's caret, expressed on
+ * the working-tree side. A read-only caret maps across through the chunks;
+ * inside a changed chunk the lines do not pair, so the column is dropped.
+ * With no working-tree side at all the caret is handed over as it is, which
+ * is the best guess for a file that has since moved on.
+ */
+export function editSourcePosition(
+  state: Pick<
+    DiffStoreState,
+    | "leftRef"
+    | "rightRef"
+    | "cursor"
+    | "readOnlyCarets"
+    | "activePane"
+    | "chunks"
+    | "fallback"
+    | "loading"
+    | "left"
+    | "right"
+  >,
+): { line: number; column: number } | null {
+  if (state.fallback || state.loading) return null;
+  const editable = editableSide(state);
+  const side = state.activePane ?? editable ?? "right";
+  const caret = caretOn(state, side);
+  if (!caret) return null;
+  if (editable === null || editable === side) {
+    return { line: caret.line, column: caret.col };
+  }
+  const twin = counterpartLine(state.chunks, side, caret.line, {
+    left: splitLines(state.left),
+    right: splitLines(state.right),
+  });
+  return { line: twin.line, column: twin.exact ? caret.col : 0 };
 }
 
 function chunkOptionsFor(whitespace: Whitespace): ChunkOptions {
@@ -438,6 +663,39 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
   dirty: false,
   savedText: null,
   diskChanged: false,
+  readOnlyCarets: { left: null, right: null },
+  activePane: null,
+
+  placeCaret: (side, position) => {
+    const state = get();
+    if (state.fallback || state.loading) return;
+    if (editableSide(state) === side) {
+      // The editable side's caret is the editor's own.
+      state.setCursor(caretAt(position.line, position.col));
+      return;
+    }
+    const lines = splitLines(side === "left" ? state.left : state.right);
+    const caret = clampPosition(lines, position);
+    // A caret must never sit on hidden content: expand the fold whose span
+    // on this side holds it, as setCursor does for the editable side.
+    const hiding = state.folds.find((fold) => {
+      const hidden = side === "left" ? fold.left : fold.right;
+      return (
+        caret.line >= hidden.start && caret.line < hidden.start + hidden.count
+      );
+    });
+    let expansion = {};
+    if (hiding) {
+      const expandedFolds = new Set(state.expandedFolds);
+      expandedFolds.add(hiding.left.start);
+      expansion = { expandedFolds, ...derive({ ...state, expandedFolds }) };
+    }
+    set({
+      readOnlyCarets: { ...state.readOnlyCarets, [side]: caret },
+      activePane: side,
+      ...expansion,
+    });
+  },
 
   setSides: (sides) =>
     set((state) => {
@@ -456,9 +714,6 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         // Fresh content arrives unswapped — a reload after Swap Sides must
         // not leave the flag lying about what the panes show.
         swapped: false,
-        // New content, new folds: what was expanded in the old diff has no
-        // meaning in this one.
-        expandedFolds: new Set<number>(),
       };
       const text =
         kind === "text"
@@ -486,12 +741,36 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
             : null,
         diskChanged: false,
       };
-      const next = { ...state, ...meta, ...text };
+      // The same document arriving again is a refresh, not a new diff: the
+      // carets stay where they were, and so do the runs the reader opened.
+      // Anything else starts both over: what was expanded in another diff
+      // has no meaning in this one.
+      const sameDocument =
+        state.filePath === filePath &&
+        state.leftRef === leftRef &&
+        state.rightRef === rightRef;
+      const carets =
+        kind === "text" && sameDocument
+          ? keptCarets(state, text, editable)
+          : null;
+      const expandedFolds = new Set<number>(
+        carets ? state.expandedFolds : undefined,
+      );
+      const next = { ...state, ...meta, ...text, expandedFolds };
+      // The text may have moved under the kept carets, so a run that was open
+      // before can come back collapsed around one. A fresh load places its
+      // carets from the same derivation, and they answer to the same rule.
+      const derived = carets
+        ? deriveVisibleFolds({ ...next, ...carets })
+        : deriveVisibleFolds(next, (chunks) =>
+            initialCarets(chunks, text, editable, kind === "text"),
+          );
       return {
         ...meta,
         ...text,
         ...editing,
-        ...derive(next),
+        ...derived,
+        ...carets,
         ...deriveFind(next),
       };
     }),
@@ -526,7 +805,7 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         for (const fold of intersecting) expandedFolds.add(fold.left.start);
         expansion = { expandedFolds, ...derive({ ...state, expandedFolds }) };
       }
-      return { cursor: clamped, goalVisual, ...expansion };
+      return { cursor: clamped, goalVisual, activePane: side, ...expansion };
     }),
 
   editAt: (selection, text, coalesceKey) =>
@@ -666,7 +945,7 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
     set((state) => ({
       whitespace,
       activeChunk: -1,
-      ...derive({ ...state, whitespace }),
+      ...deriveVisibleFolds({ ...state, whitespace }),
     })),
 
   setGranularity: (granularity) => set({ granularity }),
@@ -677,29 +956,36 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
     set((state) => {
       const collapseUnchanged = !state.collapseUnchanged;
       // Turning collapsing back on re-collapses everything: the toggle reads
-      // as "collapse unchanged", not "restore my expansion history".
+      // as "collapse unchanged", not "restore my expansion history". The runs
+      // holding a caret stay open, since no caret may sit on hidden content.
       const expandedFolds = new Set<number>();
       return {
         collapseUnchanged,
-        expandedFolds,
-        ...derive({ ...state, collapseUnchanged, expandedFolds }),
+        ...deriveVisibleFolds({ ...state, collapseUnchanged, expandedFolds }),
       };
     }),
 
   setCollapsed: (collapsed) =>
     set((state) => {
       // Collapsing forgets expansion history either way: "collapse" means
-      // everything, and expanded-all needs no per-fold bookkeeping.
+      // everything, and expanded-all needs no per-fold bookkeeping. The runs
+      // holding a caret are the one exception, as above.
       const expandedFolds = new Set<number>();
       return {
         collapseUnchanged: collapsed,
-        expandedFolds,
-        ...derive({ ...state, collapseUnchanged: collapsed, expandedFolds }),
+        ...deriveVisibleFolds({
+          ...state,
+          collapseUnchanged: collapsed,
+          expandedFolds,
+        }),
       };
     }),
 
   setContextLines: (contextLines) =>
-    set((state) => ({ contextLines, ...derive({ ...state, contextLines }) })),
+    set((state) => ({
+      contextLines,
+      ...deriveVisibleFolds({ ...state, contextLines }),
+    })),
 
   setViewMode: (viewMode) => set({ viewMode }),
 
@@ -734,9 +1020,21 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
       // Expansion is keyed on left start lines, and the swap moves every
       // fold to the other side's numbering — so everything re-collapses.
       const expandedFolds = new Set<number>();
+      // Every caret spoke in the old side's coordinates; they start over on
+      // the first change, as they did when the diff opened, and a run that
+      // would hide one of them opens.
+      const derived = deriveVisibleFolds(
+        { ...committed, ...swapped, expandedFolds },
+        (chunks) =>
+          initialCarets(
+            chunks,
+            swapped,
+            editableSide(swapped),
+            committed.fallback === null,
+          ),
+      );
       return {
         ...swapped,
-        cursor: null,
         goalVisual: null,
         composition: null,
         dirty: committed.dirty,
@@ -745,8 +1043,7 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         fallback: swapFallback(committed.fallback),
         swapped: !committed.swapped,
         activeChunk: -1,
-        expandedFolds,
-        ...derive({ ...committed, ...swapped, expandedFolds }),
+        ...derived,
         // The bars are positional — each keeps its query and re-searches the
         // text that now sits under it.
         ...deriveFind({ ...committed, ...swapped }),
@@ -779,16 +1076,8 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
   // stepper, the find bar) just scroll to what they are told and never learn
   // which view is up.
   activeChunkAxis: () => {
-    const { chunks, folds, activeChunk, viewMode } = get();
-    const chunk = chunks[activeChunk];
-    if (!chunk) return null;
-    if (viewMode === "unified") {
-      const row = unifiedChunkRow(unifiedRows(chunks, folds), activeChunk);
-      return row >= 0 ? row : null;
-    }
-    const side = chunk.right.count > 0 ? "right" : "left";
-    const span = side === "right" ? chunk.right : chunk.left;
-    return sideToAxis(chunks, span.start, side, folds);
+    const state = get();
+    return chunkAxis(state, state.activeChunk);
   },
 
   openFind: () =>
@@ -900,15 +1189,15 @@ function restoreSnapshot(
     side === "left"
       ? { left: snapshot.text, right: state.right }
       : { left: state.left, right: snapshot.text };
-  const next = { ...state, ...texts };
+  const next = { ...state, ...texts, cursor: snapshot.cursor };
   return {
     ...texts,
-    cursor: snapshot.cursor,
     goalVisual: null,
     dirty: snapshot.text !== state.savedText,
     activeChunk: -1,
-    ...derive(next),
+    ...deriveVisibleFolds(next),
     ...deriveFind(next),
+    cursor: snapshot.cursor,
   };
 }
 
@@ -950,17 +1239,20 @@ function applyEditorEdit(
     side === "left"
       ? remapLineKeys(state.expandedFolds, splice)
       : state.expandedFolds;
-  const next = { ...state, ...texts, expandedFolds };
+  const cursor = caretAt(edit.caret.line, edit.caret.col);
+  const next = { ...state, ...texts, expandedFolds, cursor };
   return {
     ...texts,
-    expandedFolds,
-    cursor: caretAt(edit.caret.line, edit.caret.col),
     goalVisual: null,
     dirty: replaced !== state.savedText,
     // The chunk list was just rebuilt; a held index would name a stranger.
     activeChunk: -1,
-    ...derive(next),
+    // Re-chunking can fold a run over a caret that never moved, the edit's
+    // own cursor included, so the derivation answers to the same rule as
+    // every other one.
+    ...deriveVisibleFolds(next),
     ...deriveFind(next, { ...splice, side }),
+    cursor,
   };
 }
 

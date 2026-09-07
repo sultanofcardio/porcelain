@@ -132,4 +132,15 @@ describe("diff keyboard bindings", () => {
     fireEvent.keyDown(viewport, { key: "ArrowLeft" });
     expect(rightPane.scrollLeft).toBe(0);
   });
+
+  it("steps files with Alt+ArrowDown while a read-only pane holds the caret", async () => {
+    // A click focuses a read-only pane for its caret; the file-stepping
+    // binding lives on the window and has to survive that.
+    await renderLoaded();
+    const leftPane = document.querySelector(".diff-pane") as HTMLElement;
+    leftPane.focus();
+    fireEvent.keyDown(leftPane, { key: "ArrowDown", altKey: true });
+
+    expect(mocks.request).toHaveBeenCalledWith("stepDiffFile", { delta: 1 });
+  });
 });

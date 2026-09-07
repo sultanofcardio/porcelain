@@ -1,5 +1,14 @@
 # Changelog / 更新日志
 
+## [Unreleased]
+
+### Added
+- **A caret in every diff pane** - the porcelain diff surface now carries a caret on each side, read-only revisions included. It starts on the file's first changed line, moves to wherever you click, and walks with the arrow keys, Home, End and the page keys, in the split panes and the unified view alike. A vertical move steps over a collapsed run and lands on the first visible line past it, the way IntelliJ's caret passes a fold; the run stays collapsed (#3)
+- **A diff opens on its first change** - a first difference below the fold is scrolled into view when the file opens, the way the change stepper would bring it. This happens once per document, so a reload of the diff on screen, quiet or asked for at the banner, keeps both the view and the carets where they were (#3)
+
+### Changed
+- **Edit Source opens the file at the caret** - the button used to open the working file at its top; it now opens on the caret's line and column, and writes any unsaved working-tree edits to disk first, so the line it lands on is the line the diff was showing. When VS Code reloads an already-open document from disk behind that write, the caret is placed again once the reload has landed (#3)
+
 ## [0.9.1] - 2026-09-06
 
 ### Fixed

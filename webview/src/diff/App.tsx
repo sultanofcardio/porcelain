@@ -13,7 +13,13 @@ import {
   WORKING_TREE_REF,
 } from "../shared/bridge/types";
 import { useHorizontalScroll } from "../shared/hooks/useHorizontalScroll";
-import { editableSide, useDiffStore } from "../shared/store/diff-store";
+import {
+  caretOn,
+  chunkAxis,
+  editableSide,
+  editSourcePosition,
+  useDiffStore,
+} from "../shared/store/diff-store";
 import { ChangeStripe, splitStripeMarks } from "./components/ChangeStripe";
 import { DiffFallback } from "./components/DiffFallback";
 import { DiffGutter } from "./components/DiffGutter";
@@ -32,6 +38,7 @@ import {
 import { RevisionHeader } from "./components/RevisionHeader";
 import { UnifiedPane } from "./components/UnifiedPane";
 import { type DisplayMapping, EditablePane } from "./editor/EditablePane";
+import type { Position } from "./editor/editor-model";
 import { useRevealMatch } from "./hooks/useRevealMatch";
 import {
   axisToSide,
@@ -159,20 +166,24 @@ export function DiffApp() {
     });
   }, [filePath, leftPath, rightPath, leftRef, rightRef, repoId, force]);
 
+  // Resolves false only when a save was attempted and failed, so a caller
+  // that has to reach the file on disk (Edit Source) knows to stop.
   const save = useCallback(async () => {
     const state = useDiffStore.getState();
     const side = editableSide(state);
-    if (!side || !state.dirty) return;
+    if (!side || !state.dirty) return true;
     const content = side === "left" ? state.left : state.right;
     try {
       await bridge.request("writeFileContent", { filePath, content });
       useDiffStore.getState().markSaved(content);
+      return true;
     } catch (error) {
       useDiffStore
         .getState()
         .setError(
           `Save failed: ${error instanceof Error ? error.message : error}`,
         );
+      return false;
     }
   }, [filePath]);
   const saveRef = useRef(save);
@@ -432,6 +443,34 @@ export function DiffApp() {
   const rightLines = splitLines(store.right);
   const visibleLines = Math.ceil(viewportHeight / LINE_HEIGHT);
 
+  // A diff opens on its first change, where the carets start: once the
+  // viewport has a height, a first difference below the fold scrolls into
+  // view the way the stepper would bring it. Once per document, so that a
+  // reload of the one on screen, quiet or asked for at the banner, keeps the
+  // view where it is, the way it keeps the carets where they are.
+  const revealedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (store.loading || store.fallback || visibleLines === 0) return;
+    const key = `${filePath}|${store.leftRef}|${store.rightRef}`;
+    if (revealedFor.current === key) return;
+    revealedFor.current = key;
+    const state = useDiffStore.getState();
+    const first = state.chunks.findIndex((chunk) => chunk.kind !== "equal");
+    if (first < 0) return;
+    const target = chunkAxis(state, first);
+    if (target !== null && target > visibleLines - 2) {
+      scrollToAxis(Math.max(0, target - 2));
+    }
+  }, [
+    store.loading,
+    store.fallback,
+    store.leftRef,
+    store.rightRef,
+    visibleLines,
+    filePath,
+    scrollToAxis,
+  ]);
+
   // The horizontal axis: each pane scrolls sideways on its own, in lockstep
   // while synchronised scrolling is on. A pane's scrollable width is measured
   // from the whole document's widest line rather than from the rows on
@@ -608,6 +647,37 @@ export function DiffApp() {
     );
   };
 
+  // The read-only panes' carets. Every pane carries one (IntelliJ's shape):
+  // the editable side's is the editor's own, wired above; the others are
+  // placed by click, walked by the arrow keys, and handed to Edit Source.
+  const readOnlyCaret = (side: Side) => {
+    if (editable === side || store.fallback) return {};
+    return {
+      caret: store.readOnlyCarets[side],
+      onPlaceCaret: (position: Position) =>
+        useDiffStore.getState().placeCaret(side, position),
+      onRevealRow: (row: number) => {
+        // Decoupled, the left pane is not on the axis: moving the axis would
+        // scroll the right pane while the caret being driven stays put.
+        if (side === "left" && !store.syncScroll && layout.mode === "split") {
+          setIndependentLeft(
+            Math.max(0, Math.min(row, Math.max(0, leftLines.length - 1))),
+          );
+          return;
+        }
+        const source = displayToSource(store.folds, Math.floor(row), side);
+        const line =
+          source.kind === "line"
+            ? source.line
+            : (side === "left" ? source.fold.left : source.fold.right).start;
+        scrollToAxis(sideToAxis(store.chunks, line, side, store.folds));
+      },
+      onRevealX: (from: number, to: number) =>
+        horizontal.reveal(side, from, to),
+      label: `${side === "left" ? store.leftLabel : store.rightLabel} side of ${filePath}, read-only. Arrow keys move the caret.`,
+    };
+  };
+
   // The unified row list: the same chunks and folds, rendered one column.
   const rows = useMemo(
     () => (unified ? unifiedRows(store.chunks, store.folds) : []),
@@ -675,6 +745,13 @@ export function DiffApp() {
     return positions;
   }, [matches, chunks, folds, axisUnits, unified, unifiedRowIndex]);
 
+  const unifiedCaret = useMemo(() => {
+    if (!unified || store.fallback) return null;
+    const side = store.activePane ?? "right";
+    const position = caretOn(store, side);
+    return position ? { side, ...position } : null;
+  }, [unified, store]);
+
   const stripeMarks = useMemo(
     () =>
       unified
@@ -716,7 +793,16 @@ export function DiffApp() {
     <div className="diff-root">
       <DiffToolbar
         onStep={step}
-        onEditSource={() => void bridge.request("openFile", { filePath })}
+        onEditSource={() => {
+          // The caret names a line of the in-memory buffer, so unsaved edits
+          // have to reach the file before the native editor opens on it;
+          // a failed save leaves its own error up and opens nothing.
+          void saveRef.current().then((saved) => {
+            if (!saved) return;
+            const position = editSourcePosition(useDiffStore.getState());
+            void bridge.request("openFile", { filePath, ...(position ?? {}) });
+          });
+        }}
         onFile={(delta) => void bridge.request("stepDiffFile", { delta })}
       />
       {store.findOpen &&
@@ -810,11 +896,23 @@ export function DiffApp() {
                     sharedWidth + (horizontal.padding[scrollOwner] ?? 0)
                   }
                   onScrollX={(x) => horizontal.onScrollX(scrollOwner, x)}
+                  scrollX={horizontal.positions[scrollOwner] ?? 0}
                   onToggleFold={(fold) =>
                     useDiffStore.getState().toggleFold(fold.left.start)
                   }
                   matches={matches}
                   activeMatch={activeMatch}
+                  caret={unifiedCaret}
+                  onPlaceCaret={(side, position) =>
+                    useDiffStore.getState().placeCaret(side, position)
+                  }
+                  onRevealRow={scrollToAxis}
+                  onRevealX={(from, to) =>
+                    // The parked number columns are not somewhere the caret
+                    // can be seen, so they do not count as in view.
+                    horizontal.reveal(scrollOwner, from, to, numberColumns)
+                  }
+                  label={`Unified diff of ${filePath}, read-only. Arrow keys move the caret.`}
                 />
               ) : layout.mode === "single" ? (
                 <>
@@ -849,6 +947,7 @@ export function DiffApp() {
                       }
                       matches={matches}
                       activeMatch={activeMatch}
+                      {...readOnlyCaret(layout.side)}
                     />,
                   )}
                 </>
@@ -881,6 +980,7 @@ export function DiffApp() {
                         }
                         matches={matches}
                         activeMatch={activeMatch}
+                        {...readOnlyCaret("left")}
                       />,
                     )}
                   </div>
@@ -915,6 +1015,7 @@ export function DiffApp() {
                       }
                       matches={matches}
                       activeMatch={activeMatch}
+                      {...readOnlyCaret("right")}
                     />,
                   )}
                 </>

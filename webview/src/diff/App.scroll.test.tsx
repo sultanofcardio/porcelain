@@ -1,0 +1,216 @@
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  request: vi.fn(),
+}));
+
+vi.mock("../shared/bridge", () => ({
+  bridge: { request: mocks.request, onEvent: vi.fn(() => () => {}) },
+}));
+
+import { WORKING_TREE_REF } from "../shared/bridge/types";
+import { useDiffStore } from "../shared/store/diff-store";
+import { DiffApp } from "./App";
+import {
+  gutterMetrics,
+  LINE_HEIGHT,
+  PANE_TEXT_PADDING,
+} from "./components/metrics";
+
+const pristine = useDiffStore.getState();
+
+// Long enough that a caret can walk well past the bottom of the viewport,
+// with one line wide enough that it walks off the right edge too.
+const WIDE = "x".repeat(400);
+const body = Array.from({ length: 200 }, (_, i) =>
+  i === 2 ? WIDE : `line ${i}`,
+);
+const leftText = `${body.join("\n")}\n`;
+const rightText = `${body.map((l, i) => (i === 5 ? "changed" : l)).join("\n")}\n`;
+
+/** The first source line a pane is showing, 1-based, as its rows announce it. */
+function firstLineOf(pane: Element): number {
+  const label = pane.querySelector(".diff-sr-only")?.textContent ?? "";
+  return Number(/Line (\d+)/.exec(label)?.[1] ?? 0);
+}
+
+describe("revealing a read-only caret", () => {
+  beforeEach(() => {
+    useDiffStore.setState(pristine, true);
+    useDiffStore.setState({ collapseUnchanged: false });
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    // jsdom lays nothing out, so the viewport would measure zero rows and
+    // every follow effect would bow out before doing anything.
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+      configurable: true,
+      value: 400,
+    });
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      value: 500,
+    });
+    const root = document.createElement("div");
+    root.id = "root";
+    root.dataset.diffPath = "a.txt";
+    root.dataset.leftRef = "HEAD";
+    root.dataset.rightRef = WORKING_TREE_REF;
+    document.body.appendChild(root);
+    mocks.request.mockImplementation((command: string) => {
+      if (command === "getDiffSides") {
+        return Promise.resolve({
+          kind: "text",
+          left: leftText,
+          right: rightText,
+          filePath: "a.txt",
+          leftRef: "HEAD",
+          rightRef: WORKING_TREE_REF,
+          leftLabel: "HEAD",
+          rightLabel: "Working tree",
+          language: "plaintext",
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    document.getElementById("root")?.remove();
+    delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+    delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+    vi.unstubAllGlobals();
+    mocks.request.mockReset();
+  });
+
+  it("brings a first change below the fold into view, two rows above it", async () => {
+    const changed = body.map((line, i) => (i === 100 ? "changed" : line));
+    mocks.request.mockImplementation((command: string) =>
+      command === "getDiffSides"
+        ? Promise.resolve({
+            kind: "text",
+            left: leftText,
+            right: `${changed.join("\n")}\n`,
+            filePath: "a.txt",
+            leftRef: "HEAD",
+            rightRef: WORKING_TREE_REF,
+            leftLabel: "HEAD",
+            rightLabel: "Working tree",
+            language: "plaintext",
+          })
+        : Promise.resolve(undefined),
+    );
+    render(<DiffApp />);
+    await waitFor(() => expect(useDiffStore.getState().loading).toBe(false));
+
+    const viewport = screen.getByRole("region", { name: "Diff of a.txt" });
+    await waitFor(() =>
+      expect(viewport.scrollTop).toBe((100 - 2) * LINE_HEIGHT),
+    );
+  });
+
+  it("stays where the reader left it when the banner reloads the same file", async () => {
+    const changed = body.map((line, i) => (i === 100 ? "changed" : line));
+    const sides = {
+      kind: "text",
+      left: leftText,
+      right: `${changed.join("\n")}\n`,
+      filePath: "a.txt",
+      leftRef: "HEAD",
+      rightRef: WORKING_TREE_REF,
+      leftLabel: "HEAD",
+      rightLabel: "Working tree",
+      language: "plaintext",
+    };
+    mocks.request.mockImplementation((command: string) =>
+      Promise.resolve(command === "getDiffSides" ? sides : undefined),
+    );
+    render(<DiffApp />);
+    await waitFor(() => expect(useDiffStore.getState().loading).toBe(false));
+
+    const viewport = screen.getByRole("region", { name: "Diff of a.txt" });
+    await waitFor(() =>
+      expect(viewport.scrollTop).toBe((100 - 2) * LINE_HEIGHT),
+    );
+
+    // The reader reads on somewhere else, then takes the banner's offer.
+    act(() => {
+      viewport.scrollTop = 40 * LINE_HEIGHT;
+      fireEvent.scroll(viewport);
+    });
+    act(() => useDiffStore.getState().setDiskChanged(true));
+    const before = mocks.request.mock.calls.filter(
+      ([command]) => command === "getDiffSides",
+    ).length;
+    fireEvent.click(screen.getByRole("button", { name: "Reload from disk" }));
+    await waitFor(() =>
+      expect(
+        mocks.request.mock.calls.filter(
+          ([command]) => command === "getDiffSides",
+        ).length,
+      ).toBe(before + 1),
+    );
+    await waitFor(() => expect(useDiffStore.getState().loading).toBe(false));
+
+    expect(viewport.scrollTop).toBe(40 * LINE_HEIGHT);
+  });
+
+  it("scrolls the decoupled left pane itself, not the axis the right pane rides", async () => {
+    render(<DiffApp />);
+    await waitFor(() => expect(useDiffStore.getState().loading).toBe(false));
+
+    act(() => useDiffStore.getState().toggleSyncScroll());
+    expect(useDiffStore.getState().syncScroll).toBe(false);
+
+    const panes = [...document.querySelectorAll(".diff-pane")];
+    const [leftPane, rightPane] = [panes[0], panes.at(-1) as Element];
+    const rightBefore = firstLineOf(rightPane);
+
+    // Driving the read-only caret down the left pane, past its viewport.
+    act(() =>
+      useDiffStore.getState().placeCaret("left", { line: 150, col: 0 }),
+    );
+
+    await waitFor(() => expect(firstLineOf(leftPane)).toBeGreaterThan(100));
+    expect(firstLineOf(rightPane)).toBe(rightBefore);
+  });
+
+  it("clears the unified view's parked number columns when it scrolls back", async () => {
+    render(<DiffApp />);
+    await waitFor(() => expect(useDiffStore.getState().loading).toBe(false));
+    act(() => useDiffStore.getState().setViewMode("unified"));
+
+    const pane = document.querySelector(".diff-unified") as HTMLElement;
+    const numberColumns = gutterMetrics(body.length).numberWidth * 2;
+    // Out to the end of the wide line, then back to its start.
+    act(() =>
+      useDiffStore.getState().placeCaret("right", { line: 2, col: 400 }),
+    );
+    expect(pane.scrollLeft).toBeGreaterThan(0);
+    act(() => useDiffStore.getState().placeCaret("right", { line: 2, col: 0 }));
+
+    // The caret sits at the text inset, which has to clear the columns
+    // parked over the pane's left edge.
+    expect(pane.scrollLeft + numberColumns).toBeLessThanOrEqual(
+      numberColumns + PANE_TEXT_PADDING,
+    );
+    // The pane reports its new position the way the browser does, and the
+    // caret is drawn again rather than hidden behind the numbers.
+    fireEvent.scroll(pane);
+    expect(document.querySelector(".diff-readonly-caret")).not.toBeNull();
+  });
+});

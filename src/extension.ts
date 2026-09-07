@@ -54,6 +54,7 @@ import {
 import { DiffEditorManager } from "./views/diffEditorManager";
 import { DiffViewerManager, refLabel } from "./views/diffViewerManager";
 import { DiffWindow } from "./views/diffWindow";
+import { caretSelection, openAtCaret } from "./views/editSource";
 import {
   GitContentProvider,
   PORCELAIN_SCHEME,
@@ -1256,10 +1257,18 @@ export async function activate(context: vscode.ExtensionContext) {
     const absPath = workspaceRoot
       ? vscode.Uri.joinPath(vscode.Uri.file(workspaceRoot), filePath)
       : vscode.Uri.file(filePath);
+    // A caret from the diff surface lands the native editor on the same
+    // line and column, the way Edit Source from a native diff tab does.
+    // The built-in open command still picks the editor, so a file with a
+    // custom default editor (a notebook) keeps opening in it.
+    const selection = caretSelection(params);
     try {
-      await vscode.commands.executeCommand("vscode.open", absPath);
+      if (selection) await openAtCaret(absPath, selection);
+      else await vscode.commands.executeCommand("vscode.open", absPath);
     } catch {
-      // Fallback for files that can't be opened in any editor
+      // Fallback for files that can't be opened in any editor. Only the open
+      // reaches here: openAtCaret keeps its own caret work to itself, so a
+      // file VS Code did show never gets handed to an external application.
       await vscode.env.openExternal(absPath);
     }
     return { success: true };

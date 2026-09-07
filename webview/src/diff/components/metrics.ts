@@ -1,5 +1,5 @@
-import type { RefObject } from "react";
-import { useEffect, useState } from "react";
+import type { Ref, RefObject } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { TAB_SIZE, visualCol } from "../editor/editor-model";
 
 /** Row height shared by both panes and the gutter, so they stay in step. */
@@ -7,6 +7,34 @@ export const LINE_HEIGHT = 20;
 
 /** Inset of every row's text from the pane edge; `.diff-line`'s padding. */
 export const PANE_TEXT_PADDING = 10;
+
+/**
+ * The drawn caret's width, in px; matches `.diff-editor-caret` and
+ * `.diff-readonly-caret` in diff.css, which draw the same bar.
+ */
+export const CARET_WIDTH = 2;
+
+/**
+ * One callback ref that fills two: the component's own, which it measures its
+ * geometry from, and whatever ref its caller passed to reach the same node.
+ *
+ * Every pane needs both, since the caller's ref is the handle the shared
+ * horizontal axis drives the pane by while the pane itself has to read its
+ * own bounding box to resolve a pointer.
+ */
+export function useForwardedRef<T extends HTMLElement>(
+  own: RefObject<T | null>,
+  forwarded: Ref<T> | undefined,
+): (node: T | null) => void {
+  return useCallback(
+    (node: T | null) => {
+      own.current = node;
+      if (typeof forwarded === "function") forwarded(node);
+      else if (forwarded) forwarded.current = node;
+    },
+    [own, forwarded],
+  );
+}
 
 /**
  * The centre gutter is three bands: a line-number column for each side, and a

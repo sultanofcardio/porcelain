@@ -23,8 +23,15 @@ function loadWorkingTreeDiff(left: string, right: string) {
   });
 }
 
+// A reload of the same document keeps carets and expansions on purpose, so
+// each test starts from the state the module was imported with.
+const pristine = useDiffStore.getState();
+
 describe("diff store editing", () => {
-  beforeEach(() => loadWorkingTreeDiff("a\nold\nc\n", "a\nnew\nc\n"));
+  beforeEach(() => {
+    useDiffStore.setState(pristine, true);
+    loadWorkingTreeDiff("a\nold\nc\n", "a\nnew\nc\n");
+  });
 
   it("derives which side is editable from the refs, not from state", () => {
     expect(editableSide(useDiffStore.getState())).toBe("right");
@@ -148,12 +155,15 @@ describe("diff store editing", () => {
     expect(useDiffStore.getState().folds).toHaveLength(0);
   });
 
-  it("swapping sides drops the cursor rather than misdirecting it", () => {
+  it("swapping sides restarts the cursor on the new editable side's first change", () => {
     useDiffStore.getState().setCursor(caretAt(1, 2));
     useDiffStore.getState().swapSides();
     const state = useDiffStore.getState();
-    expect(state.cursor).toBeNull();
     expect(editableSide(state)).toBe("left");
+    // Never the old side's coordinates: the caret starts over where a
+    // freshly opened diff would put it.
+    const first = state.chunks.find((chunk) => chunk.kind !== "equal");
+    expect(state.cursor).toEqual(caretAt(first?.left.start ?? 0, 0));
   });
 
   it("keeps find matches honest across an edit", () => {

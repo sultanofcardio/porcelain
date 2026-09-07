@@ -1,12 +1,14 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
 import {
+  CARET_WIDTH,
   LINE_HEIGHT,
   PANE_TEXT_PADDING,
   useCharWidth,
 } from "../components/metrics";
+import { type DisplayMapping, stepVisibleLines } from "../utils/diff-model";
+import { needsReveal, positionAt } from "../utils/positionAt";
 import {
   caretAt,
-  colAtVisual,
   comparePositions,
   deletionRange,
   documentEnd,
@@ -23,11 +25,7 @@ import {
   visualCol,
 } from "./editor-model";
 
-/** The row a source line renders at, and back — the pane's fold coordinate. */
-export interface DisplayMapping {
-  toDisplayRow: (line: number) => number;
-  toSourceLine: (row: number) => number | null;
-}
+export type { DisplayMapping };
 
 interface EditablePaneProps {
   lines: string[];
@@ -62,9 +60,6 @@ interface EditablePaneProps {
   /** The porcelain-rendered pane this editor sits over. */
   children: ReactNode;
 }
-
-/** The drawn caret's width; matches `.diff-editor-caret` in diff.css. */
-const CARET_WIDTH = 2;
 
 /**
  * The hand-built editor core's surface half: a hidden input receiver, a drawn
@@ -124,13 +119,14 @@ export function EditablePane({
     (event: { clientX: number; clientY: number }): Position | null => {
       const host = hostRef.current;
       if (!host) return null;
-      const rect = host.getBoundingClientRect();
-      const row = Math.floor(offset + (event.clientY - rect.top) / LINE_HEIGHT);
-      const line = mapping.toSourceLine(Math.max(0, row));
-      if (line === null) return null;
-      const x = event.clientX - rect.left - PANE_TEXT_PADDING + scrollX;
-      const col = colAtVisual(lines[line] ?? "", Math.max(0, x / charWidth));
-      return { line: Math.min(line, Math.max(0, lines.length - 1)), col };
+      return positionAt(event, {
+        rect: host.getBoundingClientRect(),
+        offset,
+        scrollX,
+        charWidth,
+        toSourceLine: mapping.toSourceLine,
+        lines,
+      });
     },
     [offset, mapping, lines, charWidth, scrollX],
   );
@@ -247,6 +243,30 @@ export function EditablePane({
       const primary = event.metaKey || event.ctrlKey;
 
       const handled = () => event.preventDefault();
+      // Vertical moves walk visible lines, as the read-only panes do: a
+      // collapsed run is stepped over rather than opened, and with nowhere
+      // visible left to go the caret settles on the near edge of its line.
+      const stepLines = (delta: number) => {
+        const target = stepVisibleLines(
+          mapping,
+          head.line,
+          delta,
+          lines.length,
+        );
+        const moved = moveVertical(
+          lines,
+          head,
+          target - head.line,
+          goalRef.current,
+        );
+        const position =
+          target !== head.line
+            ? moved.position
+            : delta < 0
+              ? lineStart(head)
+              : lineEnd(lines, head);
+        moveTo(position, extend, moved.goalVisual);
+      };
 
       if (primary && (event.key === "a" || event.key === "A")) {
         onSetCursor({ anchor: documentStart(), head: documentEnd(lines) });
@@ -285,8 +305,7 @@ export function EditablePane({
             moveTo(delta < 0 ? documentStart() : documentEnd(lines), extend);
             return handled();
           }
-          const moved = moveVertical(lines, head, delta, goalRef.current);
-          moveTo(moved.position, extend, moved.goalVisual);
+          stepLines(delta);
           return handled();
         }
         case "Home":
@@ -296,13 +315,11 @@ export function EditablePane({
           moveTo(lineEnd(lines, head), extend);
           return handled();
         case "PageUp":
-        case "PageDown": {
-          const delta =
-            (event.key === "PageUp" ? -1 : 1) * Math.max(1, visibleLines - 2);
-          const moved = moveVertical(lines, head, delta, goalRef.current);
-          moveTo(moved.position, extend, moved.goalVisual);
+        case "PageDown":
+          stepLines(
+            (event.key === "PageUp" ? -1 : 1) * Math.max(1, visibleLines - 2),
+          );
           return handled();
-        }
         case "Backspace":
         case "Delete": {
           const direction = event.key === "Backspace" ? -1 : 1;
@@ -318,7 +335,17 @@ export function EditablePane({
           return;
       }
     },
-    [cursor, lines, visibleLines, moveTo, onSetCursor, onEdit, onUndo, onRedo],
+    [
+      cursor,
+      lines,
+      visibleLines,
+      mapping,
+      moveTo,
+      onSetCursor,
+      onEdit,
+      onUndo,
+      onRedo,
+    ],
   );
 
   const onInput = useCallback(() => {
@@ -438,8 +465,14 @@ export function EditablePane({
     charWidth,
     onRevealX,
   };
+  // The load-time reveal owns where a diff opens, and a caret exists from
+  // mount: the pane follows the caret only once it has seen it move, so a
+  // remount (switching view modes) leaves the reader where they scrolled to.
+  const followedFrom = useRef<string | null | undefined>(undefined);
   useEffect(() => {
-    if (headKey === null) return;
+    const previous = followedFrom.current;
+    followedFrom.current = headKey;
+    if (headKey === null || previous === undefined) return;
     const {
       mapping: map,
       offset: at,
@@ -449,10 +482,14 @@ export function EditablePane({
       charWidth: cell,
       onRevealX: goX,
     } = revealRef.current;
+    // A caret exists from the moment the diff opens, before the viewport has
+    // a height; revealing against zero rows would scroll the first change to
+    // the very top. The surface reveals it itself once measured.
+    if (rows === 0) return;
     const [lineKey, colKey] = headKey.split(":");
     const headLine = Number(lineKey);
     const row = map.toDisplayRow(headLine);
-    if (row < at + 0.5 || row > at + rows - 1.5) {
+    if (needsReveal(row, at, rows)) {
       go(Math.max(0, row - Math.floor(rows / 2)));
     }
     // And sideways: the caret's span in the pane's own (unscrolled) x.

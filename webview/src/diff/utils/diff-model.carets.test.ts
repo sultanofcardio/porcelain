@@ -1,0 +1,166 @@
+import { describe, expect, it } from "vitest";
+import { computeChunks, counterpartLine, firstChangeLine } from "./diff-model";
+
+const text = (...lines: string[]) => `${lines.join("\n")}\n`;
+
+describe("firstChangeLine", () => {
+  it("is the first changed chunk's first line on each side", () => {
+    const chunks = computeChunks(
+      text("a", "b", "c", "d"),
+      text("a", "B", "c", "d"),
+    );
+    expect(firstChangeLine(chunks, "left", 4)).toBe(1);
+    expect(firstChangeLine(chunks, "right", 4)).toBe(1);
+  });
+
+  it("puts the caret where an insertion lands on the side that lacks it", () => {
+    const chunks = computeChunks(text("a", "b"), text("a", "new", "new", "b"));
+    expect(firstChangeLine(chunks, "left", 2)).toBe(1);
+    expect(firstChangeLine(chunks, "right", 4)).toBe(1);
+  });
+
+  it("clamps an insertion at the end of the file into the document", () => {
+    const chunks = computeChunks(text("a", "b"), text("a", "b", "tail"));
+    expect(firstChangeLine(chunks, "left", 2)).toBe(1);
+    expect(firstChangeLine(chunks, "right", 3)).toBe(2);
+  });
+
+  it("starts at the top of an unchanged file, and of an empty one", () => {
+    expect(
+      firstChangeLine(computeChunks(text("a"), text("a")), "left", 1),
+    ).toBe(0);
+    expect(firstChangeLine([], "right", 0)).toBe(0);
+  });
+});
+
+describe("counterpartLine", () => {
+  const chunks = computeChunks(
+    text("a", "b", "c", "old", "e", "f"),
+    text("a", "b", "c", "new1", "new2", "e", "f"),
+  );
+
+  it("pairs equal lines exactly, above and below a change", () => {
+    expect(counterpartLine(chunks, "left", 1)).toEqual({
+      line: 1,
+      exact: true,
+    });
+    expect(counterpartLine(chunks, "left", 4)).toEqual({
+      line: 5,
+      exact: true,
+    });
+    expect(counterpartLine(chunks, "right", 6)).toEqual({
+      line: 5,
+      exact: true,
+    });
+  });
+
+  it("lands a changed line on the twin chunk's first line, inexactly", () => {
+    expect(counterpartLine(chunks, "left", 3)).toEqual({
+      line: 3,
+      exact: false,
+    });
+    expect(counterpartLine(chunks, "right", 4)).toEqual({
+      line: 3,
+      exact: false,
+    });
+  });
+
+  it("maps a line beside a pure insertion to the insertion point", () => {
+    const inserted = computeChunks(text("a", "b"), text("a", "x", "b"));
+    expect(counterpartLine(inserted, "right", 1)).toEqual({
+      line: 1,
+      exact: false,
+    });
+    expect(counterpartLine(inserted, "left", 1)).toEqual({
+      line: 2,
+      exact: true,
+    });
+  });
+
+  it("assumes the sides run in step past the last chunk", () => {
+    expect(counterpartLine([], "left", 7)).toEqual({ line: 7, exact: true });
+  });
+});
+
+describe("counterpartLine across an uneven equal run", () => {
+  // Under "ignore-empty" a blank line one side has and the other lacks stays
+  // inside the equal chunk, leaving its two spans different lengths.
+  const chunks = computeChunks(text("a", "", "b"), text("a", "b"), {
+    whitespace: "ignore-empty",
+  });
+
+  it("is the run the policy leaves uneven", () => {
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].kind).toBe("equal");
+    expect(chunks[0].left.count).not.toBe(chunks[0].right.count);
+  });
+
+  it("keeps a surplus line inside the shorter side, and drops the column", () => {
+    expect(counterpartLine(chunks, "left", 2)).toEqual({
+      line: 1,
+      exact: false,
+    });
+    expect(counterpartLine(chunks, "left", 1)).toEqual({
+      line: 1,
+      exact: false,
+    });
+  });
+
+  it("pairs through the surviving lines when it can read the documents", () => {
+    const documents = { left: ["a", "", "b"], right: ["a", "b"] };
+    // "b" is the second surviving line on both sides, whatever the blank did.
+    expect(counterpartLine(chunks, "left", 2, documents)).toEqual({
+      line: 1,
+      exact: true,
+    });
+    // The blank itself was never paired, so it gives up its column.
+    expect(counterpartLine(chunks, "left", 1, documents)).toEqual({
+      line: 1,
+      exact: false,
+    });
+    expect(counterpartLine(chunks, "right", 1, documents)).toEqual({
+      line: 2,
+      exact: true,
+    });
+  });
+});
+
+describe("counterpartLine across an interior surplus line", () => {
+  // The blank sits between two surviving lines, so clamping at the end of the
+  // run never fires and offset-for-offset would name the line below the twin.
+  const documents = { left: ["a", "", "b", "c"], right: ["a", "b", "c"] };
+  const chunks = computeChunks(text("a", "", "b", "c"), text("a", "b", "c"), {
+    whitespace: "ignore-empty",
+  });
+
+  it("is one uneven equal run", () => {
+    expect(chunks).toEqual([
+      {
+        kind: "equal",
+        left: { start: 0, count: 4 },
+        right: { start: 0, count: 3 },
+      },
+    ]);
+  });
+
+  it("names the line that says the same thing, not the one at the same offset", () => {
+    expect(counterpartLine(chunks, "left", 2, documents)).toEqual({
+      line: 1,
+      exact: true,
+    });
+    expect(counterpartLine(chunks, "left", 3, documents)).toEqual({
+      line: 2,
+      exact: true,
+    });
+    expect(counterpartLine(chunks, "right", 2, documents)).toEqual({
+      line: 3,
+      exact: true,
+    });
+  });
+
+  it("never names a line past the end of the twin span without the documents", () => {
+    for (const line of [0, 1, 2, 3]) {
+      expect(counterpartLine(chunks, "left", line).line).toBeLessThanOrEqual(2);
+    }
+  });
+});

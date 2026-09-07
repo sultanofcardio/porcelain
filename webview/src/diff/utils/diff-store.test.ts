@@ -12,11 +12,19 @@ const meta = {
   language: "typescript",
 };
 
-const load = (left: string, right: string) =>
-  useDiffStore.getState().setSides({ kind: "text", left, right, ...meta });
+const load = (left: string, right: string, filePath = meta.filePath) =>
+  useDiffStore
+    .getState()
+    .setSides({ kind: "text", left, right, ...meta, filePath });
+
+// The store is a singleton, and a reload of the same document deliberately
+// carries carets and expansions forward: each test starts from the state the
+// module was imported with so nothing leaks between them.
+const pristine = useDiffStore.getState();
 
 describe("diff store", () => {
   beforeEach(() => {
+    useDiffStore.setState(pristine, true);
     useDiffStore.setState({
       whitespace: "none",
       collapseUnchanged: true,
@@ -44,7 +52,10 @@ describe("diff store", () => {
 
   it("drops folds entirely when collapsing is turned off", () => {
     const body = Array.from({ length: 40 }, (_, i) => `line${i}`);
-    load(lines(...body), lines(...body, "extra"));
+    // Another file, so this is a fresh diff rather than a reload of the one
+    // the fixture opened: a reload keeps its carets, and a caret inside a
+    // run holds that run open.
+    load(lines(...body), lines(...body, "extra"), "src/long.ts");
     expect(useDiffStore.getState().folds.length).toBeGreaterThan(0);
     useDiffStore.getState().toggleCollapseUnchanged();
     expect(useDiffStore.getState().folds).toEqual([]);
@@ -165,6 +176,7 @@ describe("fold state", () => {
   };
 
   beforeEach(() => {
+    useDiffStore.setState(pristine, true);
     useDiffStore.setState({
       whitespace: "none",
       collapseUnchanged: true,
@@ -196,10 +208,17 @@ describe("fold state", () => {
     expect(useDiffStore.getState().folds).toHaveLength(1);
   });
 
-  it("forgets expansions when new content arrives", () => {
+  it("forgets expansions when another file arrives", () => {
+    const body = Array.from({ length: 40 }, (_, i) => `line${i}`);
     const start = useDiffStore.getState().folds[0].left.start;
     useDiffStore.getState().toggleFold(start);
-    longRun();
+    useDiffStore.getState().setSides({
+      kind: "text",
+      left: lines("old", ...body),
+      right: lines("new", ...body),
+      ...meta,
+      filePath: "src/other.ts",
+    });
     expect(useDiffStore.getState().folds).toHaveLength(1);
   });
 
