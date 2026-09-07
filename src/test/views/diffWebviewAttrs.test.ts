@@ -4,6 +4,7 @@ import {
   diffWebviewAttrs,
   resolvePresentation,
 } from "../../views/diffViewerManager";
+import { movedToNewGroup } from "../../views/floatingWindow";
 import { WORKING_TREE_REF } from "../../views/workingTreeDiffModel";
 
 const SPEC = {
@@ -87,5 +88,36 @@ describe("resolvePresentation", () => {
       resolvePresentation("editorTab", true, true),
       "editorTab",
     );
+  });
+});
+
+/**
+ * A detach is only a detach when the editor changed groups. Finding the tab
+ * afterwards proves nothing: it is still findable in the group it started
+ * in when the command declines to move it, and calling that a floating
+ * window makes onWindowChange autosave write on every focus change.
+ */
+describe("movedToNewGroup", () => {
+  it("is a move only when the column changed", () => {
+    assert.strictEqual(
+      movedToNewGroup(vscode.ViewColumn.One, vscode.ViewColumn.Two),
+      true,
+    );
+    assert.strictEqual(
+      movedToNewGroup(vscode.ViewColumn.One, vscode.ViewColumn.One),
+      false,
+    );
+  });
+
+  it("is not a move when the editor went missing", () => {
+    assert.strictEqual(
+      movedToNewGroup(vscode.ViewColumn.One, undefined),
+      false,
+    );
+    assert.strictEqual(movedToNewGroup(undefined, undefined), false);
+  });
+
+  it("counts an editor that was not there before and is now", () => {
+    assert.strictEqual(movedToNewGroup(undefined, vscode.ViewColumn.Two), true);
   });
 });

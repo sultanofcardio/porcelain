@@ -161,15 +161,44 @@ describe("diff autosave wiring", () => {
     });
 
     fireEvent.blur(editor);
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toBe("Save failed: EACCES: permission denied");
+    await screen.findByText("Save failed: EACCES: permission denied");
     expect(screen.queryByText(/Could not load this diff/)).toBeNull();
     expect(useDiffStore.getState().dirty).toBe(true);
+    // The banner sits above the panes rather than over them, so the edit
+    // that retries the save is still reachable.
+    expect(
+      screen.getByRole("textbox", { name: /Working-tree editor/ }),
+    ).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Unsaved changes" })).toBeTruthy();
 
     fail = false;
     act(() => useDiffStore.getState().editAt(caretAt(1, 4), "?", "type"));
     fireEvent.blur(editor);
     await waitFor(() => expect(useDiffStore.getState().dirty).toBe(false));
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(
+      screen.queryByText("Save failed: EACCES: permission denied"),
+    ).toBeNull();
+  });
+
+  it("dismisses the save failure without touching the buffer", async () => {
+    mocks.request.mockImplementation((command: string) => {
+      if (command === "getDiffSides") return Promise.resolve(diffSides());
+      if (command === "writeFileContent")
+        return Promise.reject(new Error("EACCES: permission denied"));
+      return Promise.resolve(undefined);
+    });
+    await renderLoaded();
+    act(() => useDiffStore.getState().editAt(caretAt(1, 3), "!", "type"));
+    fireEvent.blur(
+      screen.getByRole("textbox", { name: /Working-tree editor/ }),
+    );
+    await screen.findByText("Save failed: EACCES: permission denied");
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(
+      screen.queryByText("Save failed: EACCES: permission denied"),
+    ).toBeNull();
+    expect(useDiffStore.getState().dirty).toBe(true);
+    expect(useDiffStore.getState().right).toBe("one\nTWO!\nthree\n");
   });
 });

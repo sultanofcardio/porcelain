@@ -894,6 +894,20 @@ export function DiffApp() {
           </button>
         </div>
       )}
+      {/* A write that failed, said in its own words: the load-flavoured
+          status would blame the diff for a problem with the disk. The next
+          successful save clears it, and so does dismissing it. */}
+      {store.saveError && (
+        <div className="diff-save-banner" role="alert">
+          <span>{store.saveError}</span>
+          <button
+            type="button"
+            onClick={() => useDiffStore.getState().setSaveError(null)}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       <RevisionHeader />
       <div className="diff-body">
         {/* Focusable so the keyboard can drive it: a focused scroll
@@ -1062,14 +1076,6 @@ export function DiffApp() {
           />
         </div>
         {status && <div className="diff-message">{status}</div>}
-        {/* A write that failed, said in its own words: the load-flavoured
-            status above would blame the diff for a problem with the disk.
-            The next successful save clears it. */}
-        {store.saveError && (
-          <div className="diff-message" role="alert">
-            {store.saveError}
-          </div>
-        )}
         {/* An overlay rather than a replacement, for the same reason as the
             message above: unmounting the viewport would detach its
             ResizeObserver, and "Show anyway" would swap the panes back in

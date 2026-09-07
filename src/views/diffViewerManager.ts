@@ -267,7 +267,7 @@ export class DiffViewerManager {
     });
 
     if (floating && !openedWindow) {
-      const column = await detachActiveEditor(
+      const detach = await detachActiveEditor(
         (tab) =>
           tab.input instanceof vscode.TabInputWebview &&
           tab.label === panel.title,
@@ -275,7 +275,7 @@ export class DiffViewerManager {
       const landed = resolvePresentation(
         configured,
         openedWindow,
-        column !== undefined,
+        detach.moved,
       );
       // Only the fallback path can reach here, and only a successful detach
       // changes the answer. The reassignment remounts the app once, in the

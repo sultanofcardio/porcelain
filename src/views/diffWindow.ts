@@ -115,7 +115,7 @@ export class DiffWindow {
     const owns = (tab: vscode.Tab) => showsDiff(tab, left, right);
     this.column = opened
       ? await locateColumn(owns)
-      : await detachActiveEditor(owns);
+      : (await detachActiveEditor(owns)).column;
   }
 
   /**
