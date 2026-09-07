@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { computeChunks, computeFolds, splitLines } from "../utils/diff-model";
 import { unifiedRows } from "../utils/unified";
-import { gutterMetrics } from "./metrics";
+import { gutterMetrics, PANE_TEXT_PADDING } from "./metrics";
 import { UnifiedPane } from "./UnifiedPane";
 
 const lines = (...values: string[]) => `${values.join("\n")}\n`;
@@ -240,6 +240,85 @@ describe("UnifiedPane caret", () => {
       line: 2,
       col: 14,
     });
+  });
+
+  it("scrolls sideways to a caret past the right edge of the pane", () => {
+    const onRevealX = vi.fn();
+    const wide = lines("short", "x".repeat(400));
+    const chunks = computeChunks(wide, wide);
+    const inset = gutterMetrics(2).numberWidth * 2 + PANE_TEXT_PADDING;
+    const view = (col: number) => (
+      <UnifiedPane
+        rows={unifiedRows(chunks)}
+        leftLines={splitLines(wide)}
+        rightLines={splitLines(wide)}
+        chunks={chunks}
+        language="plaintext"
+        granularity="word"
+        offset={0}
+        visibleLines={20}
+        caret={{ side: "right", line: 1, col }}
+        onPlaceCaret={() => {}}
+        onRevealX={onRevealX}
+      />
+    );
+    const { rerender } = render(view(0));
+    expect(onRevealX).toHaveBeenLastCalledWith(inset, inset + 2);
+    // End on a line wider than the pane, as the store reports it back.
+    rerender(view(400));
+    expect(onRevealX).toHaveBeenLastCalledWith(
+      inset + 400 * 7.2,
+      inset + 400 * 7.2 + 2,
+    );
+  });
+
+  it("stops drawing the caret where it slides under the parked numbers", () => {
+    const text = lines("alpha", "beta");
+    const chunks = computeChunks(text, text);
+    const inset = gutterMetrics(2).numberWidth * 2 + PANE_TEXT_PADDING;
+    const view = (scrollX: number) => (
+      <UnifiedPane
+        rows={unifiedRows(chunks)}
+        leftLines={splitLines(text)}
+        rightLines={splitLines(text)}
+        chunks={chunks}
+        language="plaintext"
+        granularity="word"
+        offset={0}
+        visibleLines={20}
+        scrollX={scrollX}
+        caret={{ side: "right", line: 0, col: 0 }}
+        onPlaceCaret={() => {}}
+      />
+    );
+    const { container, rerender } = render(view(0));
+    expect(container.querySelector(".diff-readonly-caret")).not.toBeNull();
+    // Scrolled far enough that the caret's x is behind both number columns.
+    rerender(view(inset));
+    expect(container.querySelector(".diff-readonly-caret")).toBeNull();
+  });
+
+  it("names the pane it puts a caret in, as a region", () => {
+    const text = lines("a", "b");
+    const chunks = computeChunks(text, text);
+    render(
+      <UnifiedPane
+        rows={unifiedRows(chunks)}
+        leftLines={splitLines(text)}
+        rightLines={splitLines(text)}
+        chunks={chunks}
+        language="plaintext"
+        granularity="word"
+        offset={0}
+        visibleLines={20}
+        caret={{ side: "right", line: 0, col: 0 }}
+        onPlaceCaret={() => {}}
+        label="Unified diff of a.ts, read-only."
+      />,
+    );
+    expect(
+      screen.getByRole("region", { name: "Unified diff of a.ts, read-only." }),
+    ).toBeTruthy();
   });
 
   it("lets Alt+ArrowUp/Down through to the file-stepping binding above", () => {

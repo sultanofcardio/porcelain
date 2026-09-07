@@ -664,6 +664,14 @@ export function DiffApp() {
       onPlaceCaret: (position: Position) =>
         useDiffStore.getState().placeCaret(side, position),
       onRevealRow: (row: number) => {
+        // Decoupled, the left pane is not on the axis: moving the axis would
+        // scroll the right pane while the caret being driven stays put.
+        if (side === "left" && !store.syncScroll && layout.mode === "split") {
+          setIndependentLeft(
+            Math.max(0, Math.min(row, Math.max(0, leftLines.length - 1))),
+          );
+          return;
+        }
         const source = displayToSource(store.folds, Math.floor(row), side);
         const line =
           source.kind === "line"
@@ -895,6 +903,7 @@ export function DiffApp() {
                     sharedWidth + (horizontal.padding[scrollOwner] ?? 0)
                   }
                   onScrollX={(x) => horizontal.onScrollX(scrollOwner, x)}
+                  scrollX={horizontal.positions[scrollOwner] ?? 0}
                   onToggleFold={(fold) =>
                     useDiffStore.getState().toggleFold(fold.left.start)
                   }
@@ -905,6 +914,9 @@ export function DiffApp() {
                     useDiffStore.getState().placeCaret(side, position)
                   }
                   onRevealRow={scrollToAxis}
+                  onRevealX={(from, to) =>
+                    horizontal.reveal(scrollOwner, from, to)
+                  }
                   label={`Unified diff of ${filePath}, read-only. Arrow keys move the caret.`}
                 />
               ) : layout.mode === "single" ? (

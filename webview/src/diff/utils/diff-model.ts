@@ -583,14 +583,59 @@ export function firstChangeLine(
   return 0;
 }
 
+/** Whether a line survives "ignore-empty" normalisation; see `comparableSide`. */
+function isComparableLine(text: string | undefined): boolean {
+  return (text ?? "").replace(/\s+/g, "") !== "";
+}
+
+/**
+ * The twin of `line` inside an equal chunk whose two sides hold different
+ * numbers of lines, which "ignore-empty" produces by dropping a blank one
+ * side has and the other lacks. Offset for offset is wrong there in both
+ * directions, since the drop can sit anywhere in the run.
+ *
+ * The lines that did survive still pair in order, so the twin is the line of
+ * the same rank among the other side's comparable lines. A caret on a dropped
+ * blank has no twin of its own: it lands on the next comparable line with its
+ * column given up. Without the documents to read there is no correspondence to
+ * follow, so the offset is clamped inside the twin span and reported inexact.
+ */
+function unevenEqualTwin(
+  own: Span,
+  other: Span,
+  line: number,
+  ownLines?: readonly string[],
+  otherLines?: readonly string[],
+): { line: number; exact: boolean } {
+  const last = other.start + Math.max(0, other.count - 1);
+  if (!ownLines || !otherLines) {
+    return {
+      line: Math.min(other.start + (line - own.start), last),
+      exact: false,
+    };
+  }
+  let rank = 0;
+  for (let at = own.start; at < line; at++) {
+    if (isComparableLine(ownLines[at])) rank++;
+  }
+  const onComparable = isComparableLine(ownLines[line]);
+  let seen = 0;
+  for (let at = other.start; at < other.start + other.count; at++) {
+    if (!isComparableLine(otherLines[at])) continue;
+    if (seen === rank) return { line: at, exact: onComparable };
+    seen++;
+  }
+  return { line: last, exact: false };
+}
+
 /**
  * The line on the other side that corresponds to `line` on `side`.
  *
- * Inside an equal chunk the two sides pair line for line, so the twin is
- * exact and the column carries over - except where a whitespace policy left
- * the run uneven (see `computeFolds`), and the surplus lines past the end of
- * the shorter side land on its last line with the column dropped, since
- * there is no line of their own to pair with.
+ * Inside an equal chunk the two sides usually pair line for line, so the twin
+ * is exact and the column carries over. Where a whitespace policy left the run
+ * uneven (see `computeFolds`) the pairing runs through the lines that survived
+ * normalisation instead, which needs `documents`; without them the twin is
+ * clamped inside the other span and reported inexact.
  *
  * Inside a changed chunk there is no
  * pairing to speak of: the twin is the chunk's first line on the other side
@@ -602,6 +647,7 @@ export function counterpartLine(
   chunks: readonly DiffChunk[],
   side: Side,
   line: number,
+  documents?: { left: readonly string[]; right: readonly string[] },
 ): { line: number; exact: boolean } {
   for (const chunk of chunks) {
     const own = side === "left" ? chunk.left : chunk.right;
@@ -609,14 +655,16 @@ export function counterpartLine(
     if (line >= own.start + own.count) continue;
     if (line < own.start) break;
     if (chunk.kind === "equal") {
-      const offset = line - own.start;
-      if (offset < other.count) {
-        return { line: other.start + offset, exact: true };
+      if (own.count === other.count) {
+        return { line: other.start + (line - own.start), exact: true };
       }
-      return {
-        line: other.start + Math.max(0, other.count - 1),
-        exact: false,
-      };
+      return unevenEqualTwin(
+        own,
+        other,
+        line,
+        documents && (side === "left" ? documents.left : documents.right),
+        documents && (side === "left" ? documents.right : documents.left),
+      );
     }
     return { line: other.start, exact: false };
   }

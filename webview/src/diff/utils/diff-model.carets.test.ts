@@ -102,7 +102,65 @@ describe("counterpartLine across an uneven equal run", () => {
     });
     expect(counterpartLine(chunks, "left", 1)).toEqual({
       line: 1,
+      exact: false,
+    });
+  });
+
+  it("pairs through the surviving lines when it can read the documents", () => {
+    const documents = { left: ["a", "", "b"], right: ["a", "b"] };
+    // "b" is the second surviving line on both sides, whatever the blank did.
+    expect(counterpartLine(chunks, "left", 2, documents)).toEqual({
+      line: 1,
       exact: true,
     });
+    // The blank itself was never paired, so it gives up its column.
+    expect(counterpartLine(chunks, "left", 1, documents)).toEqual({
+      line: 1,
+      exact: false,
+    });
+    expect(counterpartLine(chunks, "right", 1, documents)).toEqual({
+      line: 2,
+      exact: true,
+    });
+  });
+});
+
+describe("counterpartLine across an interior surplus line", () => {
+  // The blank sits between two surviving lines, so clamping at the end of the
+  // run never fires and offset-for-offset would name the line below the twin.
+  const documents = { left: ["a", "", "b", "c"], right: ["a", "b", "c"] };
+  const chunks = computeChunks(text("a", "", "b", "c"), text("a", "b", "c"), {
+    whitespace: "ignore-empty",
+  });
+
+  it("is one uneven equal run", () => {
+    expect(chunks).toEqual([
+      {
+        kind: "equal",
+        left: { start: 0, count: 4 },
+        right: { start: 0, count: 3 },
+      },
+    ]);
+  });
+
+  it("names the line that says the same thing, not the one at the same offset", () => {
+    expect(counterpartLine(chunks, "left", 2, documents)).toEqual({
+      line: 1,
+      exact: true,
+    });
+    expect(counterpartLine(chunks, "left", 3, documents)).toEqual({
+      line: 2,
+      exact: true,
+    });
+    expect(counterpartLine(chunks, "right", 2, documents)).toEqual({
+      line: 3,
+      exact: true,
+    });
+  });
+
+  it("never names a line past the end of the twin span without the documents", () => {
+    for (const line of [0, 1, 2, 3]) {
+      expect(counterpartLine(chunks, "left", line).line).toBeLessThanOrEqual(2);
+    }
   });
 });

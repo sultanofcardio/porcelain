@@ -448,8 +448,10 @@ export function DiffPane({
       onMouseDown={onPlaceCaret ? onMouseDown : undefined}
       onKeyDown={onPlaceCaret ? onKeyDown : undefined}
       // Only a pane with a caret takes focus: the keys above need somewhere
-      // to land, and a screen reader needs a name for where it landed.
+      // to land, and a screen reader needs a name for where it landed. A
+      // plain div takes no name of its own, so the label needs the role.
       tabIndex={onPlaceCaret ? 0 : undefined}
+      role={onPlaceCaret ? "region" : undefined}
       aria-label={onPlaceCaret ? label : undefined}
     >
       {/* The scrollable extent (see diff.css): as wide as the widest rendered

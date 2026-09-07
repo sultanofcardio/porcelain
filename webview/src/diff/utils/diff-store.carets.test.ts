@@ -141,6 +141,69 @@ describe("carets on every pane", () => {
   });
 });
 
+describe("a reload of the same document", () => {
+  beforeEach(() => {
+    useDiffStore.setState({
+      whitespace: "none",
+      collapseUnchanged: true,
+      contextLines: 3,
+      swapped: false,
+      activeChunk: -1,
+    });
+    load(before, after);
+  });
+
+  it("leaves every caret where the reader put it", () => {
+    useDiffStore.getState().placeCaret("left", { line: 12, col: 1 });
+    useDiffStore.getState().setCursor({
+      anchor: { line: 11, col: 1 },
+      head: { line: 11, col: 1 },
+    });
+    // The same file, rewritten on disk under a clean diff.
+    load(before, after.replace("new", "newer"));
+
+    const state = useDiffStore.getState();
+    expect(state.readOnlyCarets.left).toEqual({ line: 12, col: 1 });
+    expect(state.cursor?.head).toEqual({ line: 11, col: 1 });
+    expect(state.activePane).toBe("right");
+  });
+
+  it("clamps a kept caret into the text that arrived", () => {
+    useDiffStore.getState().placeCaret("left", { line: 12, col: 1 });
+    load(lines("a", "b"), after);
+    expect(useDiffStore.getState().readOnlyCarets.left).toEqual({
+      line: 1,
+      col: 1,
+    });
+  });
+
+  it("starts the carets over when another file opens", () => {
+    useDiffStore.getState().placeCaret("left", { line: 12, col: 1 });
+    useDiffStore.getState().setSides({
+      kind: "text",
+      left: before,
+      right: after,
+      ...meta,
+      filePath: "src/other.ts",
+      leftRef: "aaaa111",
+      rightRef: WORKING_TREE_REF,
+    });
+    expect(useDiffStore.getState().readOnlyCarets.left).toEqual({
+      line: 8,
+      col: 0,
+    });
+  });
+
+  it("starts the carets over when the refs change", () => {
+    useDiffStore.getState().placeCaret("left", { line: 12, col: 1 });
+    load(before, after, { leftRef: "bbbb222", rightRef: WORKING_TREE_REF });
+    expect(useDiffStore.getState().readOnlyCarets.left).toEqual({
+      line: 8,
+      col: 0,
+    });
+  });
+});
+
 describe("editSourcePosition", () => {
   beforeEach(() => {
     useDiffStore.setState({

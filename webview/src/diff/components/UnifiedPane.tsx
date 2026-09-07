@@ -25,6 +25,9 @@ import {
   useCharWidth,
 } from "./metrics";
 
+/** The drawn caret's width; matches `.diff-readonly-caret` in diff.css. */
+const CARET_WIDTH = 2;
+
 /** A caret in the one-column view names the document it sits in. */
 export interface UnifiedCaret extends Position {
   side: Side;
@@ -53,6 +56,12 @@ interface UnifiedPaneProps {
   /** The pane scrolled sideways; `x` is its new scrollLeft. */
   onScrollX?: (x: number) => void;
   /**
+   * How far the pane is scrolled sideways, in px. The caret draws in content
+   * coordinates while the two number columns are parked at the left edge, so
+   * this is what says whether the caret has slid under them.
+   */
+  scrollX?: number;
+  /**
    * The read-only caret, on whichever document the active pane shows. The
    * unified view is read-only even for the working tree, so this is the
    * only caret it draws; a click places it on the row's own document.
@@ -61,6 +70,8 @@ interface UnifiedPaneProps {
   onPlaceCaret?: (side: Side, position: Position) => void;
   /** Scroll the surface so a row sits inside the viewport. */
   onRevealRow?: (row: number) => void;
+  /** Scroll the pane sideways so the content span [from, to] px is in view. */
+  onRevealX?: (from: number, to: number) => void;
   /** Accessible name for the pane, which takes focus for its caret. */
   label?: string;
 }
@@ -99,9 +110,11 @@ export function UnifiedPane({
   ref,
   contentWidth,
   onScrollX,
+  scrollX = 0,
   caret = null,
   onPlaceCaret,
   onRevealRow,
+  onRevealX,
   label,
 }: UnifiedPaneProps) {
   const highlighter = useShiki();
@@ -237,27 +250,59 @@ export function UnifiedPane({
 
   // Follow the caret; see DiffPane for why this keys on identity alone.
   const caretKey = caret ? `${caret.side}:${caret.line}:${caret.col}` : null;
-  const revealRef = useRef({ caretRow, offset, visibleLines, onRevealRow });
-  revealRef.current = { caretRow, offset, visibleLines, onRevealRow };
+  const revealState = {
+    caret,
+    caretRow,
+    offset,
+    visibleLines,
+    onRevealRow,
+    onRevealX,
+    textInset,
+    charWidth,
+    textOf,
+  };
+  const revealRef = useRef(revealState);
+  revealRef.current = revealState;
   useEffect(() => {
     if (caretKey === null) return;
     const {
+      caret: here,
       caretRow: row,
       offset: at,
       visibleLines: count,
       onRevealRow: go,
+      onRevealX: goX,
+      textInset: inset,
+      charWidth: cell,
+      textOf: read,
     } = revealRef.current;
-    if (!go || count === 0 || row < 0) return;
-    if (row < at + 0.5 || row > at + count - 1.5) {
+    if (!here || count === 0 || row < 0) return;
+    if (go && (row < at + 0.5 || row > at + count - 1.5)) {
       go(Math.max(0, row - Math.floor(count / 2)));
+    }
+    // And sideways, as the split panes do: the caret's span in the pane's
+    // own (unscrolled) x, both number columns included.
+    if (goX) {
+      const x = inset + visualCol(read(here.side, here.line), here.col) * cell;
+      goX(x, x + CARET_WIDTH);
     }
   }, [caretKey]);
 
+  // Where the caret draws, in the content's own x.
+  const caretX =
+    caret === null
+      ? 0
+      : textInset +
+        visualCol(textOf(caret.side, caret.line), caret.col) * charWidth;
+  // The number columns are sticky inside the rows' own stacking context, so
+  // a caret scrolled behind them would paint over the numbers. It stops
+  // being drawn at their edge instead, as it does at the viewport's.
   const caretShown =
     caret !== null &&
     caretRow >= 0 &&
     caretRow >= offset - 1 &&
-    caretRow <= offset + visibleLines + 1;
+    caretRow <= offset + visibleLines + 1 &&
+    caretX - scrollX >= metrics.numberWidth * 2;
 
   const first = Math.max(0, Math.floor(offset));
   const last = Math.min(rows.length, first + visibleLines + 2);
@@ -372,6 +417,7 @@ export function UnifiedPane({
       onMouseDown={onPlaceCaret ? onMouseDown : undefined}
       onKeyDown={onPlaceCaret ? onKeyDown : undefined}
       tabIndex={onPlaceCaret ? 0 : undefined}
+      role={onPlaceCaret ? "region" : undefined}
       aria-label={onPlaceCaret ? label : undefined}
     >
       <div
@@ -390,10 +436,7 @@ export function UnifiedPane({
             aria-hidden="true"
             style={{
               top: (caretRow - offset) * LINE_HEIGHT,
-              left:
-                textInset +
-                visualCol(textOf(caret.side, caret.line), caret.col) *
-                  charWidth,
+              left: caretX,
             }}
           />
         )}

@@ -286,6 +286,38 @@ function initialCarets(
   };
 }
 
+/**
+ * The carets a reload of the *same* document keeps, clamped into the text
+ * that just arrived, or null when there were none to keep.
+ *
+ * A quiet refresh (a formatter rewriting the file under a clean diff) must
+ * leave every caret exactly where the reader put it: the pane follow effects
+ * key on caret identity alone, so re-placing carets on the new first change
+ * would scroll the view out from under them.
+ */
+function keptCarets(
+  state: Pick<DiffStoreState, "cursor" | "readOnlyCarets" | "activePane">,
+  text: { left: string; right: string },
+  editable: Side | null,
+): Pick<DiffStoreState, "cursor" | "readOnlyCarets" | "activePane"> | null {
+  const { cursor, readOnlyCarets } = state;
+  if (!cursor && !readOnlyCarets.left && !readOnlyCarets.right) return null;
+  const linesOf = (side: Side) =>
+    splitLines(side === "left" ? text.left : text.right);
+  const keep = (side: Side) => {
+    const caret = readOnlyCarets[side];
+    if (!caret || editable === side) return null;
+    return clampPosition(linesOf(side), caret);
+  };
+  const head =
+    editable && cursor ? clampPosition(linesOf(editable), cursor.head) : null;
+  return {
+    cursor: head ? caretAt(head.line, head.col) : null,
+    readOnlyCarets: { left: keep("left"), right: keep("right") },
+    activePane: state.activePane,
+  };
+}
+
 /** The caret of one pane, whichever kind it is. */
 export function caretOn(
   state: Pick<
@@ -316,6 +348,8 @@ export function editSourcePosition(
     | "chunks"
     | "fallback"
     | "loading"
+    | "left"
+    | "right"
   >,
 ): { line: number; column: number } | null {
   if (state.fallback || state.loading) return null;
@@ -326,7 +360,10 @@ export function editSourcePosition(
   if (editable === null || editable === side) {
     return { line: caret.line, column: caret.col };
   }
-  const twin = counterpartLine(state.chunks, side, caret.line);
+  const twin = counterpartLine(state.chunks, side, caret.line, {
+    left: splitLines(state.left),
+    right: splitLines(state.right),
+  });
   return { line: twin.line, column: twin.exact ? caret.col : 0 };
 }
 
@@ -617,12 +654,23 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
       };
       const next = { ...state, ...meta, ...text };
       const derived = derive(next);
+      // The same document arriving again is a refresh, not a new diff: the
+      // carets stay where they were. Anything else starts them over.
+      const sameDocument =
+        state.filePath === filePath &&
+        state.leftRef === leftRef &&
+        state.rightRef === rightRef;
+      const carets =
+        kind === "text" && sameDocument
+          ? keptCarets(state, text, editable)
+          : null;
       return {
         ...meta,
         ...text,
         ...editing,
         ...derived,
-        ...initialCarets(derived.chunks, text, editable, kind === "text"),
+        ...(carets ??
+          initialCarets(derived.chunks, text, editable, kind === "text")),
         ...deriveFind(next),
       };
     }),

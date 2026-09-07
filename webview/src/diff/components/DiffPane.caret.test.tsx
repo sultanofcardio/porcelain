@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { computeChunks, computeFolds } from "../utils/diff-model";
 import { DiffPane } from "./DiffPane";
@@ -49,7 +49,10 @@ describe("DiffPane read-only caret", () => {
     expect(caret?.style.left).toBe(`${PANE_TEXT_PADDING + 3 * CELL}px`);
     const pane = container.querySelector(".diff-pane");
     expect(pane?.getAttribute("tabindex")).toBe("0");
-    expect(pane?.getAttribute("aria-label")).toBe("HEAD side, read-only");
+    // A bare div takes no accessible name, so the label needs the role.
+    expect(screen.getByRole("region", { name: "HEAD side, read-only" })).toBe(
+      pane,
+    );
   });
 
   it("sits on the fold row when its line is hidden, shifted by the folds above", () => {

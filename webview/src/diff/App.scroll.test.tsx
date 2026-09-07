@@ -1,0 +1,98 @@
+import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  request: vi.fn(),
+}));
+
+vi.mock("../shared/bridge", () => ({
+  bridge: { request: mocks.request, onEvent: vi.fn(() => () => {}) },
+}));
+
+import { WORKING_TREE_REF } from "../shared/bridge/types";
+import { useDiffStore } from "../shared/store/diff-store";
+import { DiffApp } from "./App";
+
+const pristine = useDiffStore.getState();
+
+// Long enough that a caret can walk well past the bottom of the viewport.
+const body = Array.from({ length: 200 }, (_, i) => `line ${i}`);
+const leftText = `${body.join("\n")}\n`;
+const rightText = `${body.map((l, i) => (i === 5 ? "changed" : l)).join("\n")}\n`;
+
+/** The first source line a pane is showing, 1-based, as its rows announce it. */
+function firstLineOf(pane: Element): number {
+  const label = pane.querySelector(".diff-sr-only")?.textContent ?? "";
+  return Number(/Line (\d+)/.exec(label)?.[1] ?? 0);
+}
+
+describe("revealing a read-only caret", () => {
+  beforeEach(() => {
+    useDiffStore.setState(pristine, true);
+    useDiffStore.setState({ collapseUnchanged: false });
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    // jsdom lays nothing out, so the viewport would measure zero rows and
+    // every follow effect would bow out before doing anything.
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+      configurable: true,
+      value: 400,
+    });
+    const root = document.createElement("div");
+    root.id = "root";
+    root.dataset.diffPath = "a.txt";
+    root.dataset.leftRef = "HEAD";
+    root.dataset.rightRef = WORKING_TREE_REF;
+    document.body.appendChild(root);
+    mocks.request.mockImplementation((command: string) => {
+      if (command === "getDiffSides") {
+        return Promise.resolve({
+          kind: "text",
+          left: leftText,
+          right: rightText,
+          filePath: "a.txt",
+          leftRef: "HEAD",
+          rightRef: WORKING_TREE_REF,
+          leftLabel: "HEAD",
+          rightLabel: "Working tree",
+          language: "plaintext",
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    document.getElementById("root")?.remove();
+    delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+    vi.unstubAllGlobals();
+    mocks.request.mockReset();
+  });
+
+  it("scrolls the decoupled left pane itself, not the axis the right pane rides", async () => {
+    render(<DiffApp />);
+    await waitFor(() => expect(useDiffStore.getState().loading).toBe(false));
+
+    act(() => useDiffStore.getState().toggleSyncScroll());
+    expect(useDiffStore.getState().syncScroll).toBe(false);
+
+    const panes = [...document.querySelectorAll(".diff-pane")];
+    const [leftPane, rightPane] = [panes[0], panes.at(-1) as Element];
+    const rightBefore = firstLineOf(rightPane);
+
+    // Driving the read-only caret down the left pane, past its viewport.
+    act(() =>
+      useDiffStore.getState().placeCaret("left", { line: 150, col: 0 }),
+    );
+
+    await waitFor(() => expect(firstLineOf(leftPane)).toBeGreaterThan(100));
+    expect(firstLineOf(rightPane)).toBe(rightBefore);
+  });
+});
