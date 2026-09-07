@@ -318,24 +318,42 @@ function keptCarets(
   };
 }
 
+/** Where a diff's three carets live, whichever way they were placed. */
+type PaneCarets = Pick<
+  DiffStoreState,
+  "cursor" | "readOnlyCarets" | "activePane"
+>;
+
 /**
  * A fold derivation with every caret still visible: any run that would hide
  * the editable cursor or a read-only caret is expanded and the derivation
  * redone. `placeCaret` and `setCursor` keep that invariant when a caret
  * moves; this is how it survives the fold list being rebuilt underneath one
  * that did not.
+ *
+ * `place` is for the paths that put the carets somewhere new from the chunks
+ * this derivation computes, which is what a load and a swap both do: the
+ * carets it returns are part of the result, checked against the folds like
+ * any others.
  */
 function deriveVisibleFolds(
   state: Parameters<typeof derive>[0] & Parameters<typeof foldsHidingCarets>[1],
+  place?: (chunks: DiffChunk[]) => PaneCarets,
 ) {
   const derived = derive(state);
-  const hiding = foldsHidingCarets(derived.folds, state);
+  const placed = place?.(derived.chunks);
+  const carets = placed ? { ...state, ...placed } : state;
+  const hiding = foldsHidingCarets(derived.folds, carets);
   if (hiding.length === 0) {
-    return { expandedFolds: state.expandedFolds, ...derived };
+    return { expandedFolds: state.expandedFolds, ...derived, ...placed };
   }
   const expandedFolds = new Set(state.expandedFolds);
   for (const key of hiding) expandedFolds.add(key);
-  return { expandedFolds, ...derive({ ...state, expandedFolds }) };
+  return {
+    expandedFolds,
+    ...derive({ ...state, expandedFolds }),
+    ...placed,
+  };
 }
 
 /**
@@ -740,17 +758,19 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
       );
       const next = { ...state, ...meta, ...text, expandedFolds };
       // The text may have moved under the kept carets, so a run that was open
-      // before can come back collapsed around one.
+      // before can come back collapsed around one. A fresh load places its
+      // carets from the same derivation, and they answer to the same rule.
       const derived = carets
         ? deriveVisibleFolds({ ...next, ...carets })
-        : { expandedFolds, ...derive(next) };
+        : deriveVisibleFolds(next, (chunks) =>
+            initialCarets(chunks, text, editable, kind === "text"),
+          );
       return {
         ...meta,
         ...text,
         ...editing,
         ...derived,
-        ...(carets ??
-          initialCarets(derived.chunks, text, editable, kind === "text")),
+        ...carets,
         ...deriveFind(next),
       };
     }),
@@ -1000,7 +1020,19 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
       // Expansion is keyed on left start lines, and the swap moves every
       // fold to the other side's numbering — so everything re-collapses.
       const expandedFolds = new Set<number>();
-      const derived = derive({ ...committed, ...swapped, expandedFolds });
+      // Every caret spoke in the old side's coordinates; they start over on
+      // the first change, as they did when the diff opened, and a run that
+      // would hide one of them opens.
+      const derived = deriveVisibleFolds(
+        { ...committed, ...swapped, expandedFolds },
+        (chunks) =>
+          initialCarets(
+            chunks,
+            swapped,
+            editableSide(swapped),
+            committed.fallback === null,
+          ),
+      );
       return {
         ...swapped,
         goalVisual: null,
@@ -1011,16 +1043,7 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         fallback: swapFallback(committed.fallback),
         swapped: !committed.swapped,
         activeChunk: -1,
-        expandedFolds,
         ...derived,
-        // Every caret spoke in the old side's coordinates; they start over
-        // on the first change, as they did when the diff opened.
-        ...initialCarets(
-          derived.chunks,
-          swapped,
-          editableSide(swapped),
-          committed.fallback === null,
-        ),
         // The bars are positional — each keeps its query and re-searches the
         // text that now sits under it.
         ...deriveFind({ ...committed, ...swapped }),

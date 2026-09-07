@@ -439,8 +439,14 @@ export function EditablePane({
     charWidth,
     onRevealX,
   };
+  // The load-time reveal owns where a diff opens, and a caret exists from
+  // mount: the pane follows the caret only once it has seen it move, so a
+  // remount (switching view modes) leaves the reader where they scrolled to.
+  const followedFrom = useRef<string | null | undefined>(undefined);
   useEffect(() => {
-    if (headKey === null) return;
+    const previous = followedFrom.current;
+    followedFrom.current = headKey;
+    if (headKey === null || previous === undefined) return;
     const {
       mapping: map,
       offset: at,

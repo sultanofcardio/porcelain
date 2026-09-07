@@ -301,7 +301,8 @@ describe("UnifiedPane caret", () => {
       />
     );
     const { rerender } = render(view(0));
-    expect(onRevealX).toHaveBeenLastCalledWith(inset, inset + 2);
+    // The caret it opened with is where the surface put it; nothing to chase.
+    expect(onRevealX).not.toHaveBeenCalled();
     // End on a line wider than the pane, as the store reports it back.
     rerender(view(400));
     expect(onRevealX).toHaveBeenLastCalledWith(

@@ -57,12 +57,15 @@ describe("FindBar reveal", () => {
   });
 
   it("auto-expands a fold hiding the new first match", () => {
-    // Line 40 sits inside the collapsed unchanged run of an all-equal diff;
-    // revealing the match must expand that fold rather than jump blind.
+    // Line 40 sits inside the collapsed unchanged run below the change;
+    // revealing the match must expand that fold rather than jump blind. The
+    // diff opens on the change at the top, which is what leaves the run
+    // below it folded: a caret is never left inside a collapsed run.
     const lines = Array.from({ length: 60 }, (_, i) => `filler ${i + 1}`);
     lines[39] = "needle";
-    const text = `${lines.join("\n")}\n`;
-    loadTextDiff(text, text);
+    const right = `${lines.join("\n")}\n`;
+    const left = `${["changed", ...lines.slice(1)].join("\n")}\n`;
+    loadTextDiff(left, right);
     expect(useDiffStore.getState().folds.length).toBeGreaterThan(0);
     useDiffStore.getState().openFind();
 

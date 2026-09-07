@@ -63,6 +63,13 @@ const after = lines(
   "w",
 );
 
+/** The folds hiding `line` on `side`, which must always be none. */
+const hiding = (side: Side, line: number) =>
+  useDiffStore.getState().folds.filter((fold) => {
+    const span = side === "left" ? fold.left : fold.right;
+    return line >= span.start && line < span.start + span.count;
+  });
+
 describe("carets on every pane", () => {
   beforeEach(() => {
     useDiffStore.setState(pristine, true);
@@ -161,13 +168,6 @@ describe("folds rebuilt under a caret that did not move", () => {
     load(before, after);
   });
 
-  /** The folds hiding `line` on `side`, which must always be none. */
-  const hiding = (side: Side, line: number) =>
-    useDiffStore.getState().folds.filter((fold) => {
-      const span = side === "left" ? fold.left : fold.right;
-      return line >= span.start && line < span.start + span.count;
-    });
-
   it("keeps a read-only caret visible when the context shrinks around it", () => {
     // Three context lines leave 5, 6 and 7 on screen above the change.
     useDiffStore.getState().placeCaret("left", { line: 5, col: 0 });
@@ -215,6 +215,52 @@ describe("folds rebuilt under a caret that did not move", () => {
 
     expect(useDiffStore.getState().differences).toBe(0);
     expect(hiding("left", 5)).toEqual([]);
+  });
+});
+
+describe("carets placed as a diff opens", () => {
+  beforeEach(() => {
+    useDiffStore.setState(pristine, true);
+    useDiffStore.setState({
+      whitespace: "none",
+      collapseUnchanged: true,
+      contextLines: 3,
+      swapped: false,
+      activeChunk: -1,
+    });
+  });
+
+  it("opens a run that would hide the caret it just placed", () => {
+    // Trailing whitespace under "trim" leaves one equal chunk covering the
+    // whole file, and a chunk that is both first and last keeps no context:
+    // the fold would hide every line, the caret's included.
+    useDiffStore.setState({ whitespace: "trim" });
+    load(before, before.replace("old", "old  "));
+
+    const state = useDiffStore.getState();
+    expect(state.differences).toBe(0);
+    expect(caretOn(state, "left")).toEqual({ line: 0, col: 0 });
+    expect(hiding("left", 0)).toEqual([]);
+    expect(hiding("right", 0)).toEqual([]);
+  });
+
+  it("opens a run that would hide the caret Swap Sides re-places", () => {
+    useDiffStore.setState({ whitespace: "trim" });
+    load(before, before.replace("old", "old  "));
+    useDiffStore.getState().swapSides();
+
+    const state = useDiffStore.getState();
+    expect(state.swapped).toBe(true);
+    expect(caretOn(state, "left")).toEqual({ line: 0, col: 0 });
+    expect(hiding("left", 0)).toEqual([]);
+  });
+
+  it("still collapses the runs no caret sits in", () => {
+    // The ordinary case: the carets open on the change, and the long
+    // unchanged run above them stays folded.
+    load(before, after);
+    expect(useDiffStore.getState().folds).toHaveLength(1);
+    expect(hiding("left", 8)).toEqual([]);
   });
 });
 

@@ -293,8 +293,14 @@ export function DiffPane({
     lines,
     charWidth,
   };
+  // The load-time reveal owns where a diff opens, and a caret exists from
+  // mount: the pane follows the caret only once it has seen it move, so a
+  // remount (switching view modes) leaves the reader where they scrolled to.
+  const followedFrom = useRef<string | null | undefined>(undefined);
   useEffect(() => {
-    if (caretKey === null) return;
+    const previous = followedFrom.current;
+    followedFrom.current = caretKey;
+    if (caretKey === null || previous === undefined) return;
     const {
       folds: hidden,
       side: own,

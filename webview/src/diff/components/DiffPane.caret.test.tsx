@@ -194,14 +194,46 @@ describe("DiffPane read-only caret", () => {
       />
     );
     const { rerender } = render(pane({ line: 1, col: 0 }));
-    expect(onRevealX).toHaveBeenLastCalledWith(
-      PANE_TEXT_PADDING,
-      PANE_TEXT_PADDING + 2,
-    );
+    // The caret it opened with is where the surface put it; nothing to chase.
+    expect(onRevealX).not.toHaveBeenCalled();
     // End on a line wider than the pane, as the store reports it back.
     rerender(pane({ line: 1, col: 400 }));
     const x = PANE_TEXT_PADDING + 400 * CELL;
     expect(onRevealX).toHaveBeenLastCalledWith(x, x + 2);
+  });
+
+  it("leaves the view alone when it remounts around a caret already there", () => {
+    // The split and unified views are alternatives of one ternary, so
+    // switching between them unmounts and remounts the panes; the reader's
+    // scroll position has to survive that.
+    const onRevealRow = vi.fn();
+    const many = Array.from({ length: 60 }, (_, i) => `line ${i}`);
+    const same = computeChunks(`${many.join("\n")}\n`, `${many.join("\n")}\n`);
+    const pane = (caret: { line: number; col: number }) => (
+      <DiffPane
+        side="left"
+        lines={many}
+        counterpart={many}
+        chunks={same}
+        language="typescript"
+        granularity="word"
+        offset={40}
+        visibleLines={10}
+        caret={caret}
+        onPlaceCaret={() => {}}
+        onRevealRow={onRevealRow}
+      />
+    );
+    // Mounted with the caret far above the scrolled viewport.
+    const { unmount } = render(pane({ line: 2, col: 0 }));
+    expect(onRevealRow).not.toHaveBeenCalled();
+    unmount();
+    const { rerender } = render(pane({ line: 2, col: 0 }));
+    expect(onRevealRow).not.toHaveBeenCalled();
+
+    // A caret that actually moves is still followed.
+    rerender(pane({ line: 3, col: 0 }));
+    expect(onRevealRow).toHaveBeenCalledWith(0);
   });
 
   it("scrolls to a caret that moved out of view, once the viewport has a height", () => {
