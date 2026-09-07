@@ -1266,7 +1266,9 @@ export async function activate(context: vscode.ExtensionContext) {
       if (selection) await openAtCaret(absPath, selection);
       else await vscode.commands.executeCommand("vscode.open", absPath);
     } catch {
-      // Fallback for files that can't be opened in any editor
+      // Fallback for files that can't be opened in any editor. Only the open
+      // reaches here: openAtCaret keeps its own caret work to itself, so a
+      // file VS Code did show never gets handed to an external application.
       await vscode.env.openExternal(absPath);
     }
     return { success: true };

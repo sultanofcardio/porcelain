@@ -84,4 +84,59 @@ describe("openAtCaret: the caret survives the editor reloading from disk", () =>
     const active = editor?.selection.active;
     assert.deepStrictEqual([active?.line, active?.character], [44, 1]);
   });
+
+  it("leaves the selection alone when no reload arrives", async function () {
+    this.timeout(10000);
+    // Mixed line endings are normalised by VS Code, so this document can
+    // never match the bytes on disk and the settle wait can only time out.
+    lines[3] = `${lines[3]}\r`;
+    await vscode.workspace.fs.writeFile(file, encode(lines));
+    const at = new vscode.Position(44, 1);
+    const opening = openAtCaret(file, new vscode.Range(at, at), 1000);
+    await sleep(300);
+    const editor = vscode.window.activeTextEditor;
+    assert.ok(editor);
+    assert.notStrictEqual(editor.document.getText(), lines.join("\n"));
+    // The reader looks somewhere else while the wait is still running.
+    const moved = new vscode.Position(7, 2);
+    editor.selection = new vscode.Selection(moved, moved);
+    await opening;
+    await sleep(200);
+    const active = vscode.window.activeTextEditor?.selection.active;
+    assert.deepStrictEqual([active?.line, active?.character], [7, 2]);
+  });
+
+  it("leaves an editor holding unsaved edits alone", async function () {
+    this.timeout(10000);
+    await vscode.commands.executeCommand("vscode.open", file, {
+      preview: false,
+    });
+    await sleep(300);
+    const editor = vscode.window.activeTextEditor;
+    assert.ok(editor);
+    await editor.edit((edit) => {
+      edit.insert(new vscode.Position(0, 0), "unsaved ");
+    });
+    assert.ok(editor.document.isDirty);
+    const at = new vscode.Position(44, 1);
+    const opening = openAtCaret(file, new vscode.Range(at, at), 1000);
+    await sleep(300);
+    // The reader clicks elsewhere and carries on typing in the tab Edit
+    // Source just focused. No reload can come for a dirty document, so that
+    // first keystroke must not be mistaken for one.
+    const clicked = new vscode.Position(5, 0);
+    editor.selection = new vscode.Selection(clicked, clicked);
+    await editor.edit((edit) => {
+      edit.insert(clicked, "typed");
+    });
+    const typing = editor.selection.active;
+    assert.strictEqual(typing.line, 5);
+    await opening;
+    await sleep(200);
+    const active = vscode.window.activeTextEditor?.selection.active;
+    assert.deepStrictEqual(
+      [active?.line, active?.character],
+      [typing.line, typing.character],
+    );
+  });
 });

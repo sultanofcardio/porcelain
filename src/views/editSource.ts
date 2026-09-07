@@ -27,9 +27,12 @@ function isIndex(value: unknown): value is number {
  * opened. When that file is already showing in a tab, VS Code reloads the
  * document from disk asynchronously, line by line, and a selection placed
  * inside a replaced line is carried to the end of the replacement: one line
- * down, column 0. So once the document has caught up with the disk the
- * selection is placed a second time. The wait is bounded, since a document
- * whose line endings VS Code normalises never matches the disk byte for byte.
+ * down, column 0. So the selection is placed a second time, but only once the
+ * document has actually caught up with the disk: a change that is not that
+ * reload belongs to whoever made it.
+ *
+ * Only the open itself rejects. Everything after it is the caret's own
+ * business and never fails the request.
  */
 export async function openAtCaret(
   uri: vscode.Uri,
@@ -40,10 +43,30 @@ export async function openAtCaret(
     selection,
     preview: false,
   });
+  try {
+    await keepCaret(uri, selection, settleMs);
+  } catch (error) {
+    console.error("[porcelain] keeping the Edit Source caret failed:", error);
+  }
+}
+
+async function keepCaret(
+  uri: vscode.Uri,
+  selection: vscode.Range,
+  settleMs: number,
+): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor || editor.document.uri.toString() !== uri.toString()) return;
   const { document } = editor;
-  if (!(await matchesDisk(document))) await nextChange(document, settleMs);
+  // Unsaved edits in the native tab: VS Code will not replace them with the
+  // disk, so there is no reload coming and nothing to place a second time.
+  if (document.isDirty) return;
+  const onDisk = await readText(uri);
+  if (onDisk === null || onDisk === document.getText()) return;
+  // A document whose line endings VS Code normalises never matches the disk
+  // byte for byte, so the wait can time out with no reload having happened.
+  // Then the selection is whatever the reader last made it: leave it be.
+  if (!(await reloadedFrom(document, onDisk, settleMs))) return;
   editor.selection = new vscode.Selection(selection.start, selection.end);
   editor.revealRange(
     selection,
@@ -51,29 +74,36 @@ export async function openAtCaret(
   );
 }
 
-async function matchesDisk(document: vscode.TextDocument): Promise<boolean> {
+async function readText(uri: vscode.Uri): Promise<string | null> {
   try {
-    const bytes = await vscode.workspace.fs.readFile(document.uri);
-    return new TextDecoder().decode(bytes) === document.getText();
+    return new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
   } catch {
-    // Unreadable means nothing to wait for.
-    return true;
+    // Unreadable means nothing to compare against.
+    return null;
   }
 }
 
-function nextChange(
+/**
+ * Resolve true once `document` holds `onDisk`, false if that has not happened
+ * within `timeoutMs`. Changes that leave the document short of the disk text
+ * are steps of a reload still in flight, or edits of the reader's own; either
+ * way the wait continues.
+ */
+function reloadedFrom(
   document: vscode.TextDocument,
+  onDisk: string,
   timeoutMs: number,
-): Promise<void> {
+): Promise<boolean> {
   return new Promise((resolve) => {
-    const done = () => {
+    const done = (reloaded: boolean) => {
       clearTimeout(timer);
       listener.dispose();
-      resolve();
+      resolve(reloaded);
     };
     const listener = vscode.workspace.onDidChangeTextDocument((event) => {
-      if (event.document === document) done();
+      if (event.document !== document) return;
+      if (event.document.getText() === onDisk) done(true);
     });
-    const timer = setTimeout(done, timeoutMs);
+    const timer = setTimeout(() => done(false), timeoutMs);
   });
 }
