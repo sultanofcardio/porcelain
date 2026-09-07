@@ -587,7 +587,12 @@ export function firstChangeLine(
  * The line on the other side that corresponds to `line` on `side`.
  *
  * Inside an equal chunk the two sides pair line for line, so the twin is
- * exact and the column carries over. Inside a changed chunk there is no
+ * exact and the column carries over - except where a whitespace policy left
+ * the run uneven (see `computeFolds`), and the surplus lines past the end of
+ * the shorter side land on its last line with the column dropped, since
+ * there is no line of their own to pair with.
+ *
+ * Inside a changed chunk there is no
  * pairing to speak of: the twin is the chunk's first line on the other side
  * (or, when the other side contributes nothing, the line the change sits in
  * front of), and the caller should drop the column. Past the last chunk the
@@ -604,7 +609,14 @@ export function counterpartLine(
     if (line >= own.start + own.count) continue;
     if (line < own.start) break;
     if (chunk.kind === "equal") {
-      return { line: other.start + (line - own.start), exact: true };
+      const offset = line - own.start;
+      if (offset < other.count) {
+        return { line: other.start + offset, exact: true };
+      }
+      return {
+        line: other.start + Math.max(0, other.count - 1),
+        exact: false,
+      };
     }
     return { line: other.start, exact: false };
   }

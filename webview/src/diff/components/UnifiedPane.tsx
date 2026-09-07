@@ -17,7 +17,7 @@ import {
   type Piece,
   syntaxSpans,
 } from "../utils/highlight";
-import type { UnifiedRow } from "../utils/unified";
+import { type UnifiedRow, unifiedRowOf } from "../utils/unified";
 import {
   gutterMetrics,
   LINE_HEIGHT,
@@ -65,21 +65,16 @@ interface UnifiedPaneProps {
   label?: string;
 }
 
-/** The row showing `caret`, or -1. An equal row stands for both twins. */
+/**
+ * The row showing `caret`, or -1. An equal row stands for both twins, and a
+ * caret inside a collapsed run resolves to the fold row hiding it, the way
+ * the split panes draw one on their fold row.
+ */
 export function unifiedCaretRow(
   rows: readonly UnifiedRow[],
   caret: UnifiedCaret,
 ): number {
-  return rows.findIndex((row) => {
-    if (row.kind !== "line") return false;
-    if (row.side === caret.side && row.line === caret.line) return true;
-    return (
-      row.chunkKind === "equal" &&
-      caret.side === "left" &&
-      row.leftNumber !== null &&
-      row.leftNumber - 1 === caret.line
-    );
-  });
+  return unifiedRowOf(rows, caret.side, caret.line);
 }
 
 /**
@@ -122,6 +117,7 @@ export function UnifiedPane({
     [ref],
   );
   const charWidth = useCharWidth(hostRef);
+  const goalRef = useRef<number | null>(null);
   // Where a row's text starts: after both number columns and the text inset.
   const textInset = metrics.numberWidth * 2 + PANE_TEXT_PADDING;
   const textOf = useCallback(
@@ -147,6 +143,7 @@ export function UnifiedPane({
         textOf(row.side, row.line),
         Math.max(0, x / charWidth),
       );
+      goalRef.current = null;
       onPlaceCaret(row.side, { line: row.line, col });
     },
     [onPlaceCaret, offset, rows, textInset, charWidth, textOf],
@@ -162,8 +159,11 @@ export function UnifiedPane({
       const text = textOf(caret.side, caret.line);
       const lines = caret.side === "left" ? leftLines : rightLines;
       // Vertical moves walk rows, not lines: the next row may belong to the
-      // other document, and the caret follows it there.
-      const toRow = (delta: number) => {
+      // other document, and the caret follows it there. The goal column is
+      // sticky across consecutive moves, so a short line on the way does not
+      // pull the caret in for good.
+      const toRow = (delta: number): number => {
+        const goal = goalRef.current ?? visualCol(text, caret.col);
         let index = caretRow;
         const step = delta < 0 ? -1 : 1;
         for (let n = Math.abs(delta); n > 0; ) {
@@ -173,15 +173,16 @@ export function UnifiedPane({
           if (rows[index].kind === "line") n--;
         }
         const row = rows[index];
-        if (row.kind !== "line") return;
-        const goal = visualCol(text, caret.col);
+        if (row.kind !== "line") return goal;
         const target = textOf(row.side, row.line);
         onPlaceCaret(row.side, {
           line: row.line,
           col: colAtVisual(target, goal),
         });
+        return goal;
       };
       let next: Position | null = null;
+      let goal: number | null = null;
       switch (event.key) {
         case "ArrowLeft":
         case "ArrowRight": {
@@ -197,11 +198,14 @@ export function UnifiedPane({
         }
         case "ArrowUp":
         case "ArrowDown":
-          toRow(event.key === "ArrowUp" ? -1 : 1);
+          // Alt+ArrowUp/Down steps to the previous or next file; that
+          // binding lives on the window, so the key has to reach it.
+          if (event.altKey) return;
+          goal = toRow(event.key === "ArrowUp" ? -1 : 1);
           break;
         case "PageUp":
         case "PageDown":
-          toRow(
+          goal = toRow(
             (event.key === "PageUp" ? -1 : 1) * Math.max(1, visibleLines - 2),
           );
           break;
@@ -214,6 +218,7 @@ export function UnifiedPane({
         default:
           return;
       }
+      goalRef.current = goal;
       event.preventDefault();
       event.stopPropagation();
       if (next) onPlaceCaret(caret.side, next);

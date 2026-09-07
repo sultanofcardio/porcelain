@@ -81,3 +81,28 @@ describe("counterpartLine", () => {
     expect(counterpartLine([], "left", 7)).toEqual({ line: 7, exact: true });
   });
 });
+
+describe("counterpartLine across an uneven equal run", () => {
+  // Under "ignore-empty" a blank line one side has and the other lacks stays
+  // inside the equal chunk, leaving its two spans different lengths.
+  const chunks = computeChunks(text("a", "", "b"), text("a", "b"), {
+    whitespace: "ignore-empty",
+  });
+
+  it("is the run the policy leaves uneven", () => {
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].kind).toBe("equal");
+    expect(chunks[0].left.count).not.toBe(chunks[0].right.count);
+  });
+
+  it("keeps a surplus line inside the shorter side, and drops the column", () => {
+    expect(counterpartLine(chunks, "left", 2)).toEqual({
+      line: 1,
+      exact: false,
+    });
+    expect(counterpartLine(chunks, "left", 1)).toEqual({
+      line: 1,
+      exact: true,
+    });
+  });
+});

@@ -164,3 +164,112 @@ describe("UnifiedPane horizontal scrolling", () => {
     expect(seen).toEqual([48]);
   });
 });
+
+describe("UnifiedPane caret", () => {
+  afterEach(cleanup);
+
+  // Two long unchanged runs around one edit, so the middle folds by default.
+  const many = Array.from({ length: 40 }, (_, i) => `line ${i}`);
+  const changed = many.map((value, i) => (i === 30 ? "changed" : value));
+  const leftText = lines(...many);
+  const rightText = lines(...changed);
+
+  function renderFolded(
+    overrides: Partial<Parameters<typeof UnifiedPane>[0]> = {},
+  ) {
+    const chunks = computeChunks(leftText, rightText);
+    const folds = computeFolds(chunks);
+    expect(folds.length).toBeGreaterThan(0);
+    return render(
+      <UnifiedPane
+        rows={unifiedRows(chunks, folds)}
+        leftLines={splitLines(leftText)}
+        rightLines={splitLines(rightText)}
+        chunks={chunks}
+        language="plaintext"
+        granularity="word"
+        offset={0}
+        visibleLines={40}
+        {...overrides}
+      />,
+    );
+  }
+
+  it("draws a caret hidden inside a fold on the fold's own row, and still walks", () => {
+    const onPlaceCaret = vi.fn();
+    const { container } = renderFolded({
+      caret: { side: "right", line: 10, col: 0 },
+      onPlaceCaret,
+    });
+    expect(container.querySelector(".diff-readonly-caret")).not.toBeNull();
+
+    const pane = container.querySelector(".diff-unified") as HTMLElement;
+    fireEvent.keyDown(pane, { key: "ArrowDown" });
+    expect(onPlaceCaret).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the goal column across vertical moves over a short line", () => {
+    const onPlaceCaret = vi.fn();
+    const text = lines("a longer line here", "short", "another long line");
+    const chunks = computeChunks(text, text);
+    const view = (line: number, col: number) => (
+      <UnifiedPane
+        rows={unifiedRows(chunks)}
+        leftLines={splitLines(text)}
+        rightLines={splitLines(text)}
+        chunks={chunks}
+        language="plaintext"
+        granularity="word"
+        offset={0}
+        visibleLines={20}
+        caret={{ side: "right", line, col }}
+        onPlaceCaret={onPlaceCaret}
+      />
+    );
+    const { container, rerender } = render(view(0, 14));
+    const pane = container.querySelector(".diff-unified") as HTMLElement;
+    // Down onto "short" clamps to its end; down again restores the goal.
+    fireEvent.keyDown(pane, { key: "ArrowDown" });
+    expect(onPlaceCaret).toHaveBeenLastCalledWith("right", {
+      line: 1,
+      col: 5,
+    });
+    rerender(view(1, 5));
+    fireEvent.keyDown(pane, { key: "ArrowDown" });
+    expect(onPlaceCaret).toHaveBeenLastCalledWith("right", {
+      line: 2,
+      col: 14,
+    });
+  });
+
+  it("lets Alt+ArrowUp/Down through to the file-stepping binding above", () => {
+    const onPlaceCaret = vi.fn();
+    const outer = vi.fn();
+    const text = lines("a", "b", "c");
+    const chunks = computeChunks(text, text);
+    const { container } = render(
+      <div onKeyDown={outer}>
+        <UnifiedPane
+          rows={unifiedRows(chunks)}
+          leftLines={splitLines(text)}
+          rightLines={splitLines(text)}
+          chunks={chunks}
+          language="plaintext"
+          granularity="word"
+          offset={0}
+          visibleLines={20}
+          caret={{ side: "right", line: 1, col: 0 }}
+          onPlaceCaret={onPlaceCaret}
+        />
+      </div>,
+    );
+    const pane = container.querySelector(".diff-unified") as HTMLElement;
+    fireEvent.keyDown(pane, { key: "ArrowDown", altKey: true });
+    fireEvent.keyDown(pane, { key: "ArrowUp", altKey: true });
+    expect(onPlaceCaret).not.toHaveBeenCalled();
+    expect(outer).toHaveBeenCalledTimes(2);
+    expect(outer.mock.calls.every(([event]) => !event.defaultPrevented)).toBe(
+      true,
+    );
+  });
+});

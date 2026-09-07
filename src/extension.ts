@@ -1259,20 +1259,15 @@ export async function activate(context: vscode.ExtensionContext) {
       : vscode.Uri.file(filePath);
     // A caret from the diff surface lands the native editor on the same
     // line and column, the way Edit Source from a native diff tab does.
+    // The built-in open command still picks the editor, so a file with a
+    // custom default editor (a notebook) keeps opening in it.
     const selection = caretSelection(params);
-    if (selection) {
-      try {
-        await vscode.window.showTextDocument(absPath, {
-          selection,
-          preview: false,
-        });
-        return { success: true };
-      } catch {
-        // Not a text document; open it the general way below.
-      }
-    }
     try {
-      await vscode.commands.executeCommand("vscode.open", absPath);
+      await vscode.commands.executeCommand(
+        "vscode.open",
+        absPath,
+        selection ? { selection, preview: false } : undefined,
+      );
     } catch {
       // Fallback for files that can't be opened in any editor
       await vscode.env.openExternal(absPath);

@@ -142,6 +142,65 @@ describe("DiffPane read-only caret", () => {
     expect(outer).not.toHaveBeenCalled();
   });
 
+  it("lets Alt+ArrowUp/Down through to the file-stepping binding above", () => {
+    const onPlaceCaret = vi.fn();
+    const outer = vi.fn();
+    const { container } = render(
+      <div onKeyDown={outer}>
+        <DiffPane
+          side="left"
+          lines={left}
+          counterpart={right}
+          chunks={chunks}
+          language="typescript"
+          granularity="word"
+          offset={0}
+          visibleLines={10}
+          caret={{ line: 2, col: 2 }}
+          onPlaceCaret={onPlaceCaret}
+        />
+      </div>,
+    );
+    const pane = container.querySelector(".diff-pane") as HTMLElement;
+    fireEvent.keyDown(pane, { key: "ArrowDown", altKey: true });
+    fireEvent.keyDown(pane, { key: "ArrowUp", altKey: true });
+    expect(onPlaceCaret).not.toHaveBeenCalled();
+    expect(outer).toHaveBeenCalledTimes(2);
+    expect(outer.mock.calls.every(([event]) => !event.defaultPrevented)).toBe(
+      true,
+    );
+  });
+
+  it("scrolls sideways to a caret past the right edge of the pane", () => {
+    const onRevealX = vi.fn();
+    const wide = ["short", "x".repeat(400)];
+    const same = computeChunks(`${wide.join("\n")}\n`, `${wide.join("\n")}\n`);
+    const pane = (caret: { line: number; col: number }) => (
+      <DiffPane
+        side="left"
+        lines={wide}
+        counterpart={wide}
+        chunks={same}
+        language="typescript"
+        granularity="word"
+        offset={0}
+        visibleLines={10}
+        caret={caret}
+        onPlaceCaret={() => {}}
+        onRevealX={onRevealX}
+      />
+    );
+    const { rerender } = render(pane({ line: 1, col: 0 }));
+    expect(onRevealX).toHaveBeenLastCalledWith(
+      PANE_TEXT_PADDING,
+      PANE_TEXT_PADDING + 2,
+    );
+    // End on a line wider than the pane, as the store reports it back.
+    rerender(pane({ line: 1, col: 400 }));
+    const x = PANE_TEXT_PADDING + 400 * CELL;
+    expect(onRevealX).toHaveBeenLastCalledWith(x, x + 2);
+  });
+
   it("scrolls to a caret that moved out of view, once the viewport has a height", () => {
     const onRevealRow = vi.fn();
     const many = Array.from({ length: 60 }, (_, i) => `line ${i}`);

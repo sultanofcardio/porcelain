@@ -96,9 +96,14 @@ interface DiffPaneProps {
   onPlaceCaret?: (position: Position) => void;
   /** Scroll the surface so a display row sits inside the viewport. */
   onRevealRow?: (displayRow: number) => void;
+  /** Scroll the pane sideways so the content span [from, to] px is in view. */
+  onRevealX?: (from: number, to: number) => void;
   /** Accessible name for a pane that takes focus for its caret. */
   label?: string;
 }
+
+/** The drawn caret's width; matches `.diff-readonly-caret` in diff.css. */
+const CARET_WIDTH = 2;
 
 /**
  * Where a chunk lands on a side that contributes no lines to it.
@@ -147,6 +152,7 @@ export function DiffPane({
   caret = null,
   onPlaceCaret,
   onRevealRow,
+  onRevealX,
   label,
 }: DiffPaneProps) {
   const highlighter = useShiki();
@@ -222,6 +228,9 @@ export function DiffPane({
         }
         case "ArrowUp":
         case "ArrowDown": {
+          // Alt+ArrowUp/Down steps to the previous or next file; that
+          // binding lives on the window, so the key has to reach it.
+          if (event.altKey) return;
           const delta = event.key === "ArrowUp" ? -1 : 1;
           if (primary) {
             next = delta < 0 ? documentStart() : documentEnd(lines);
@@ -264,8 +273,26 @@ export function DiffPane({
   // (which changes `offset`) must not re-trigger it. Nothing happens while
   // the viewport is unmeasured; the surface reveals the first change itself.
   const caretKey = caret ? `${caret.line}:${caret.col}` : null;
-  const revealRef = useRef({ folds, side, offset, visibleLines, onRevealRow });
-  revealRef.current = { folds, side, offset, visibleLines, onRevealRow };
+  const revealRef = useRef({
+    folds,
+    side,
+    offset,
+    visibleLines,
+    onRevealRow,
+    onRevealX,
+    lines,
+    charWidth,
+  });
+  revealRef.current = {
+    folds,
+    side,
+    offset,
+    visibleLines,
+    onRevealRow,
+    onRevealX,
+    lines,
+    charWidth,
+  };
   useEffect(() => {
     if (caretKey === null) return;
     const {
@@ -274,11 +301,26 @@ export function DiffPane({
       offset: at,
       visibleLines: rows,
       onRevealRow: go,
+      onRevealX: goX,
+      lines: text,
+      charWidth: cell,
     } = revealRef.current;
-    if (!go || rows === 0) return;
-    const row = displayLine(hidden, Number(caretKey.split(":")[0]), own);
-    if (row < at + 0.5 || row > at + rows - 1.5) {
-      go(Math.max(0, row - Math.floor(rows / 2)));
+    if (rows === 0) return;
+    const [lineKey, colKey] = caretKey.split(":");
+    const caretLine = Number(lineKey);
+    if (go) {
+      const row = displayLine(hidden, caretLine, own);
+      if (row < at + 0.5 || row > at + rows - 1.5) {
+        go(Math.max(0, row - Math.floor(rows / 2)));
+      }
+    }
+    // And sideways: the caret's span in the pane's own (unscrolled) x, so
+    // End on a line wider than the pane brings the caret into view.
+    if (goX) {
+      const x =
+        PANE_TEXT_PADDING +
+        visualCol(text[caretLine] ?? "", Number(colKey)) * cell;
+      goX(x, x + CARET_WIDTH);
     }
   }, [caretKey]);
 

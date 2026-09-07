@@ -169,20 +169,24 @@ export function DiffApp() {
     });
   }, [filePath, leftPath, rightPath, leftRef, rightRef, repoId, force]);
 
+  // Resolves false only when a save was attempted and failed, so a caller
+  // that has to reach the file on disk (Edit Source) knows to stop.
   const save = useCallback(async () => {
     const state = useDiffStore.getState();
     const side = editableSide(state);
-    if (!side || !state.dirty) return;
+    if (!side || !state.dirty) return true;
     const content = side === "left" ? state.left : state.right;
     try {
       await bridge.request("writeFileContent", { filePath, content });
       useDiffStore.getState().markSaved(content);
+      return true;
     } catch (error) {
       useDiffStore
         .getState()
         .setError(
           `Save failed: ${error instanceof Error ? error.message : error}`,
         );
+      return false;
     }
   }, [filePath]);
   const saveRef = useRef(save);
@@ -667,6 +671,8 @@ export function DiffApp() {
             : (side === "left" ? source.fold.left : source.fold.right).start;
         scrollToAxis(sideToAxis(store.chunks, line, side, store.folds));
       },
+      onRevealX: (from: number, to: number) =>
+        horizontal.reveal(side, from, to),
       label: `${side === "left" ? store.leftLabel : store.rightLabel} side of ${filePath}, read-only. Arrow keys move the caret.`,
     };
   };
@@ -787,8 +793,14 @@ export function DiffApp() {
       <DiffToolbar
         onStep={step}
         onEditSource={() => {
-          const position = editSourcePosition(useDiffStore.getState());
-          void bridge.request("openFile", { filePath, ...(position ?? {}) });
+          // The caret names a line of the in-memory buffer, so unsaved edits
+          // have to reach the file before the native editor opens on it;
+          // a failed save leaves its own error up and opens nothing.
+          void saveRef.current().then((saved) => {
+            if (!saved) return;
+            const position = editSourcePosition(useDiffStore.getState());
+            void bridge.request("openFile", { filePath, ...(position ?? {}) });
+          });
         }}
         onFile={(delta) => void bridge.request("stepDiffFile", { delta })}
       />
