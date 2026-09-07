@@ -319,6 +319,26 @@ function keptCarets(
 }
 
 /**
+ * A fold derivation with every caret still visible: any run that would hide
+ * the editable cursor or a read-only caret is expanded and the derivation
+ * redone. `placeCaret` and `setCursor` keep that invariant when a caret
+ * moves; this is how it survives the fold list being rebuilt underneath one
+ * that did not.
+ */
+function deriveVisibleFolds(
+  state: Parameters<typeof derive>[0] & Parameters<typeof foldsHidingCarets>[1],
+) {
+  const derived = derive(state);
+  const hiding = foldsHidingCarets(derived.folds, state);
+  if (hiding.length === 0) {
+    return { expandedFolds: state.expandedFolds, ...derived };
+  }
+  const expandedFolds = new Set(state.expandedFolds);
+  for (const key of hiding) expandedFolds.add(key);
+  return { expandedFolds, ...derive({ ...state, expandedFolds }) };
+}
+
+/**
  * The expansion keys of the folds that would hide a caret, using the same
  * containment `placeCaret` and `setCursor` apply. A caret must never sit on
  * hidden content, so a reload that keeps carets has to reopen these runs.
@@ -346,6 +366,30 @@ function foldsHidingCarets(
     }
   }
   return keys;
+}
+
+/**
+ * The scroll position that brings one chunk into view, in whatever units the
+ * current view scrolls in: a unified row, or a position on the shared axis.
+ * Null when there is no such chunk, or the unified row list hides it whole.
+ *
+ * The one place the axis-for-a-chunk rule lives: the toolbar's stepper and
+ * the load-time reveal both read it here.
+ */
+export function chunkAxis(
+  state: Pick<DiffStoreState, "chunks" | "folds" | "viewMode">,
+  index: number,
+): number | null {
+  const { chunks, folds, viewMode } = state;
+  const chunk = chunks[index];
+  if (!chunk) return null;
+  if (viewMode === "unified") {
+    const row = unifiedChunkRow(unifiedRows(chunks, folds), index);
+    return row >= 0 ? row : null;
+  }
+  const side = chunk.right.count > 0 ? "right" : "left";
+  const span = side === "right" ? chunk.right : chunk.left;
+  return sideToAxis(chunks, span.start, side, folds);
 }
 
 /** The caret of one pane, whichever kind it is. */
@@ -695,25 +739,15 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         carets ? state.expandedFolds : undefined,
       );
       const next = { ...state, ...meta, ...text, expandedFolds };
-      let derived = derive(next);
-      if (carets) {
-        // The text may have moved under the kept carets, so a run that was
-        // open before can come back collapsed around one.
-        const hiding = foldsHidingCarets(derived.folds, {
-          leftRef,
-          rightRef,
-          ...carets,
-        });
-        if (hiding.length > 0) {
-          for (const key of hiding) expandedFolds.add(key);
-          derived = derive({ ...next, expandedFolds });
-        }
-      }
+      // The text may have moved under the kept carets, so a run that was open
+      // before can come back collapsed around one.
+      const derived = carets
+        ? deriveVisibleFolds({ ...next, ...carets })
+        : { expandedFolds, ...derive(next) };
       return {
         ...meta,
         ...text,
         ...editing,
-        expandedFolds,
         ...derived,
         ...(carets ??
           initialCarets(derived.chunks, text, editable, kind === "text")),
@@ -891,7 +925,7 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
     set((state) => ({
       whitespace,
       activeChunk: -1,
-      ...derive({ ...state, whitespace }),
+      ...deriveVisibleFolds({ ...state, whitespace }),
     })),
 
   setGranularity: (granularity) => set({ granularity }),
@@ -902,29 +936,36 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
     set((state) => {
       const collapseUnchanged = !state.collapseUnchanged;
       // Turning collapsing back on re-collapses everything: the toggle reads
-      // as "collapse unchanged", not "restore my expansion history".
+      // as "collapse unchanged", not "restore my expansion history". The runs
+      // holding a caret stay open, since no caret may sit on hidden content.
       const expandedFolds = new Set<number>();
       return {
         collapseUnchanged,
-        expandedFolds,
-        ...derive({ ...state, collapseUnchanged, expandedFolds }),
+        ...deriveVisibleFolds({ ...state, collapseUnchanged, expandedFolds }),
       };
     }),
 
   setCollapsed: (collapsed) =>
     set((state) => {
       // Collapsing forgets expansion history either way: "collapse" means
-      // everything, and expanded-all needs no per-fold bookkeeping.
+      // everything, and expanded-all needs no per-fold bookkeeping. The runs
+      // holding a caret are the one exception, as above.
       const expandedFolds = new Set<number>();
       return {
         collapseUnchanged: collapsed,
-        expandedFolds,
-        ...derive({ ...state, collapseUnchanged: collapsed, expandedFolds }),
+        ...deriveVisibleFolds({
+          ...state,
+          collapseUnchanged: collapsed,
+          expandedFolds,
+        }),
       };
     }),
 
   setContextLines: (contextLines) =>
-    set((state) => ({ contextLines, ...derive({ ...state, contextLines }) })),
+    set((state) => ({
+      contextLines,
+      ...deriveVisibleFolds({ ...state, contextLines }),
+    })),
 
   setViewMode: (viewMode) => set({ viewMode }),
 
@@ -1012,16 +1053,8 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
   // stepper, the find bar) just scroll to what they are told and never learn
   // which view is up.
   activeChunkAxis: () => {
-    const { chunks, folds, activeChunk, viewMode } = get();
-    const chunk = chunks[activeChunk];
-    if (!chunk) return null;
-    if (viewMode === "unified") {
-      const row = unifiedChunkRow(unifiedRows(chunks, folds), activeChunk);
-      return row >= 0 ? row : null;
-    }
-    const side = chunk.right.count > 0 ? "right" : "left";
-    const span = side === "right" ? chunk.right : chunk.left;
-    return sideToAxis(chunks, span.start, side, folds);
+    const state = get();
+    return chunkAxis(state, state.activeChunk);
   },
 
   openFind: () =>

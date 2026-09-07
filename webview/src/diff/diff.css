@@ -560,7 +560,8 @@ button.diff-menu-step:focus-visible {
 }
 /* A pane that carries a caret takes focus for its keys; the ring matches the
    viewport's, so keyboard users see the same shape wherever focus lands. */
-.diff-pane:focus-visible {
+.diff-pane:focus-visible,
+.diff-unified:focus-visible {
   outline: 1px solid var(--vscode-focusBorder, #4d9de0);
   outline-offset: -1px;
 }

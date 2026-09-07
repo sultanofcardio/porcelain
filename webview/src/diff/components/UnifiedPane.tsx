@@ -167,7 +167,12 @@ export function UnifiedPane({
     [onPlaceCaret, offset, rows, textInset, charWidth, leftLines, rightLines],
   );
 
-  const caretRow = caret ? unifiedCaretRow(rows, caret) : -1;
+  // Scanning the row list is O(rows), and the pane re-renders on every
+  // scroll event: the caret's identity is the only thing that moves it.
+  const caretRow = useMemo(
+    () => (caret ? unifiedCaretRow(rows, caret) : -1),
+    [rows, caret],
+  );
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {

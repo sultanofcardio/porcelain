@@ -15,6 +15,7 @@ import {
 import { useHorizontalScroll } from "../shared/hooks/useHorizontalScroll";
 import {
   caretOn,
+  chunkAxis,
   editableSide,
   editSourcePosition,
   useDiffStore,
@@ -50,11 +51,7 @@ import {
   splitLines,
   stallLift,
 } from "./utils/diff-model";
-import {
-  unifiedChunkRow,
-  unifiedRows,
-  unifiedStripeMarks,
-} from "./utils/unified";
+import { unifiedRows, unifiedStripeMarks } from "./utils/unified";
 import "./diff.css";
 
 /**
@@ -456,17 +453,13 @@ export function DiffApp() {
     const key = `${filePath}|${store.leftRef}|${store.rightRef}|${reloadNonce}`;
     if (revealedFor.current === key) return;
     revealedFor.current = key;
-    const { chunks, folds, viewMode } = useDiffStore.getState();
-    const first = chunks.findIndex((chunk) => chunk.kind !== "equal");
+    const state = useDiffStore.getState();
+    const first = state.chunks.findIndex((chunk) => chunk.kind !== "equal");
     if (first < 0) return;
-    const chunk = chunks[first];
-    const side = chunk.right.count > 0 ? "right" : "left";
-    const span = side === "right" ? chunk.right : chunk.left;
-    const target =
-      viewMode === "unified"
-        ? unifiedChunkRow(unifiedRows(chunks, folds), first)
-        : sideToAxis(chunks, span.start, side, folds);
-    if (target > visibleLines - 2) scrollToAxis(Math.max(0, target - 2));
+    const target = chunkAxis(state, first);
+    if (target !== null && target > visibleLines - 2) {
+      scrollToAxis(Math.max(0, target - 2));
+    }
   }, [
     store.loading,
     store.fallback,

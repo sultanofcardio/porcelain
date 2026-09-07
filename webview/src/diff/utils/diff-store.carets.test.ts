@@ -5,6 +5,8 @@ import {
   editSourcePosition,
   useDiffStore,
 } from "../../shared/store/diff-store";
+import { caretAt } from "../editor/editor-model";
+import type { Side } from "./diff-model";
 
 const lines = (...values: string[]) => `${values.join("\n")}\n`;
 
@@ -143,6 +145,76 @@ describe("carets on every pane", () => {
     expect(state.cursor).toBeNull();
     expect(state.readOnlyCarets).toEqual({ left: null, right: null });
     expect(editSourcePosition(state)).toBeNull();
+  });
+});
+
+describe("folds rebuilt under a caret that did not move", () => {
+  beforeEach(() => {
+    useDiffStore.setState(pristine, true);
+    useDiffStore.setState({
+      whitespace: "none",
+      collapseUnchanged: true,
+      contextLines: 3,
+      swapped: false,
+      activeChunk: -1,
+    });
+    load(before, after);
+  });
+
+  /** The folds hiding `line` on `side`, which must always be none. */
+  const hiding = (side: Side, line: number) =>
+    useDiffStore.getState().folds.filter((fold) => {
+      const span = side === "left" ? fold.left : fold.right;
+      return line >= span.start && line < span.start + span.count;
+    });
+
+  it("keeps a read-only caret visible when the context shrinks around it", () => {
+    // Three context lines leave 5, 6 and 7 on screen above the change.
+    useDiffStore.getState().placeCaret("left", { line: 5, col: 0 });
+    expect(hiding("left", 5)).toEqual([]);
+
+    useDiffStore.getState().setContextLines(2);
+
+    expect(useDiffStore.getState().readOnlyCarets.left).toEqual({
+      line: 5,
+      col: 0,
+    });
+    expect(hiding("left", 5)).toEqual([]);
+  });
+
+  it("keeps a read-only caret visible when everything is re-collapsed", () => {
+    useDiffStore.getState().placeCaret("left", { line: 2, col: 0 });
+    expect(useDiffStore.getState().folds).toHaveLength(0);
+
+    useDiffStore.getState().setCollapsed(true);
+
+    expect(useDiffStore.getState().collapseUnchanged).toBe(true);
+    expect(hiding("left", 2)).toEqual([]);
+  });
+
+  it("keeps the editable cursor visible across the collapse toggle", () => {
+    useDiffStore.getState().setCursor(caretAt(2, 0));
+    expect(useDiffStore.getState().folds).toHaveLength(0);
+
+    useDiffStore.getState().toggleCollapseUnchanged();
+    useDiffStore.getState().toggleCollapseUnchanged();
+
+    expect(useDiffStore.getState().collapseUnchanged).toBe(true);
+    expect(useDiffStore.getState().cursor?.head).toEqual({ line: 2, col: 0 });
+    expect(hiding("right", 2)).toEqual([]);
+  });
+
+  it("keeps a caret visible when a whitespace policy re-chunks the file", () => {
+    // The only difference is trailing whitespace, so "trim" merges the two
+    // equal runs into one long one whose fold covers more than either did.
+    load(before, before.replace("old", "old  "));
+    useDiffStore.getState().placeCaret("left", { line: 5, col: 0 });
+    expect(hiding("left", 5)).toEqual([]);
+
+    useDiffStore.getState().setWhitespace("trim");
+
+    expect(useDiffStore.getState().differences).toBe(0);
+    expect(hiding("left", 5)).toEqual([]);
   });
 });
 

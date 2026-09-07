@@ -3,6 +3,7 @@ import {
   cleanup,
   fireEvent,
   render,
+  screen,
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -18,7 +19,11 @@ vi.mock("../shared/bridge", () => ({
 import { WORKING_TREE_REF } from "../shared/bridge/types";
 import { useDiffStore } from "../shared/store/diff-store";
 import { DiffApp } from "./App";
-import { gutterMetrics, PANE_TEXT_PADDING } from "./components/metrics";
+import {
+  gutterMetrics,
+  LINE_HEIGHT,
+  PANE_TEXT_PADDING,
+} from "./components/metrics";
 
 const pristine = useDiffStore.getState();
 
@@ -90,6 +95,32 @@ describe("revealing a read-only caret", () => {
     delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
     vi.unstubAllGlobals();
     mocks.request.mockReset();
+  });
+
+  it("brings a first change below the fold into view, two rows above it", async () => {
+    const changed = body.map((line, i) => (i === 100 ? "changed" : line));
+    mocks.request.mockImplementation((command: string) =>
+      command === "getDiffSides"
+        ? Promise.resolve({
+            kind: "text",
+            left: leftText,
+            right: `${changed.join("\n")}\n`,
+            filePath: "a.txt",
+            leftRef: "HEAD",
+            rightRef: WORKING_TREE_REF,
+            leftLabel: "HEAD",
+            rightLabel: "Working tree",
+            language: "plaintext",
+          })
+        : Promise.resolve(undefined),
+    );
+    render(<DiffApp />);
+    await waitFor(() => expect(useDiffStore.getState().loading).toBe(false));
+
+    const viewport = screen.getByRole("region", { name: "Diff of a.txt" });
+    await waitFor(() =>
+      expect(viewport.scrollTop).toBe((100 - 2) * LINE_HEIGHT),
+    );
   });
 
   it("scrolls the decoupled left pane itself, not the axis the right pane rides", async () => {
