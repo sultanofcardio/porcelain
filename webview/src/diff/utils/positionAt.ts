@@ -35,6 +35,24 @@ export function rowAt(
 }
 
 /**
+ * Whether a caret on display row `row` sits outside the rows the viewport is
+ * showing, so following it means scrolling.
+ *
+ * `offset` is the row drawn flush with the top, fractional only while a
+ * trackpad has left the view between two rows, so that row is fully visible
+ * and never worth scrolling to. The bottom keeps half a row of slack: a
+ * viewport is rarely a whole number of rows high, and the last row it draws
+ * can be clipped.
+ */
+export function needsReveal(
+  row: number,
+  offset: number,
+  visibleLines: number,
+): boolean {
+  return row < Math.floor(offset) || row > offset + visibleLines - 1.5;
+}
+
+/**
  * The (line, column) under a pointer, or null over a fold row.
  *
  * One geometry for every pane: the editable side's caret, the read-only

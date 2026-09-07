@@ -145,6 +145,57 @@ describe("DiffPane read-only caret", () => {
     expect(outer).not.toHaveBeenCalled();
   });
 
+  it("steps the caret over a collapsed run in both directions", () => {
+    // Two changes with a long equal run between them: the middle fold hides
+    // lines 14 to 46, with visible lines on both sides of it.
+    const many = Array.from({ length: 60 }, (_, i) => `line ${i}`);
+    const changed = many.map((l, i) => (i === 10 || i === 50 ? "changed" : l));
+    const wide = computeChunks(
+      `${many.join("\n")}\n`,
+      `${changed.join("\n")}\n`,
+    );
+    const folds = computeFolds(wide);
+    const onPlaceCaret = vi.fn();
+    const { container, rerender } = render(
+      <DiffPane
+        side="left"
+        lines={many}
+        counterpart={changed}
+        chunks={wide}
+        language="typescript"
+        granularity="word"
+        offset={0}
+        visibleLines={10}
+        folds={folds}
+        caret={{ line: 13, col: 2 }}
+        onPlaceCaret={onPlaceCaret}
+      />,
+    );
+    const pane = container.querySelector(".diff-pane") as HTMLElement;
+    // Down off the last line before the run: the first line past it, rather
+    // than the hidden line 14, which the store would open the run for.
+    fireEvent.keyDown(pane, { key: "ArrowDown" });
+    expect(onPlaceCaret).toHaveBeenLastCalledWith({ line: 47, col: 2 });
+
+    rerender(
+      <DiffPane
+        side="left"
+        lines={many}
+        counterpart={changed}
+        chunks={wide}
+        language="typescript"
+        granularity="word"
+        offset={0}
+        visibleLines={10}
+        folds={folds}
+        caret={{ line: 47, col: 2 }}
+        onPlaceCaret={onPlaceCaret}
+      />,
+    );
+    fireEvent.keyDown(pane, { key: "ArrowUp" });
+    expect(onPlaceCaret).toHaveBeenLastCalledWith({ line: 13, col: 2 });
+  });
+
   it("lets Alt+ArrowUp/Down through to the file-stepping binding above", () => {
     const onPlaceCaret = vi.fn();
     const outer = vi.fn();
@@ -234,6 +285,34 @@ describe("DiffPane read-only caret", () => {
     // A caret that actually moves is still followed.
     rerender(pane({ line: 3, col: 0 }));
     expect(onRevealRow).toHaveBeenCalledWith(0);
+  });
+
+  it("leaves the view alone for a caret on the row drawn at the top", () => {
+    const onRevealRow = vi.fn();
+    const many = Array.from({ length: 60 }, (_, i) => `line ${i}`);
+    const same = computeChunks(`${many.join("\n")}\n`, `${many.join("\n")}\n`);
+    const pane = (line: number) => (
+      <DiffPane
+        side="left"
+        lines={many}
+        counterpart={many}
+        chunks={same}
+        language="typescript"
+        granularity="word"
+        offset={40}
+        visibleLines={10}
+        caret={{ line, col: 0 }}
+        onPlaceCaret={() => {}}
+        onRevealRow={onRevealRow}
+      />
+    );
+    const { rerender } = render(pane(41));
+    // Clicking the topmost row on screen is not a reason to scroll.
+    rerender(pane(40));
+    expect(onRevealRow).not.toHaveBeenCalled();
+    // One row above it is off screen, and is followed.
+    rerender(pane(39));
+    expect(onRevealRow).toHaveBeenCalledWith(34);
   });
 
   it("scrolls to a caret that moved out of view, once the viewport has a height", () => {

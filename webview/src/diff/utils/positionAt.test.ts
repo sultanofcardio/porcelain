@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LINE_HEIGHT, PANE_TEXT_PADDING } from "../components/metrics";
-import { positionAt } from "./positionAt";
+import { needsReveal, positionAt } from "./positionAt";
 
 const lines = ["alpha", "\tbeta", "gamma"];
 const geometry = {
@@ -79,5 +79,25 @@ describe("positionAt", () => {
       line: 0,
       col: 0,
     });
+  });
+});
+
+describe("needsReveal", () => {
+  // Ten rows drawn from row 40, the state scrollToAxis leaves behind.
+  it("leaves the rows already drawn alone, top row included", () => {
+    expect(needsReveal(40, 40, 10)).toBe(false);
+    expect(needsReveal(48, 40, 10)).toBe(false);
+  });
+
+  it("asks for a row above the first drawn or past the last full one", () => {
+    expect(needsReveal(39, 40, 10)).toBe(true);
+    expect(needsReveal(49, 40, 10)).toBe(true);
+  });
+
+  it("counts a row the viewport has stopped part way through as drawn", () => {
+    // Stopped between rows 40 and 41: row 40 is clipped at the top but the
+    // reader can still see it, and scrolling to it would be a jolt.
+    expect(needsReveal(40, 40.4, 10)).toBe(false);
+    expect(needsReveal(39, 40.4, 10)).toBe(true);
   });
 });

@@ -5,7 +5,7 @@ import {
   PANE_TEXT_PADDING,
   useCharWidth,
 } from "../components/metrics";
-import { positionAt } from "../utils/positionAt";
+import { needsReveal, positionAt } from "../utils/positionAt";
 import {
   caretAt,
   comparePositions,
@@ -461,7 +461,7 @@ export function EditablePane({
     const [lineKey, colKey] = headKey.split(":");
     const headLine = Number(lineKey);
     const row = map.toDisplayRow(headLine);
-    if (row < at + 0.5 || row > at + rows - 1.5) {
+    if (needsReveal(row, at, rows)) {
       go(Math.max(0, row - Math.floor(rows / 2)));
     }
     // And sideways: the caret's span in the pane's own (unscrolled) x.

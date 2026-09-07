@@ -19,6 +19,7 @@ import {
   displayToSource,
   type FoldRegion,
   type Side,
+  stepVisibleLines,
 } from "../utils/diff-model";
 import type { FindMatch } from "../utils/find";
 import {
@@ -27,7 +28,7 @@ import {
   type Piece,
   syntaxSpans,
 } from "../utils/highlight";
-import { positionAt } from "../utils/positionAt";
+import { needsReveal, positionAt } from "../utils/positionAt";
 import {
   CARET_WIDTH,
   LINE_HEIGHT,
@@ -209,6 +210,28 @@ export function DiffPane({
       const primary = event.metaKey || event.ctrlKey;
       let next: Position;
       let goal: number | null = null;
+      // Vertical moves walk visible lines: a collapsed run is stepped over
+      // rather than opened, the way the unified view's row walk passes one.
+      // With nowhere visible left to go, the caret settles on the near edge
+      // of its own line, as it does at the document's.
+      const stepLines = (delta: number): Position => {
+        const target = stepVisibleLines(
+          folds,
+          side,
+          caret.line,
+          delta,
+          lines.length,
+        );
+        const moved = moveVertical(
+          lines,
+          caret,
+          target - caret.line,
+          goalRef.current,
+        );
+        goal = moved.goalVisual;
+        if (target !== caret.line) return moved.position;
+        return delta < 0 ? lineStart(caret) : lineEnd(lines, caret);
+      };
       switch (event.key) {
         case "ArrowLeft":
         case "ArrowRight": {
@@ -232,9 +255,7 @@ export function DiffPane({
             next = delta < 0 ? documentStart() : documentEnd(lines);
             break;
           }
-          const moved = moveVertical(lines, caret, delta, goalRef.current);
-          next = moved.position;
-          goal = moved.goalVisual;
+          next = stepLines(delta);
           break;
         }
         case "Home":
@@ -244,14 +265,11 @@ export function DiffPane({
           next = lineEnd(lines, caret);
           break;
         case "PageUp":
-        case "PageDown": {
-          const delta =
-            (event.key === "PageUp" ? -1 : 1) * Math.max(1, visibleLines - 2);
-          const moved = moveVertical(lines, caret, delta, goalRef.current);
-          next = moved.position;
-          goal = moved.goalVisual;
+        case "PageDown":
+          next = stepLines(
+            (event.key === "PageUp" ? -1 : 1) * Math.max(1, visibleLines - 2),
+          );
           break;
-        }
         default:
           return;
       }
@@ -261,7 +279,7 @@ export function DiffPane({
       event.stopPropagation();
       onPlaceCaret(next);
     },
-    [caret, onPlaceCaret, lines, visibleLines],
+    [caret, onPlaceCaret, lines, visibleLines, folds, side],
   );
 
   // Follow the caret: a move that leaves the viewport scrolls to it. Keyed
@@ -312,7 +330,7 @@ export function DiffPane({
     const caretLine = Number(lineKey);
     if (go) {
       const row = displayLine(hidden, caretLine, own);
-      if (row < at + 0.5 || row > at + rows - 1.5) {
+      if (needsReveal(row, at, rows)) {
         go(Math.max(0, row - Math.floor(rows / 2)));
       }
     }

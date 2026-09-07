@@ -17,7 +17,7 @@ import {
   type Piece,
   syntaxSpans,
 } from "../utils/highlight";
-import { positionAt, rowAt } from "../utils/positionAt";
+import { needsReveal, positionAt, rowAt } from "../utils/positionAt";
 import { type UnifiedRow, unifiedRowOf } from "../utils/unified";
 import {
   CARET_WIDTH,
@@ -285,7 +285,7 @@ export function UnifiedPane({
       textOf: read,
     } = revealRef.current;
     if (!here || count === 0 || row < 0) return;
-    if (go && (row < at + 0.5 || row > at + count - 1.5)) {
+    if (go && needsReveal(row, at, count)) {
       go(Math.max(0, row - Math.floor(count / 2)));
     }
     // And sideways, as the split panes do: the caret's span in the pane's
