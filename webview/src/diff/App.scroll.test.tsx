@@ -123,6 +123,52 @@ describe("revealing a read-only caret", () => {
     );
   });
 
+  it("stays where the reader left it when the banner reloads the same file", async () => {
+    const changed = body.map((line, i) => (i === 100 ? "changed" : line));
+    const sides = {
+      kind: "text",
+      left: leftText,
+      right: `${changed.join("\n")}\n`,
+      filePath: "a.txt",
+      leftRef: "HEAD",
+      rightRef: WORKING_TREE_REF,
+      leftLabel: "HEAD",
+      rightLabel: "Working tree",
+      language: "plaintext",
+    };
+    mocks.request.mockImplementation((command: string) =>
+      Promise.resolve(command === "getDiffSides" ? sides : undefined),
+    );
+    render(<DiffApp />);
+    await waitFor(() => expect(useDiffStore.getState().loading).toBe(false));
+
+    const viewport = screen.getByRole("region", { name: "Diff of a.txt" });
+    await waitFor(() =>
+      expect(viewport.scrollTop).toBe((100 - 2) * LINE_HEIGHT),
+    );
+
+    // The reader reads on somewhere else, then takes the banner's offer.
+    act(() => {
+      viewport.scrollTop = 40 * LINE_HEIGHT;
+      fireEvent.scroll(viewport);
+    });
+    act(() => useDiffStore.getState().setDiskChanged(true));
+    const before = mocks.request.mock.calls.filter(
+      ([command]) => command === "getDiffSides",
+    ).length;
+    fireEvent.click(screen.getByRole("button", { name: "Reload from disk" }));
+    await waitFor(() =>
+      expect(
+        mocks.request.mock.calls.filter(
+          ([command]) => command === "getDiffSides",
+        ).length,
+      ).toBe(before + 1),
+    );
+    await waitFor(() => expect(useDiffStore.getState().loading).toBe(false));
+
+    expect(viewport.scrollTop).toBe(40 * LINE_HEIGHT);
+  });
+
   it("scrolls the decoupled left pane itself, not the axis the right pane rides", async () => {
     render(<DiffApp />);
     await waitFor(() => expect(useDiffStore.getState().loading).toBe(false));

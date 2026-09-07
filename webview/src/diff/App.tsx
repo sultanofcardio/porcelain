@@ -445,12 +445,13 @@ export function DiffApp() {
 
   // A diff opens on its first change, where the carets start: once the
   // viewport has a height, a first difference below the fold scrolls into
-  // view the way the stepper would bring it. Once per loaded content: a
-  // quiet disk refresh keeps the view where it is.
+  // view the way the stepper would bring it. Once per document, so that a
+  // reload of the one on screen, quiet or asked for at the banner, keeps the
+  // view where it is, the way it keeps the carets where they are.
   const revealedFor = useRef<string | null>(null);
   useEffect(() => {
     if (store.loading || store.fallback || visibleLines === 0) return;
-    const key = `${filePath}|${store.leftRef}|${store.rightRef}|${reloadNonce}`;
+    const key = `${filePath}|${store.leftRef}|${store.rightRef}`;
     if (revealedFor.current === key) return;
     revealedFor.current = key;
     const state = useDiffStore.getState();
@@ -467,7 +468,6 @@ export function DiffApp() {
     store.rightRef,
     visibleLines,
     filePath,
-    reloadNonce,
     scrollToAxis,
   ]);
 

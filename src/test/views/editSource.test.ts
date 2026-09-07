@@ -106,6 +106,34 @@ describe("openAtCaret: the caret survives the editor reloading from disk", () =>
     assert.deepStrictEqual([active?.line, active?.character], [7, 2]);
   });
 
+  it("places the caret a reload displaced before the check", async function () {
+    this.timeout(10000);
+    // The tab is showing the file the save already wrote, so the reload has
+    // nothing left to do by the time the caret work runs: it landed inside
+    // the open, after the selection went in, and carried it a line down.
+    // The listener stands in for that displacement, which is the only part
+    // of a reload that is a matter of timing rather than of content.
+    await vscode.commands.executeCommand("vscode.open", file, {
+      preview: false,
+    });
+    await sleep(300);
+    const at = new vscode.Position(44, 1);
+    const displaced = new vscode.Position(45, 0);
+    const carry = vscode.window.onDidChangeTextEditorSelection((event) => {
+      if (event.selections[0]?.active.line !== at.line) return;
+      carry.dispose();
+      event.textEditor.selection = new vscode.Selection(displaced, displaced);
+    });
+    try {
+      await openAtCaret(file, new vscode.Range(at, at), 1000);
+    } finally {
+      carry.dispose();
+    }
+    await sleep(200);
+    const active = vscode.window.activeTextEditor?.selection.active;
+    assert.deepStrictEqual([active?.line, active?.character], [44, 1]);
+  });
+
   it("leaves an editor holding unsaved edits alone", async function () {
     this.timeout(10000);
     await vscode.commands.executeCommand("vscode.open", file, {
