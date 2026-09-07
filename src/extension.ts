@@ -54,7 +54,7 @@ import {
 import { DiffEditorManager } from "./views/diffEditorManager";
 import { DiffViewerManager, refLabel } from "./views/diffViewerManager";
 import { DiffWindow } from "./views/diffWindow";
-import { caretSelection } from "./views/editSource";
+import { caretSelection, openAtCaret } from "./views/editSource";
 import {
   GitContentProvider,
   PORCELAIN_SCHEME,
@@ -1263,11 +1263,8 @@ export async function activate(context: vscode.ExtensionContext) {
     // custom default editor (a notebook) keeps opening in it.
     const selection = caretSelection(params);
     try {
-      await vscode.commands.executeCommand(
-        "vscode.open",
-        absPath,
-        selection ? { selection, preview: false } : undefined,
-      );
+      if (selection) await openAtCaret(absPath, selection);
+      else await vscode.commands.executeCommand("vscode.open", absPath);
     } catch {
       // Fallback for files that can't be opened in any editor
       await vscode.env.openExternal(absPath);
