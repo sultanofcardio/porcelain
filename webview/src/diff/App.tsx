@@ -448,7 +448,7 @@ export function DiffApp() {
 
   // A diff opens on its first change, where the carets start: once the
   // viewport has a height, a first difference below the fold scrolls into
-  // view the way the stepper would bring it. Once per loaded content — a
+  // view the way the stepper would bring it. Once per loaded content: a
   // quiet disk refresh keeps the view where it is.
   const revealedFor = useRef<string | null>(null);
   useEffect(() => {
@@ -915,7 +915,9 @@ export function DiffApp() {
                   }
                   onRevealRow={scrollToAxis}
                   onRevealX={(from, to) =>
-                    horizontal.reveal(scrollOwner, from, to)
+                    // The parked number columns are not somewhere the caret
+                    // can be seen, so they do not count as in view.
+                    horizontal.reveal(scrollOwner, from, to, numberColumns)
                   }
                   label={`Unified diff of ${filePath}, read-only. Arrow keys move the caret.`}
                 />

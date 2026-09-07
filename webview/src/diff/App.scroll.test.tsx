@@ -1,4 +1,10 @@
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -12,11 +18,16 @@ vi.mock("../shared/bridge", () => ({
 import { WORKING_TREE_REF } from "../shared/bridge/types";
 import { useDiffStore } from "../shared/store/diff-store";
 import { DiffApp } from "./App";
+import { gutterMetrics, PANE_TEXT_PADDING } from "./components/metrics";
 
 const pristine = useDiffStore.getState();
 
-// Long enough that a caret can walk well past the bottom of the viewport.
-const body = Array.from({ length: 200 }, (_, i) => `line ${i}`);
+// Long enough that a caret can walk well past the bottom of the viewport,
+// with one line wide enough that it walks off the right edge too.
+const WIDE = "x".repeat(400);
+const body = Array.from({ length: 200 }, (_, i) =>
+  i === 2 ? WIDE : `line ${i}`,
+);
 const leftText = `${body.join("\n")}\n`;
 const rightText = `${body.map((l, i) => (i === 5 ? "changed" : l)).join("\n")}\n`;
 
@@ -43,6 +54,10 @@ describe("revealing a read-only caret", () => {
     Object.defineProperty(HTMLElement.prototype, "clientHeight", {
       configurable: true,
       value: 400,
+    });
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      value: 500,
     });
     const root = document.createElement("div");
     root.id = "root";
@@ -72,6 +87,7 @@ describe("revealing a read-only caret", () => {
     cleanup();
     document.getElementById("root")?.remove();
     delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+    delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
     vi.unstubAllGlobals();
     mocks.request.mockReset();
   });
@@ -94,5 +110,30 @@ describe("revealing a read-only caret", () => {
 
     await waitFor(() => expect(firstLineOf(leftPane)).toBeGreaterThan(100));
     expect(firstLineOf(rightPane)).toBe(rightBefore);
+  });
+
+  it("clears the unified view's parked number columns when it scrolls back", async () => {
+    render(<DiffApp />);
+    await waitFor(() => expect(useDiffStore.getState().loading).toBe(false));
+    act(() => useDiffStore.getState().setViewMode("unified"));
+
+    const pane = document.querySelector(".diff-unified") as HTMLElement;
+    const numberColumns = gutterMetrics(body.length).numberWidth * 2;
+    // Out to the end of the wide line, then back to its start.
+    act(() =>
+      useDiffStore.getState().placeCaret("right", { line: 2, col: 400 }),
+    );
+    expect(pane.scrollLeft).toBeGreaterThan(0);
+    act(() => useDiffStore.getState().placeCaret("right", { line: 2, col: 0 }));
+
+    // The caret sits at the text inset, which has to clear the columns
+    // parked over the pane's left edge.
+    expect(pane.scrollLeft + numberColumns).toBeLessThanOrEqual(
+      numberColumns + PANE_TEXT_PADDING,
+    );
+    // The pane reports its new position the way the browser does, and the
+    // caret is drawn again rather than hidden behind the numbers.
+    fireEvent.scroll(pane);
+    expect(document.querySelector(".diff-readonly-caret")).not.toBeNull();
   });
 });

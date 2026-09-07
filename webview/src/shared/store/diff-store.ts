@@ -142,7 +142,7 @@ export interface DiffStoreState {
    * its entry here stays null.
    */
   readOnlyCarets: Record<Side, Position | null>;
-  /** The pane clicked or keyed last — whose caret Edit Source hands over. */
+  /** The pane clicked or keyed last: whose caret Edit Source hands over. */
   activePane: Side | null;
   /** Put a pane's caret somewhere, and make that pane the active one. */
   placeCaret: (side: Side, position: Position) => void;
@@ -316,6 +316,36 @@ function keptCarets(
     readOnlyCarets: { left: keep("left"), right: keep("right") },
     activePane: state.activePane,
   };
+}
+
+/**
+ * The expansion keys of the folds that would hide a caret, using the same
+ * containment `placeCaret` and `setCursor` apply. A caret must never sit on
+ * hidden content, so a reload that keeps carets has to reopen these runs.
+ */
+function foldsHidingCarets(
+  folds: readonly FoldRegion[],
+  state: Pick<
+    DiffStoreState,
+    "leftRef" | "rightRef" | "cursor" | "readOnlyCarets"
+  >,
+): number[] {
+  const keys: number[] = [];
+  for (const fold of folds) {
+    for (const side of ["left", "right"] as const) {
+      const caret = caretOn(state, side);
+      if (!caret) continue;
+      const hidden = side === "left" ? fold.left : fold.right;
+      if (
+        caret.line >= hidden.start &&
+        caret.line < hidden.start + hidden.count
+      ) {
+        keys.push(fold.left.start);
+        break;
+      }
+    }
+  }
+  return keys;
 }
 
 /** The caret of one pane, whichever kind it is. */
@@ -622,9 +652,6 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         // Fresh content arrives unswapped — a reload after Swap Sides must
         // not leave the flag lying about what the panes show.
         swapped: false,
-        // New content, new folds: what was expanded in the old diff has no
-        // meaning in this one.
-        expandedFolds: new Set<number>(),
       };
       const text =
         kind === "text"
@@ -652,10 +679,10 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
             : null,
         diskChanged: false,
       };
-      const next = { ...state, ...meta, ...text };
-      const derived = derive(next);
       // The same document arriving again is a refresh, not a new diff: the
-      // carets stay where they were. Anything else starts them over.
+      // carets stay where they were, and so do the runs the reader opened.
+      // Anything else starts both over: what was expanded in another diff
+      // has no meaning in this one.
       const sameDocument =
         state.filePath === filePath &&
         state.leftRef === leftRef &&
@@ -664,10 +691,29 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         kind === "text" && sameDocument
           ? keptCarets(state, text, editable)
           : null;
+      const expandedFolds = new Set<number>(
+        carets ? state.expandedFolds : undefined,
+      );
+      const next = { ...state, ...meta, ...text, expandedFolds };
+      let derived = derive(next);
+      if (carets) {
+        // The text may have moved under the kept carets, so a run that was
+        // open before can come back collapsed around one.
+        const hiding = foldsHidingCarets(derived.folds, {
+          leftRef,
+          rightRef,
+          ...carets,
+        });
+        if (hiding.length > 0) {
+          for (const key of hiding) expandedFolds.add(key);
+          derived = derive({ ...next, expandedFolds });
+        }
+      }
       return {
         ...meta,
         ...text,
         ...editing,
+        expandedFolds,
         ...derived,
         ...(carets ??
           initialCarets(derived.chunks, text, editable, kind === "text")),

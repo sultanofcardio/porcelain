@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import { caretSelection } from "../../views/editSource";
 
-describe("caretSelection — the position Edit Source hands to the native editor", () => {
+describe("caretSelection: the position Edit Source hands to the native editor", () => {
   it("builds an empty range at the caret's line and column", () => {
     const range = caretSelection({ filePath: "a.ts", line: 45, column: 26 });
     assert.ok(range);

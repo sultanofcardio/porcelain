@@ -55,6 +55,25 @@ describe("positionAt", () => {
     ).toEqual({ line: 1, col: 2 });
   });
 
+  it("counts the columns a row carries in front of its text", () => {
+    // A unified row parks two number columns before its text; a click lands
+    // in the same cell it would in a split pane, measured from the text.
+    const inset = PANE_TEXT_PADDING + 80;
+    expect(
+      positionAt(
+        { clientX: 50 + inset + 3 * 8, clientY: 100 + 3 },
+        { ...geometry, textInset: inset },
+      ),
+    ).toEqual({ line: 0, col: 3 });
+    // Anything left of the text is before its first cell.
+    expect(
+      positionAt(
+        { clientX: 50 + 4, clientY: 100 + 3 },
+        { ...geometry, textInset: inset },
+      ),
+    ).toEqual({ line: 0, col: 0 });
+  });
+
   it("has nowhere to go in an empty document", () => {
     expect(positionAt(at(0, 4), { ...geometry, lines: [] })).toEqual({
       line: 0,

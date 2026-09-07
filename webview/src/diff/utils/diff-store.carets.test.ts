@@ -8,6 +8,10 @@ import {
 
 const lines = (...values: string[]) => `${values.join("\n")}\n`;
 
+// The store is a singleton: every test starts from the state the module was
+// imported with, so nothing a previous one placed or expanded carries over.
+const pristine = useDiffStore.getState();
+
 const meta = {
   filePath: "src/app.ts",
   leftLabel: "HEAD",
@@ -59,6 +63,7 @@ const after = lines(
 
 describe("carets on every pane", () => {
   beforeEach(() => {
+    useDiffStore.setState(pristine, true);
     useDiffStore.setState({
       whitespace: "none",
       collapseUnchanged: true,
@@ -143,6 +148,7 @@ describe("carets on every pane", () => {
 
 describe("a reload of the same document", () => {
   beforeEach(() => {
+    useDiffStore.setState(pristine, true);
     useDiffStore.setState({
       whitespace: "none",
       collapseUnchanged: true,
@@ -202,10 +208,47 @@ describe("a reload of the same document", () => {
       col: 0,
     });
   });
+
+  it("keeps the runs the reader opened, so a kept caret stays visible", () => {
+    useDiffStore.getState().placeCaret("left", { line: 2, col: 0 });
+    expect(useDiffStore.getState().folds).toHaveLength(0);
+
+    load(before, after.replace("new", "newer"));
+
+    expect(useDiffStore.getState().readOnlyCarets.left).toEqual({
+      line: 2,
+      col: 0,
+    });
+    expect(useDiffStore.getState().folds).toHaveLength(0);
+  });
+
+  it("reopens a run that came back around a kept caret", () => {
+    // The run is chunk 1, so its hidden span starts three lines in: an extra
+    // changed line above it shifts that start, and with it the key the
+    // expansion was recorded under.
+    const body = Array.from({ length: 20 }, (_, i) => `body ${i}`);
+    const oneHead = (side: string) =>
+      lines(`head ${side}`, ...body, `tail ${side}`);
+    const twoHeads = (side: string) =>
+      lines(`head ${side}`, `more ${side}`, ...body, `tail ${side}`);
+    load(oneHead("left"), oneHead("right"));
+    useDiffStore.getState().placeCaret("left", { line: 10, col: 0 });
+    expect(useDiffStore.getState().folds).toHaveLength(0);
+
+    load(twoHeads("left"), twoHeads("right"));
+
+    const state = useDiffStore.getState();
+    expect(state.readOnlyCarets.left).toEqual({ line: 10, col: 0 });
+    const hiding = state.folds.filter(
+      (fold) => fold.left.start <= 10 && 10 < fold.left.start + fold.left.count,
+    );
+    expect(hiding).toEqual([]);
+  });
 });
 
 describe("editSourcePosition", () => {
   beforeEach(() => {
+    useDiffStore.setState(pristine, true);
     useDiffStore.setState({
       whitespace: "none",
       collapseUnchanged: true,

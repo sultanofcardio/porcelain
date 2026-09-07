@@ -23,8 +23,15 @@ function loadWorkingTreeDiff(left: string, right: string) {
   });
 }
 
+// A reload of the same document keeps carets and expansions on purpose, so
+// each test starts from the state the module was imported with.
+const pristine = useDiffStore.getState();
+
 describe("diff store editing", () => {
-  beforeEach(() => loadWorkingTreeDiff("a\nold\nc\n", "a\nnew\nc\n"));
+  beforeEach(() => {
+    useDiffStore.setState(pristine, true);
+    loadWorkingTreeDiff("a\nold\nc\n", "a\nnew\nc\n");
+  });
 
   it("derives which side is editable from the refs, not from state", () => {
     expect(editableSide(useDiffStore.getState())).toBe("right");

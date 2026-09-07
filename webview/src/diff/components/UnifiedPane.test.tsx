@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { computeChunks, computeFolds, splitLines } from "../utils/diff-model";
 import { unifiedRows } from "../utils/unified";
-import { gutterMetrics, PANE_TEXT_PADDING } from "./metrics";
+import { gutterMetrics, LINE_HEIGHT, PANE_TEXT_PADDING } from "./metrics";
 import { UnifiedPane } from "./UnifiedPane";
 
 const lines = (...values: string[]) => `${values.join("\n")}\n`;
@@ -240,6 +240,44 @@ describe("UnifiedPane caret", () => {
       line: 2,
       col: 14,
     });
+  });
+
+  it("places the caret on the document the clicked row belongs to", () => {
+    const onPlaceCaret = vi.fn();
+    const left = lines("same", "removed", "tail");
+    const right = lines("same", "added", "tail");
+    const chunks = computeChunks(left, right);
+    const inset = gutterMetrics(3).numberWidth * 2 + PANE_TEXT_PADDING;
+    const { container } = render(
+      <UnifiedPane
+        rows={unifiedRows(chunks)}
+        leftLines={splitLines(left)}
+        rightLines={splitLines(right)}
+        chunks={chunks}
+        language="plaintext"
+        granularity="word"
+        offset={0}
+        visibleLines={20}
+        caret={{ side: "right", line: 0, col: 0 }}
+        onPlaceCaret={onPlaceCaret}
+      />,
+    );
+    const pane = container.querySelector(".diff-unified") as HTMLElement;
+    Object.defineProperty(pane, "clientHeight", { value: 200 });
+
+    // Row 1 is the removed half of the edit, which reads from the left.
+    fireEvent.mouseDown(pane, {
+      clientX: inset + 3 * 7.2 + 1,
+      clientY: LINE_HEIGHT + 4,
+    });
+    expect(onPlaceCaret).toHaveBeenLastCalledWith("left", { line: 1, col: 3 });
+
+    // Row 2 is the added half, which reads from the right.
+    fireEvent.mouseDown(pane, {
+      clientX: inset + 2 * 7.2 + 1,
+      clientY: 2 * LINE_HEIGHT + 4,
+    });
+    expect(onPlaceCaret).toHaveBeenLastCalledWith("right", { line: 1, col: 2 });
   });
 
   it("scrolls sideways to a caret past the right edge of the pane", () => {

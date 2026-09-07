@@ -17,6 +17,7 @@ import {
   type Piece,
   syntaxSpans,
 } from "../utils/highlight";
+import { positionAt, rowAt } from "../utils/positionAt";
 import { type UnifiedRow, unifiedRowOf } from "../utils/unified";
 import {
   gutterMetrics,
@@ -146,20 +147,24 @@ export function UnifiedPane({
       if ((event.target as HTMLElement).closest("button")) return;
       const bounds = host.getBoundingClientRect();
       if (event.clientY >= bounds.top + host.clientHeight) return;
-      const index = Math.floor(
-        offset + (event.clientY - bounds.top) / LINE_HEIGHT,
-      );
-      const row = rows[Math.max(0, index)];
+      // A unified row names its own document, so the row is resolved first
+      // and the shared geometry reads the column off that side's lines.
+      const row = rows[rowAt(event, { rect: bounds, offset })];
       if (!row || row.kind !== "line") return;
-      const x = event.clientX - bounds.left - textInset + host.scrollLeft;
-      const col = colAtVisual(
-        textOf(row.side, row.line),
-        Math.max(0, x / charWidth),
-      );
+      const position = positionAt(event, {
+        rect: bounds,
+        offset,
+        scrollX: host.scrollLeft,
+        charWidth,
+        toSourceLine: () => row.line,
+        lines: row.side === "left" ? leftLines : rightLines,
+        textInset,
+      });
+      if (!position) return;
       goalRef.current = null;
-      onPlaceCaret(row.side, { line: row.line, col });
+      onPlaceCaret(row.side, position);
     },
-    [onPlaceCaret, offset, rows, textInset, charWidth, textOf],
+    [onPlaceCaret, offset, rows, textInset, charWidth, leftLines, rightLines],
   );
 
   const caretRow = caret ? unifiedCaretRow(rows, caret) : -1;
