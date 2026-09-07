@@ -96,6 +96,17 @@ describe("diff store editing", () => {
     expect(useDiffStore.getState().dirty).toBe(true);
   });
 
+  it("keeps keystrokes typed during a save dirty against what reached disk", () => {
+    // An autosave writes the buffer as it was when the timer fired; a
+    // keystroke that lands while the write is in flight is not on disk yet.
+    useDiffStore.getState().editAt(caretAt(1, 3), "!", "type");
+    const written = useDiffStore.getState().right;
+    useDiffStore.getState().editAt(caretAt(1, 4), "?", "type");
+    useDiffStore.getState().markSaved(written);
+    expect(useDiffStore.getState().dirty).toBe(true);
+    expect(useDiffStore.getState().savedText).toBe(written);
+  });
+
   it("refuses to edit a read-only surface", () => {
     useDiffStore.getState().setSides({
       kind: "text",

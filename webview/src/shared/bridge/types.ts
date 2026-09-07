@@ -66,6 +66,29 @@ export interface CommitChangesParams extends Record<string, unknown> {
  */
 export const WORKING_TREE_REF = "__porcelain_worktree__";
 
+/** VS Code's `files.autoSave` modes, as the setting spells them. */
+export type AutoSaveMode =
+  | "off"
+  | "afterDelay"
+  | "onFocusChange"
+  | "onWindowChange";
+
+/**
+ * The editor settings the diff surface honours. The host reads them once
+ * into the webview's data-* payload and again on every change, which it
+ * broadcasts as `configChanged` with this exact shape. The webview never
+ * reads settings itself.
+ */
+export interface EditorSettings {
+  autoSave: AutoSaveMode;
+  /** `files.autoSaveDelay`, in ms; only meaningful under `afterDelay`. */
+  autoSaveDelay: number;
+  /** `editor.hover.enabled` */
+  hoverEnabled: boolean;
+  /** `editor.hover.delay`, in ms. */
+  hoverDelay: number;
+}
+
 /** What both sides of a diff are, independent of what they contain. */
 export interface DiffSidesMeta {
   filePath: string;
@@ -335,7 +358,8 @@ export type EventType =
   | "rollbackPanelInit"
   | "comparePanelRefresh"
   | "activeRepoChanged"
-  | "reposChanged";
+  | "reposChanged"
+  | "configChanged";
 
 /**
  * Request scope. "repo" (default) binds the call to the active repo context;

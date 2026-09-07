@@ -2,6 +2,11 @@ import * as vscode from "vscode";
 import type { MessageRouter } from "../messages/messageRouter";
 import { shortenRef } from "./diffEditorManager";
 import {
+  affectsEditorSettings,
+  editorSettingsAttrs,
+  readEditorSettings,
+} from "./editorSettings";
+import {
   detachActiveEditor,
   getSurfacePresentation,
   openEmptyFloatingWindow,
@@ -168,11 +173,32 @@ export class DiffViewerManager {
   /** Serialises show(): two quick opens racing openEmptyFloatingWindow would
    * each open a window, and the loser's stays empty forever. */
   private pendingShow: Promise<void> = Promise.resolve();
+  /** The diff on screen: what a settings change is resolved against. */
+  private current: DiffSpec | undefined;
+  private readonly settingsListener: vscode.Disposable;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly messageRouter: MessageRouter,
-  ) {}
+  ) {
+    // The settings channel's live half. The initial values ride on the
+    // webview's data-* payload; from then on every change to a forwarded key
+    // is re-read for the open diff's file and broadcast, so flipping
+    // files.autoSave takes effect in an open diff the way it does in an open
+    // editor. Only the diff webview listens for the event.
+    this.settingsListener = vscode.workspace.onDidChangeConfiguration(
+      (event) => {
+        const spec = this.current;
+        if (!this.panel || !spec) return;
+        const scope = settingsScope(spec);
+        if (!affectsEditorSettings(event, scope)) return;
+        this.messageRouter.broadcastEvent(
+          "configChanged",
+          readEditorSettings(scope),
+        );
+      },
+    );
+  }
 
   show(spec: DiffSpec): Promise<void> {
     const run = this.pendingShow.then(() => this.showNow(spec));
@@ -181,6 +207,7 @@ export class DiffViewerManager {
   }
 
   private async showNow(spec: DiffSpec): Promise<void> {
+    this.current = spec;
     const existing = this.panel;
     if (existing) {
       existing.title = spec.title;
@@ -234,11 +261,28 @@ export class DiffViewerManager {
       "right-path": spec.rightPath,
       "left-ref": spec.leftRef,
       "right-ref": spec.rightRef,
+      ...editorSettingsAttrs(readEditorSettings(settingsScope(spec))),
     });
   }
 
   dispose(): void {
+    this.settingsListener.dispose();
     this.panel?.dispose();
     this.panel = undefined;
+    this.current = undefined;
   }
+}
+
+/**
+ * The resource the settings are resolved for: the file on disk, so a
+ * folder-level `files.autoSave` in a multi-root workspace applies to the
+ * diffs of that folder. That is the working-tree side when there is one,
+ * since it is the side autosave writes; otherwise the file the diff names.
+ */
+export function settingsScope(spec: DiffSpec): vscode.Uri {
+  const path =
+    spec.leftRef === WORKING_TREE_REF && spec.rightRef !== WORKING_TREE_REF
+      ? spec.leftPath
+      : spec.rightPath;
+  return vscode.Uri.joinPath(vscode.Uri.file(spec.repoId), path);
 }

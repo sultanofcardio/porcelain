@@ -23,13 +23,18 @@ import {
   sideToAxis,
   splitLines,
 } from "../../diff/utils/diff-model";
+import { DEFAULT_EDITOR_SETTINGS } from "../../diff/utils/editor-settings";
 import { type FindMatch, sideMatches } from "../../diff/utils/find";
 import {
   unifiedChunkRow,
   unifiedRowOf,
   unifiedRows,
 } from "../../diff/utils/unified";
-import { type DiffSidesResult, WORKING_TREE_REF } from "../bridge/types";
+import {
+  type DiffSidesResult,
+  type EditorSettings,
+  WORKING_TREE_REF,
+} from "../bridge/types";
 
 /**
  * What the viewer shows instead of text panes. `null` means an ordinary text
@@ -133,6 +138,12 @@ export interface DiffStoreState {
   savedText: string | null;
   /** The file changed on disk while there are unsaved edits. */
   diskChanged: boolean;
+  /**
+   * The VS Code settings the surface honours, as the host forwards them:
+   * seeded from the webview's data-* payload, replaced on `configChanged`.
+   */
+  settings: EditorSettings;
+  setSettings: (settings: EditorSettings) => void;
 
   /**
    * Carets on the read-only sides. Every pane carries a caret, the way
@@ -663,6 +674,8 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
   dirty: false,
   savedText: null,
   diskChanged: false,
+  settings: DEFAULT_EDITOR_SETTINGS,
+  setSettings: (settings) => set({ settings }),
   readOnlyCarets: { left: null, right: null },
   activePane: null,
 

@@ -39,6 +39,7 @@ import { RevisionHeader } from "./components/RevisionHeader";
 import { UnifiedPane } from "./components/UnifiedPane";
 import { type DisplayMapping, EditablePane } from "./editor/EditablePane";
 import type { Position } from "./editor/editor-model";
+import { useAutoSave } from "./hooks/useAutoSave";
 import { useRevealMatch } from "./hooks/useRevealMatch";
 import {
   axisToSide,
@@ -51,6 +52,10 @@ import {
   splitLines,
   stallLift,
 } from "./utils/diff-model";
+import {
+  editorSettingsFromDataset,
+  editorSettingsFromEvent,
+} from "./utils/editor-settings";
 import { unifiedRows, unifiedStripeMarks } from "./utils/unified";
 import "./diff.css";
 
@@ -188,6 +193,24 @@ export function DiffApp() {
   }, [filePath]);
   const saveRef = useRef(save);
   saveRef.current = save;
+
+  // The settings channel. The host seeds the values on the root element and
+  // broadcasts every later change; the store holds them so the header can
+  // say how the dirty dot will clear. Seeded here rather than at module
+  // load so a test can set the dataset before mounting.
+  useEffect(() => {
+    const dataset = document.getElementById("root")?.dataset ?? {};
+    useDiffStore.getState().setSettings(editorSettingsFromDataset(dataset));
+    return bridge.onEvent((event, data) => {
+      if (event !== "configChanged") return;
+      useDiffStore.getState().setSettings(editorSettingsFromEvent(data));
+    });
+  }, []);
+  const autoSave = useAutoSave(
+    store.settings.autoSave,
+    store.settings.autoSaveDelay,
+    saveRef,
+  );
 
   // Measured rather than derived, because the number of rows to render depends
   // on it.
@@ -634,6 +657,7 @@ export function DiffApp() {
         }
         onUndo={() => useDiffStore.getState().undo()}
         onRedo={() => useDiffStore.getState().redo()}
+        onBlur={autoSave.onEditorBlur}
         onRevealRow={(row) => {
           const source = displayToSource(store.folds, Math.floor(row), side);
           if (source.kind !== "line") return;

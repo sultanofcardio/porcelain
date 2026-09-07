@@ -206,7 +206,7 @@
             "Porcelain's own diff surface: paired centre gutter, curved connectors, per-side revision headers and a live difference count."
           ],
           "default": "porcelain",
-          "markdownDescription": "Which renderer shows file diffs, including diffs against the working tree and the index. On the Porcelain surface the working-tree side is editable in place — click a line to edit, `Cmd+S` saves — while historical revisions and the index stay read-only; Edit Source opens the real file at the caret, saving any unsaved edits first. Binary and oversized files show a placeholder with a way into the built-in editor."
+          "markdownDescription": "Which renderer shows file diffs, including diffs against the working tree and the index. On the Porcelain surface the working-tree side is editable in place — click a line to edit, `Cmd+S` saves and `files.autoSave` is honoured — while historical revisions and the index stay read-only; Edit Source opens the real file at the caret, saving any unsaved edits first. Binary and oversized files show a placeholder with a way into the built-in editor."
         },
         "porcelain.push.protectedBranches": {
           "type": "array",
