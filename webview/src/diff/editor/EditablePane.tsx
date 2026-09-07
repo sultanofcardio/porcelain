@@ -5,6 +5,7 @@ import {
   PANE_TEXT_PADDING,
   useCharWidth,
 } from "../components/metrics";
+import { type DisplayMapping, stepVisibleLines } from "../utils/diff-model";
 import { needsReveal, positionAt } from "../utils/positionAt";
 import {
   caretAt,
@@ -24,11 +25,7 @@ import {
   visualCol,
 } from "./editor-model";
 
-/** The row a source line renders at, and back — the pane's fold coordinate. */
-export interface DisplayMapping {
-  toDisplayRow: (line: number) => number;
-  toSourceLine: (row: number) => number | null;
-}
+export type { DisplayMapping };
 
 interface EditablePaneProps {
   lines: string[];
@@ -246,6 +243,30 @@ export function EditablePane({
       const primary = event.metaKey || event.ctrlKey;
 
       const handled = () => event.preventDefault();
+      // Vertical moves walk visible lines, as the read-only panes do: a
+      // collapsed run is stepped over rather than opened, and with nowhere
+      // visible left to go the caret settles on the near edge of its line.
+      const stepLines = (delta: number) => {
+        const target = stepVisibleLines(
+          mapping,
+          head.line,
+          delta,
+          lines.length,
+        );
+        const moved = moveVertical(
+          lines,
+          head,
+          target - head.line,
+          goalRef.current,
+        );
+        const position =
+          target !== head.line
+            ? moved.position
+            : delta < 0
+              ? lineStart(head)
+              : lineEnd(lines, head);
+        moveTo(position, extend, moved.goalVisual);
+      };
 
       if (primary && (event.key === "a" || event.key === "A")) {
         onSetCursor({ anchor: documentStart(), head: documentEnd(lines) });
@@ -284,8 +305,7 @@ export function EditablePane({
             moveTo(delta < 0 ? documentStart() : documentEnd(lines), extend);
             return handled();
           }
-          const moved = moveVertical(lines, head, delta, goalRef.current);
-          moveTo(moved.position, extend, moved.goalVisual);
+          stepLines(delta);
           return handled();
         }
         case "Home":
@@ -295,13 +315,11 @@ export function EditablePane({
           moveTo(lineEnd(lines, head), extend);
           return handled();
         case "PageUp":
-        case "PageDown": {
-          const delta =
-            (event.key === "PageUp" ? -1 : 1) * Math.max(1, visibleLines - 2);
-          const moved = moveVertical(lines, head, delta, goalRef.current);
-          moveTo(moved.position, extend, moved.goalVisual);
+        case "PageDown":
+          stepLines(
+            (event.key === "PageUp" ? -1 : 1) * Math.max(1, visibleLines - 2),
+          );
           return handled();
-        }
         case "Backspace":
         case "Delete": {
           const direction = event.key === "Backspace" ? -1 : 1;
@@ -317,7 +335,17 @@ export function EditablePane({
           return;
       }
     },
-    [cursor, lines, visibleLines, moveTo, onSetCursor, onEdit, onUndo, onRedo],
+    [
+      cursor,
+      lines,
+      visibleLines,
+      mapping,
+      moveTo,
+      onSetCursor,
+      onEdit,
+      onUndo,
+      onRedo,
+    ],
   );
 
   const onInput = useCallback(() => {

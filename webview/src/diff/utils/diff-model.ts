@@ -706,29 +706,27 @@ export function displayLineCount(
   );
 }
 
-/** The hidden span of the fold covering `line` on `side`, if one does. */
-function hiddenRunAt(
-  folds: readonly FoldRegion[],
-  side: Side,
-  line: number,
-): Span | null {
-  for (const fold of folds) {
-    const hidden = side === "left" ? fold.left : fold.right;
-    if (line >= hidden.start && line < hidden.start + hidden.count)
-      return hidden;
-  }
-  return null;
+/**
+ * A pane's fold coordinate: which display row a source line renders at, and
+ * which line a row shows, or null on a fold row standing in for a run.
+ */
+export interface DisplayMapping {
+  toDisplayRow: (line: number) => number;
+  toSourceLine: (row: number) => number | null;
 }
 
 /**
- * The line a vertical caret move lands on: `delta` visible lines from `line`
- * on `side`, with a collapsed run stepped over rather than opened, the way
- * IntelliJ's caret passes a fold and the unified view's row walk already
- * does. A move with nowhere visible to go returns `line` itself.
+ * The line a vertical caret move lands on: `delta` visible lines from `line`,
+ * with a collapsed run stepped over rather than opened, the way IntelliJ's
+ * caret passes a fold and the unified view's row walk already does. A move
+ * with nowhere visible to go returns `line` itself.
+ *
+ * The walk is in display rows, so every pane answers a vertical key the same
+ * way whatever its fold state: the read-only sides, the editable side, and
+ * the merge result, which all carry a mapping of their own.
  */
 export function stepVisibleLines(
-  folds: readonly FoldRegion[],
-  side: Side,
+  mapping: DisplayMapping,
   line: number,
   delta: number,
   lineCount: number,
@@ -736,15 +734,19 @@ export function stepVisibleLines(
   if (lineCount <= 0) return 0;
   const step = delta < 0 ? -1 : 1;
   let current = Math.max(0, Math.min(lineCount - 1, line));
+  let row = mapping.toDisplayRow(current);
   for (let n = Math.abs(delta); n > 0; n--) {
-    let candidate = current + step;
-    for (;;) {
-      const hidden = hiddenRunAt(folds, side, candidate);
-      if (!hidden) break;
-      candidate = step < 0 ? hidden.start - 1 : hidden.start + hidden.count;
+    let candidate = row + step;
+    let target: number | null = null;
+    // Rows cannot outnumber lines, so the walk past a fold row is bounded.
+    while (candidate >= 0 && candidate <= lineCount) {
+      target = mapping.toSourceLine(candidate);
+      if (target !== null) break;
+      candidate += step;
     }
-    if (candidate < 0 || candidate >= lineCount) break;
-    current = candidate;
+    if (target === null || target < 0 || target >= lineCount) break;
+    current = target;
+    row = candidate;
   }
   return current;
 }

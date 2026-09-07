@@ -8,6 +8,12 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileVersionsResult } from "../../shared/bridge/types";
 import { useMergeStore } from "../../shared/store/merge-store";
+import {
+  computeChunks,
+  computeFolds,
+  displayLine,
+  displayToSource,
+} from "../utils/diff-model";
 import { EditablePane } from "./EditablePane";
 
 /**
@@ -543,5 +549,86 @@ describe("EditablePane under horizontal scroll", () => {
     );
     caret(0, 4);
     expect(revealed.at(-1)).toEqual([10 + 4 * CELL, 10 + 4 * CELL + 2]);
+  });
+});
+
+describe("EditablePane over a collapsed run", () => {
+  afterEach(cleanup);
+
+  // The same shape the read-only panes are tested on: two changes with a
+  // long equal run between them, so one fold hides lines 14 to 46 with
+  // visible lines on both sides of it.
+  const many = Array.from({ length: 60 }, (_, i) => `line ${i}`);
+  const edited = many.map((line, i) =>
+    i === 10 || i === 50 ? "changed" : line,
+  );
+  const folds = computeFolds(
+    computeChunks(`${many.join("\n")}\n`, `${edited.join("\n")}\n`),
+  );
+  const mapping = {
+    toDisplayRow: (line: number) => displayLine(folds, line, "right"),
+    toSourceLine: (row: number) => {
+      const source = displayToSource(folds, row, "right");
+      return source.kind === "line" ? source.line : null;
+    },
+  };
+  const at = (line: number, col: number) => ({
+    anchor: { line, col },
+    head: { line, col },
+  });
+  const pane = (
+    cursor: {
+      anchor: { line: number; col: number };
+      head: { line: number; col: number };
+    },
+    onSetCursor: (selection: unknown, goal?: number | null) => void,
+  ) => (
+    <EditablePane
+      lines={edited}
+      cursor={cursor}
+      composition={null}
+      offset={0}
+      visibleLines={10}
+      mapping={mapping}
+      label="Working-tree editor"
+      onSetCursor={onSetCursor}
+      onEdit={() => {}}
+      onCompositionBegin={() => {}}
+      onCompositionUpdate={() => {}}
+      onCompositionEnd={() => {}}
+      onUndo={() => {}}
+      onRedo={() => {}}
+      onRevealRow={() => {}}
+    >
+      <div />
+    </EditablePane>
+  );
+
+  it("steps the caret over the run in both directions, as the read-only panes do", () => {
+    const onSetCursor = vi.fn();
+    const field = () =>
+      screen.getByRole("textbox", { name: "Working-tree editor" });
+    const { rerender } = render(pane(at(13, 2), onSetCursor));
+    // Down off the last line before the run: the first line past it, rather
+    // than the hidden line 14, which the store would open the run for.
+    fireEvent.keyDown(field(), { key: "ArrowDown" });
+    expect(onSetCursor).toHaveBeenLastCalledWith(at(47, 2), 2);
+
+    rerender(pane(at(47, 2), onSetCursor));
+    fireEvent.keyDown(field(), { key: "ArrowUp" });
+    expect(onSetCursor).toHaveBeenLastCalledWith(at(13, 2), 2);
+  });
+
+  it("carries the anchor over the run when the move extends a selection", () => {
+    const onSetCursor = vi.fn();
+    render(pane(at(13, 2), onSetCursor));
+    fireEvent.keyDown(
+      screen.getByRole("textbox", { name: "Working-tree editor" }),
+      { key: "ArrowDown", shiftKey: true },
+    );
+    expect(onSetCursor).toHaveBeenLastCalledWith(
+      { anchor: { line: 13, col: 2 }, head: { line: 47, col: 2 } },
+      2,
+    );
   });
 });

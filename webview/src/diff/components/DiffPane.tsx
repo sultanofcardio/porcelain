@@ -175,6 +175,13 @@ export function DiffPane({
     },
     [folds, side],
   );
+  const mapping = useMemo(
+    () => ({
+      toDisplayRow: (line: number) => displayLine(folds, line, side),
+      toSourceLine,
+    }),
+    [folds, side, toSourceLine],
+  );
 
   const onMouseDown = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -216,8 +223,7 @@ export function DiffPane({
       // of its own line, as it does at the document's.
       const stepLines = (delta: number): Position => {
         const target = stepVisibleLines(
-          folds,
-          side,
+          mapping,
           caret.line,
           delta,
           lines.length,
@@ -279,7 +285,7 @@ export function DiffPane({
       event.stopPropagation();
       onPlaceCaret(next);
     },
-    [caret, onPlaceCaret, lines, visibleLines, folds, side],
+    [caret, onPlaceCaret, lines, visibleLines, mapping],
   );
 
   // Follow the caret: a move that leaves the viewport scrolls to it. Keyed
