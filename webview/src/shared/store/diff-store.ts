@@ -1189,15 +1189,15 @@ function restoreSnapshot(
     side === "left"
       ? { left: snapshot.text, right: state.right }
       : { left: state.left, right: snapshot.text };
-  const next = { ...state, ...texts };
+  const next = { ...state, ...texts, cursor: snapshot.cursor };
   return {
     ...texts,
-    cursor: snapshot.cursor,
     goalVisual: null,
     dirty: snapshot.text !== state.savedText,
     activeChunk: -1,
-    ...derive(next),
+    ...deriveVisibleFolds(next),
     ...deriveFind(next),
+    cursor: snapshot.cursor,
   };
 }
 
@@ -1239,17 +1239,20 @@ function applyEditorEdit(
     side === "left"
       ? remapLineKeys(state.expandedFolds, splice)
       : state.expandedFolds;
-  const next = { ...state, ...texts, expandedFolds };
+  const cursor = caretAt(edit.caret.line, edit.caret.col);
+  const next = { ...state, ...texts, expandedFolds, cursor };
   return {
     ...texts,
-    expandedFolds,
-    cursor: caretAt(edit.caret.line, edit.caret.col),
     goalVisual: null,
     dirty: replaced !== state.savedText,
     // The chunk list was just rebuilt; a held index would name a stranger.
     activeChunk: -1,
-    ...derive(next),
+    // Re-chunking can fold a run over a caret that never moved, the edit's
+    // own cursor included, so the derivation answers to the same rule as
+    // every other one.
+    ...deriveVisibleFolds(next),
     ...deriveFind(next, { ...splice, side }),
+    cursor,
   };
 }
 

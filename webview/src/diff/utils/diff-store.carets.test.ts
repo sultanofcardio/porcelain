@@ -264,6 +264,62 @@ describe("carets placed as a diff opens", () => {
   });
 });
 
+describe("folds rebuilt by an edit", () => {
+  beforeEach(() => {
+    useDiffStore.setState(pristine, true);
+    useDiffStore.setState({
+      whitespace: "none",
+      collapseUnchanged: true,
+      contextLines: 3,
+      swapped: false,
+      activeChunk: -1,
+    });
+    load(before, after);
+  });
+
+  it("keeps both carets visible when the last difference is typed away", () => {
+    // Typing the change back to what HEAD holds leaves one equal chunk over
+    // the whole file, whose fold would otherwise close over both carets.
+    useDiffStore.getState().placeCaret("left", { line: 7, col: 0 });
+    expect(hiding("left", 7)).toEqual([]);
+
+    useDiffStore.getState().setCursor(caretAt(8, 0));
+    useDiffStore
+      .getState()
+      .editAt(
+        { anchor: { line: 8, col: 0 }, head: { line: 8, col: 3 } },
+        "old",
+        null,
+      );
+
+    const state = useDiffStore.getState();
+    expect(state.differences).toBe(0);
+    expect(state.readOnlyCarets.left).toEqual({ line: 7, col: 0 });
+    expect(hiding("left", 7)).toEqual([]);
+    expect(hiding("right", state.cursor?.head.line ?? 0)).toEqual([]);
+  });
+
+  it("keeps them visible across undo and redo of that edit", () => {
+    useDiffStore.getState().placeCaret("left", { line: 7, col: 0 });
+    useDiffStore.getState().setCursor(caretAt(8, 0));
+    useDiffStore
+      .getState()
+      .editAt(
+        { anchor: { line: 8, col: 0 }, head: { line: 8, col: 3 } },
+        "old",
+        null,
+      );
+    useDiffStore.getState().undo();
+    expect(useDiffStore.getState().differences).toBe(1);
+
+    useDiffStore.getState().redo();
+
+    const state = useDiffStore.getState();
+    expect(state.differences).toBe(0);
+    expect(hiding("left", 7)).toEqual([]);
+  });
+});
+
 describe("a reload of the same document", () => {
   beforeEach(() => {
     useDiffStore.setState(pristine, true);

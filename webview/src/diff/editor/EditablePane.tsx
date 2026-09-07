@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
 import {
+  CARET_WIDTH,
   LINE_HEIGHT,
   PANE_TEXT_PADDING,
   useCharWidth,
@@ -62,9 +63,6 @@ interface EditablePaneProps {
   /** The porcelain-rendered pane this editor sits over. */
   children: ReactNode;
 }
-
-/** The drawn caret's width; matches `.diff-editor-caret` in diff.css. */
-const CARET_WIDTH = 2;
 
 /**
  * The hand-built editor core's surface half: a hidden input receiver, a drawn

@@ -28,7 +28,13 @@ import {
   syntaxSpans,
 } from "../utils/highlight";
 import { positionAt } from "../utils/positionAt";
-import { LINE_HEIGHT, PANE_TEXT_PADDING, useCharWidth } from "./metrics";
+import {
+  CARET_WIDTH,
+  LINE_HEIGHT,
+  PANE_TEXT_PADDING,
+  useCharWidth,
+  useForwardedRef,
+} from "./metrics";
 
 interface DiffPaneProps {
   side: Side;
@@ -102,9 +108,6 @@ interface DiffPaneProps {
   label?: string;
 }
 
-/** The drawn caret's width; matches `.diff-readonly-caret` in diff.css. */
-const CARET_WIDTH = 2;
-
 /**
  * Where a chunk lands on a side that contributes no lines to it.
  *
@@ -160,14 +163,7 @@ export function DiffPane({
   // The pane's own element, for pointer geometry and the caret's cell width;
   // the caller's ref (the horizontal axis's handle) is forwarded alongside.
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const setHost = useCallback(
-    (node: HTMLDivElement | null) => {
-      hostRef.current = node;
-      if (typeof ref === "function") ref(node);
-      else if (ref) ref.current = node;
-    },
-    [ref],
-  );
+  const setHost = useForwardedRef(hostRef, ref);
   const charWidth = useCharWidth(hostRef);
   const goalRef = useRef<number | null>(null);
 

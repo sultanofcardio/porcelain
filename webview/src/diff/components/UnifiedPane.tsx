@@ -20,14 +20,13 @@ import {
 import { positionAt, rowAt } from "../utils/positionAt";
 import { type UnifiedRow, unifiedRowOf } from "../utils/unified";
 import {
+  CARET_WIDTH,
   gutterMetrics,
   LINE_HEIGHT,
   PANE_TEXT_PADDING,
   useCharWidth,
+  useForwardedRef,
 } from "./metrics";
-
-/** The drawn caret's width; matches `.diff-readonly-caret` in diff.css. */
-const CARET_WIDTH = 2;
 
 /** A caret in the one-column view names the document it sits in. */
 export interface UnifiedCaret extends Position {
@@ -122,14 +121,7 @@ export function UnifiedPane({
   const metrics = gutterMetrics(Math.max(leftLines.length, rightLines.length));
 
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const setHost = useCallback(
-    (node: HTMLDivElement | null) => {
-      hostRef.current = node;
-      if (typeof ref === "function") ref(node);
-      else if (ref) ref.current = node;
-    },
-    [ref],
-  );
+  const setHost = useForwardedRef(hostRef, ref);
   const charWidth = useCharWidth(hostRef);
   const goalRef = useRef<number | null>(null);
   // Where a row's text starts: after both number columns and the text inset.
