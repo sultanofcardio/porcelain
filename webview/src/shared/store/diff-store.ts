@@ -731,6 +731,9 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         language: sides.language,
         loading: false,
         error: null,
+        // Fresh content is a new answer to the question the failure was
+        // about, whether it arrived from Reload from disk or a probe.
+        saveError: null,
         activeChunk: -1,
         // Fresh content arrives unswapped — a reload after Swap Sides must
         // not leave the flag lying about what the panes show.

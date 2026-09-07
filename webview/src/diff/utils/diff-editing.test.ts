@@ -107,6 +107,17 @@ describe("diff store editing", () => {
     expect(useDiffStore.getState().savedText).toBe(written);
   });
 
+  it("clears a save failure when fresh content arrives", () => {
+    // Reload from disk answers the question the failure was about, so the
+    // message must not outlive the buffer it complained about.
+    useDiffStore.getState().editAt(caretAt(1, 3), "!", "type");
+    useDiffStore.getState().setSaveError("Save failed: EACCES");
+    expect(useDiffStore.getState().saveError).toBe("Save failed: EACCES");
+    loadWorkingTreeDiff("a\nold\nc\n", "a\nnew\nc\n");
+    expect(useDiffStore.getState().saveError).toBeNull();
+    expect(useDiffStore.getState().dirty).toBe(false);
+  });
+
   it("refuses to edit a read-only surface", () => {
     useDiffStore.getState().setSides({
       kind: "text",
