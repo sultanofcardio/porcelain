@@ -4,9 +4,9 @@ import {
   PANE_TEXT_PADDING,
   useCharWidth,
 } from "../components/metrics";
+import { positionAt } from "../utils/positionAt";
 import {
   caretAt,
-  colAtVisual,
   comparePositions,
   deletionRange,
   documentEnd,
@@ -124,13 +124,14 @@ export function EditablePane({
     (event: { clientX: number; clientY: number }): Position | null => {
       const host = hostRef.current;
       if (!host) return null;
-      const rect = host.getBoundingClientRect();
-      const row = Math.floor(offset + (event.clientY - rect.top) / LINE_HEIGHT);
-      const line = mapping.toSourceLine(Math.max(0, row));
-      if (line === null) return null;
-      const x = event.clientX - rect.left - PANE_TEXT_PADDING + scrollX;
-      const col = colAtVisual(lines[line] ?? "", Math.max(0, x / charWidth));
-      return { line: Math.min(line, Math.max(0, lines.length - 1)), col };
+      return positionAt(event, {
+        rect: host.getBoundingClientRect(),
+        offset,
+        scrollX,
+        charWidth,
+        toSourceLine: mapping.toSourceLine,
+        lines,
+      });
     },
     [offset, mapping, lines, charWidth, scrollX],
   );
@@ -449,6 +450,10 @@ export function EditablePane({
       charWidth: cell,
       onRevealX: goX,
     } = revealRef.current;
+    // A caret exists from the moment the diff opens, before the viewport has
+    // a height; revealing against zero rows would scroll the first change to
+    // the very top. The surface reveals it itself once measured.
+    if (rows === 0) return;
     const [lineKey, colKey] = headKey.split(":");
     const headLine = Number(lineKey);
     const row = map.toDisplayRow(headLine);

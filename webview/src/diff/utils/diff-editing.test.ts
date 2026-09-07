@@ -148,12 +148,15 @@ describe("diff store editing", () => {
     expect(useDiffStore.getState().folds).toHaveLength(0);
   });
 
-  it("swapping sides drops the cursor rather than misdirecting it", () => {
+  it("swapping sides restarts the cursor on the new editable side's first change", () => {
     useDiffStore.getState().setCursor(caretAt(1, 2));
     useDiffStore.getState().swapSides();
     const state = useDiffStore.getState();
-    expect(state.cursor).toBeNull();
     expect(editableSide(state)).toBe("left");
+    // Never the old side's coordinates: the caret starts over where a
+    // freshly opened diff would put it.
+    const first = state.chunks.find((chunk) => chunk.kind !== "equal");
+    expect(state.cursor).toEqual(caretAt(first?.left.start ?? 0, 0));
   });
 
   it("keeps find matches honest across an edit", () => {

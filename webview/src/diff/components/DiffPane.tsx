@@ -1,5 +1,16 @@
-import { type Ref, useMemo } from "react";
+import { type Ref, useCallback, useEffect, useMemo, useRef } from "react";
 import { useShiki } from "../../shared/hooks/useShiki";
+import {
+  documentEnd,
+  documentStart,
+  lineEnd,
+  lineStart,
+  moveHorizontal,
+  moveVertical,
+  moveWord,
+  type Position,
+  visualCol,
+} from "../editor/editor-model";
 import {
   type ChunkKind,
   type DiffChunk,
@@ -16,7 +27,8 @@ import {
   type Piece,
   syntaxSpans,
 } from "../utils/highlight";
-import { LINE_HEIGHT } from "./metrics";
+import { positionAt } from "../utils/positionAt";
+import { LINE_HEIGHT, PANE_TEXT_PADDING, useCharWidth } from "./metrics";
 
 interface DiffPaneProps {
   side: Side;
@@ -73,6 +85,19 @@ interface DiffPaneProps {
   contentWidth?: number;
   /** The pane scrolled sideways; `x` is its new scrollLeft. */
   onScrollX?: (x: number) => void;
+  /**
+   * A read-only caret. Every pane carries one, the way IntelliJ's diff does:
+   * the pane takes focus on a click, the arrow keys walk the caret, and the
+   * caret is the position Edit Source hands to the native editor. Nothing
+   * edits through it. The editable side draws its own caret through
+   * EditablePane and passes none here.
+   */
+  caret?: Position | null;
+  onPlaceCaret?: (position: Position) => void;
+  /** Scroll the surface so a display row sits inside the viewport. */
+  onRevealRow?: (displayRow: number) => void;
+  /** Accessible name for a pane that takes focus for its caret. */
+  label?: string;
 }
 
 /**
@@ -119,8 +144,150 @@ export function DiffPane({
   ref,
   contentWidth,
   onScrollX,
+  caret = null,
+  onPlaceCaret,
+  onRevealRow,
+  label,
 }: DiffPaneProps) {
   const highlighter = useShiki();
+
+  // The pane's own element, for pointer geometry and the caret's cell width;
+  // the caller's ref (the horizontal axis's handle) is forwarded alongside.
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const setHost = useCallback(
+    (node: HTMLDivElement | null) => {
+      hostRef.current = node;
+      if (typeof ref === "function") ref(node);
+      else if (ref) ref.current = node;
+    },
+    [ref],
+  );
+  const charWidth = useCharWidth(hostRef);
+  const goalRef = useRef<number | null>(null);
+
+  const toSourceLine = useCallback(
+    (row: number) => {
+      const source = displayToSource(folds, row, side);
+      return source.kind === "line" ? source.line : null;
+    },
+    [folds, side],
+  );
+
+  const onMouseDown = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const host = hostRef.current;
+      if (!host || !onPlaceCaret) return;
+      // Fold rows are buttons with their own behaviour; buttons stay buttons.
+      if ((event.target as HTMLElement).closest("button")) return;
+      const bounds = host.getBoundingClientRect();
+      // A press in the horizontal scrollbar's band belongs to the scrollbar.
+      if (event.clientY >= bounds.top + host.clientHeight) return;
+      const position = positionAt(event, {
+        rect: bounds,
+        offset,
+        scrollX: host.scrollLeft,
+        charWidth,
+        toSourceLine,
+        lines,
+      });
+      if (!position) return;
+      // The default is left alone: native text selection still works on a
+      // read-only pane, and focusing the pane is the default too.
+      goalRef.current = null;
+      onPlaceCaret(position);
+    },
+    [onPlaceCaret, offset, charWidth, toSourceLine, lines],
+  );
+
+  const onKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!caret || !onPlaceCaret) return;
+      // A focused fold row keeps its own keys.
+      if (event.target !== event.currentTarget) return;
+      const primary = event.metaKey || event.ctrlKey;
+      let next: Position;
+      let goal: number | null = null;
+      switch (event.key) {
+        case "ArrowLeft":
+        case "ArrowRight": {
+          const delta = event.key === "ArrowLeft" ? -1 : 1;
+          next = primary
+            ? delta < 0
+              ? lineStart(caret)
+              : lineEnd(lines, caret)
+            : event.altKey
+              ? moveWord(lines, caret, delta)
+              : moveHorizontal(lines, caret, delta);
+          break;
+        }
+        case "ArrowUp":
+        case "ArrowDown": {
+          const delta = event.key === "ArrowUp" ? -1 : 1;
+          if (primary) {
+            next = delta < 0 ? documentStart() : documentEnd(lines);
+            break;
+          }
+          const moved = moveVertical(lines, caret, delta, goalRef.current);
+          next = moved.position;
+          goal = moved.goalVisual;
+          break;
+        }
+        case "Home":
+          next = lineStart(caret);
+          break;
+        case "End":
+          next = lineEnd(lines, caret);
+          break;
+        case "PageUp":
+        case "PageDown": {
+          const delta =
+            (event.key === "PageUp" ? -1 : 1) * Math.max(1, visibleLines - 2);
+          const moved = moveVertical(lines, caret, delta, goalRef.current);
+          next = moved.position;
+          goal = moved.goalVisual;
+          break;
+        }
+        default:
+          return;
+      }
+      goalRef.current = goal;
+      event.preventDefault();
+      // The viewport above scrolls on these keys; here the caret owns them.
+      event.stopPropagation();
+      onPlaceCaret(next);
+    },
+    [caret, onPlaceCaret, lines, visibleLines],
+  );
+
+  // Follow the caret: a move that leaves the viewport scrolls to it. Keyed
+  // on the caret's identity alone, read through a ref, because scrolling
+  // (which changes `offset`) must not re-trigger it. Nothing happens while
+  // the viewport is unmeasured; the surface reveals the first change itself.
+  const caretKey = caret ? `${caret.line}:${caret.col}` : null;
+  const revealRef = useRef({ folds, side, offset, visibleLines, onRevealRow });
+  revealRef.current = { folds, side, offset, visibleLines, onRevealRow };
+  useEffect(() => {
+    if (caretKey === null) return;
+    const {
+      folds: hidden,
+      side: own,
+      offset: at,
+      visibleLines: rows,
+      onRevealRow: go,
+    } = revealRef.current;
+    if (!go || rows === 0) return;
+    const row = displayLine(hidden, Number(caretKey.split(":")[0]), own);
+    if (row < at + 0.5 || row > at + rows - 1.5) {
+      go(Math.max(0, row - Math.floor(rows / 2)));
+    }
+  }, [caretKey]);
+
+  const caretRow = caret ? displayLine(folds, caret.line, side) : null;
+  const caretShown =
+    caret !== null &&
+    caretRow !== null &&
+    caretRow >= offset - 1 &&
+    caretRow <= offset + visibleLines + 1;
 
   // Only the visible window is highlighted. Shiki tokenises per line, so the
   // cost tracks the viewport rather than the file, which is what keeps a
@@ -234,8 +401,14 @@ export function DiffPane({
   return (
     <div
       className="diff-pane"
-      ref={ref}
+      ref={setHost}
       onScroll={(event) => onScrollX?.(event.currentTarget.scrollLeft)}
+      onMouseDown={onPlaceCaret ? onMouseDown : undefined}
+      onKeyDown={onPlaceCaret ? onKeyDown : undefined}
+      // Only a pane with a caret takes focus: the keys above need somewhere
+      // to land, and a screen reader needs a name for where it landed.
+      tabIndex={onPlaceCaret ? 0 : undefined}
+      aria-label={onPlaceCaret ? label : undefined}
     >
       {/* The scrollable extent (see diff.css): as wide as the widest rendered
           row, and never narrower than the whole document's widest line, so
@@ -248,6 +421,18 @@ export function DiffPane({
             : { minWidth: `max(100%, ${contentWidth}px)` }
         }
       >
+        {caretShown && caret && caretRow !== null && (
+          <div
+            className="diff-readonly-caret"
+            aria-hidden="true"
+            style={{
+              top: (caretRow - offset) * LINE_HEIGHT,
+              left:
+                PANE_TEXT_PADDING +
+                visualCol(lines[caret.line] ?? "", caret.col) * charWidth,
+            }}
+          />
+        )}
         {anchors.map((anchor) => (
           <div
             key={`anchor-${anchor.line}`}

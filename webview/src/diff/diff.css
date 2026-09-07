@@ -558,6 +558,32 @@ button.diff-menu-step:focus-visible {
 .diff-pane-lines {
   will-change: transform;
 }
+/* A pane that carries a caret takes focus for its keys; the ring matches the
+   viewport's, so keyboard users see the same shape wherever focus lands. */
+.diff-pane:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, #4d9de0);
+  outline-offset: -1px;
+}
+/*
+ * The read-only panes' caret: the editor's own bar, still while the pane is
+ * unfocused and blinking once it has focus, the way an inactive editor holds
+ * its caret. It sits above the rows (which form a stacking context of their
+ * own through will-change) and beneath nothing.
+ */
+.diff-readonly-caret {
+  position: absolute;
+  width: 2px;
+  height: 20px;
+  background: var(--vscode-editorCursor-foreground, #d7dce2);
+  opacity: 0.55;
+  pointer-events: none;
+  z-index: 2;
+}
+.diff-pane:focus .diff-readonly-caret,
+.diff-unified:focus .diff-readonly-caret {
+  opacity: 1;
+  animation: diff-caret-blink 1.1s steps(1) infinite;
+}
 /* Audible but invisible: the clip-rect idiom, absolutely positioned so it
    cannot disturb the pre-formatted line it prefixes. */
 .diff-sr-only {

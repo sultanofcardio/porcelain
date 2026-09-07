@@ -562,6 +562,55 @@ export function displayLine(
   return line - shift;
 }
 
+/**
+ * The line a caret starts on when a diff opens: the first changed chunk's
+ * first line on `side`, the way IntelliJ places its carets. A chunk with no
+ * lines on this side (an insertion, seen from the left) puts the caret on
+ * the line the change sits in front of, clamped into the document. A diff
+ * with no changes starts at the top.
+ */
+export function firstChangeLine(
+  chunks: readonly DiffChunk[],
+  side: Side,
+  lineCount: number,
+): number {
+  const last = Math.max(0, lineCount - 1);
+  for (const chunk of chunks) {
+    if (chunk.kind === "equal") continue;
+    const span = side === "left" ? chunk.left : chunk.right;
+    return Math.min(span.start, last);
+  }
+  return 0;
+}
+
+/**
+ * The line on the other side that corresponds to `line` on `side`.
+ *
+ * Inside an equal chunk the two sides pair line for line, so the twin is
+ * exact and the column carries over. Inside a changed chunk there is no
+ * pairing to speak of: the twin is the chunk's first line on the other side
+ * (or, when the other side contributes nothing, the line the change sits in
+ * front of), and the caller should drop the column. Past the last chunk the
+ * sides are assumed to run in step.
+ */
+export function counterpartLine(
+  chunks: readonly DiffChunk[],
+  side: Side,
+  line: number,
+): { line: number; exact: boolean } {
+  for (const chunk of chunks) {
+    const own = side === "left" ? chunk.left : chunk.right;
+    const other = side === "left" ? chunk.right : chunk.left;
+    if (line >= own.start + own.count) continue;
+    if (line < own.start) break;
+    if (chunk.kind === "equal") {
+      return { line: other.start + (line - own.start), exact: true };
+    }
+    return { line: other.start, exact: false };
+  }
+  return { line, exact: true };
+}
+
 export type DisplayRow =
   | { kind: "line"; line: number }
   | { kind: "fold"; fold: FoldRegion };

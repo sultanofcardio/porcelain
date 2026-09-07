@@ -15,8 +15,10 @@ import {
   computeChunks,
   computeFolds,
   countDifferences,
+  counterpartLine,
   type DiffChunk,
   type FoldRegion,
+  firstChangeLine,
   type Side,
   sideToAxis,
   splitLines,
@@ -132,6 +134,19 @@ export interface DiffStoreState {
   /** The file changed on disk while there are unsaved edits. */
   diskChanged: boolean;
 
+  /**
+   * Carets on the read-only sides. Every pane carries a caret, the way
+   * IntelliJ's diff does, placed on the first changed line when the diff
+   * opens: it is the position Edit Source hands to the native editor, and
+   * the point a fold opens away from. The editable side's caret is `cursor`;
+   * its entry here stays null.
+   */
+  readOnlyCarets: Record<Side, Position | null>;
+  /** The pane clicked or keyed last — whose caret Edit Source hands over. */
+  activePane: Side | null;
+  /** Put a pane's caret somewhere, and make that pane the active one. */
+  placeCaret: (side: Side, position: Position) => void;
+
   /** Place the cursor; folds hiding it expand so the caret is never invisible. */
   setCursor: (
     selection: EditorSelection | null,
@@ -232,6 +247,87 @@ export function editableSide(state: {
   if (state.rightRef === WORKING_TREE_REF) return "right";
   if (state.leftRef === WORKING_TREE_REF) return "left";
   return null;
+}
+
+/**
+ * Where every caret starts: the first changed line on each side. The
+ * editable side's caret is the editor's `cursor`; the others are read-only
+ * carets. The active pane is the editable one, or the right pane when
+ * nothing can be edited, so Edit Source has an answer before any click.
+ */
+function initialCarets(
+  chunks: readonly DiffChunk[],
+  text: { left: string; right: string },
+  editable: Side | null,
+  hasText: boolean,
+): Pick<DiffStoreState, "cursor" | "readOnlyCarets" | "activePane"> {
+  if (!hasText) {
+    return {
+      cursor: null,
+      readOnlyCarets: { left: null, right: null },
+      activePane: null,
+    };
+  }
+  const at = (side: Side): Position => ({
+    line: firstChangeLine(
+      chunks,
+      side,
+      splitLines(side === "left" ? text.left : text.right).length,
+    ),
+    col: 0,
+  });
+  return {
+    cursor: editable ? caretAt(at(editable).line, 0) : null,
+    readOnlyCarets: {
+      left: editable === "left" ? null : at("left"),
+      right: editable === "right" ? null : at("right"),
+    },
+    activePane: editable ?? (text.right !== "" ? "right" : "left"),
+  };
+}
+
+/** The caret of one pane, whichever kind it is. */
+export function caretOn(
+  state: Pick<
+    DiffStoreState,
+    "leftRef" | "rightRef" | "cursor" | "readOnlyCarets"
+  >,
+  side: Side,
+): Position | null {
+  if (editableSide(state) === side) return state.cursor?.head ?? null;
+  return state.readOnlyCarets[side];
+}
+
+/**
+ * Where Edit Source opens the file: the active pane's caret, expressed on
+ * the working-tree side. A read-only caret maps across through the chunks;
+ * inside a changed chunk the lines do not pair, so the column is dropped.
+ * With no working-tree side at all the caret is handed over as it is, which
+ * is the best guess for a file that has since moved on.
+ */
+export function editSourcePosition(
+  state: Pick<
+    DiffStoreState,
+    | "leftRef"
+    | "rightRef"
+    | "cursor"
+    | "readOnlyCarets"
+    | "activePane"
+    | "chunks"
+    | "fallback"
+    | "loading"
+  >,
+): { line: number; column: number } | null {
+  if (state.fallback || state.loading) return null;
+  const editable = editableSide(state);
+  const side = state.activePane ?? editable ?? "right";
+  const caret = caretOn(state, side);
+  if (!caret) return null;
+  if (editable === null || editable === side) {
+    return { line: caret.line, column: caret.col };
+  }
+  const twin = counterpartLine(state.chunks, side, caret.line);
+  return { line: twin.line, column: twin.exact ? caret.col : 0 };
 }
 
 function chunkOptionsFor(whitespace: Whitespace): ChunkOptions {
@@ -438,6 +534,39 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
   dirty: false,
   savedText: null,
   diskChanged: false,
+  readOnlyCarets: { left: null, right: null },
+  activePane: null,
+
+  placeCaret: (side, position) => {
+    const state = get();
+    if (state.fallback || state.loading) return;
+    if (editableSide(state) === side) {
+      // The editable side's caret is the editor's own.
+      state.setCursor(caretAt(position.line, position.col));
+      return;
+    }
+    const lines = splitLines(side === "left" ? state.left : state.right);
+    const caret = clampPosition(lines, position);
+    // A caret must never sit on hidden content: expand the fold whose span
+    // on this side holds it, as setCursor does for the editable side.
+    const hiding = state.folds.find((fold) => {
+      const hidden = side === "left" ? fold.left : fold.right;
+      return (
+        caret.line >= hidden.start && caret.line < hidden.start + hidden.count
+      );
+    });
+    let expansion = {};
+    if (hiding) {
+      const expandedFolds = new Set(state.expandedFolds);
+      expandedFolds.add(hiding.left.start);
+      expansion = { expandedFolds, ...derive({ ...state, expandedFolds }) };
+    }
+    set({
+      readOnlyCarets: { ...state.readOnlyCarets, [side]: caret },
+      activePane: side,
+      ...expansion,
+    });
+  },
 
   setSides: (sides) =>
     set((state) => {
@@ -487,11 +616,13 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         diskChanged: false,
       };
       const next = { ...state, ...meta, ...text };
+      const derived = derive(next);
       return {
         ...meta,
         ...text,
         ...editing,
-        ...derive(next),
+        ...derived,
+        ...initialCarets(derived.chunks, text, editable, kind === "text"),
         ...deriveFind(next),
       };
     }),
@@ -526,7 +657,7 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         for (const fold of intersecting) expandedFolds.add(fold.left.start);
         expansion = { expandedFolds, ...derive({ ...state, expandedFolds }) };
       }
-      return { cursor: clamped, goalVisual, ...expansion };
+      return { cursor: clamped, goalVisual, activePane: side, ...expansion };
     }),
 
   editAt: (selection, text, coalesceKey) =>
@@ -734,9 +865,9 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
       // Expansion is keyed on left start lines, and the swap moves every
       // fold to the other side's numbering — so everything re-collapses.
       const expandedFolds = new Set<number>();
+      const derived = derive({ ...committed, ...swapped, expandedFolds });
       return {
         ...swapped,
-        cursor: null,
         goalVisual: null,
         composition: null,
         dirty: committed.dirty,
@@ -746,7 +877,15 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         swapped: !committed.swapped,
         activeChunk: -1,
         expandedFolds,
-        ...derive({ ...committed, ...swapped, expandedFolds }),
+        ...derived,
+        // Every caret spoke in the old side's coordinates; they start over
+        // on the first change, as they did when the diff opened.
+        ...initialCarets(
+          derived.chunks,
+          swapped,
+          editableSide(swapped),
+          committed.fallback === null,
+        ),
         // The bars are positional — each keeps its query and re-searches the
         // text that now sits under it.
         ...deriveFind({ ...committed, ...swapped }),

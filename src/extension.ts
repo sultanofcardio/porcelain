@@ -54,6 +54,7 @@ import {
 import { DiffEditorManager } from "./views/diffEditorManager";
 import { DiffViewerManager, refLabel } from "./views/diffViewerManager";
 import { DiffWindow } from "./views/diffWindow";
+import { caretSelection } from "./views/editSource";
 import {
   GitContentProvider,
   PORCELAIN_SCHEME,
@@ -1256,6 +1257,20 @@ export async function activate(context: vscode.ExtensionContext) {
     const absPath = workspaceRoot
       ? vscode.Uri.joinPath(vscode.Uri.file(workspaceRoot), filePath)
       : vscode.Uri.file(filePath);
+    // A caret from the diff surface lands the native editor on the same
+    // line and column, the way Edit Source from a native diff tab does.
+    const selection = caretSelection(params);
+    if (selection) {
+      try {
+        await vscode.window.showTextDocument(absPath, {
+          selection,
+          preview: false,
+        });
+        return { success: true };
+      } catch {
+        // Not a text document; open it the general way below.
+      }
+    }
     try {
       await vscode.commands.executeCommand("vscode.open", absPath);
     } catch {

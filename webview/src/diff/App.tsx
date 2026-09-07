@@ -13,7 +13,12 @@ import {
   WORKING_TREE_REF,
 } from "../shared/bridge/types";
 import { useHorizontalScroll } from "../shared/hooks/useHorizontalScroll";
-import { editableSide, useDiffStore } from "../shared/store/diff-store";
+import {
+  caretOn,
+  editableSide,
+  editSourcePosition,
+  useDiffStore,
+} from "../shared/store/diff-store";
 import { ChangeStripe, splitStripeMarks } from "./components/ChangeStripe";
 import { DiffFallback } from "./components/DiffFallback";
 import { DiffGutter } from "./components/DiffGutter";
@@ -32,6 +37,7 @@ import {
 import { RevisionHeader } from "./components/RevisionHeader";
 import { UnifiedPane } from "./components/UnifiedPane";
 import { type DisplayMapping, EditablePane } from "./editor/EditablePane";
+import type { Position } from "./editor/editor-model";
 import { useRevealMatch } from "./hooks/useRevealMatch";
 import {
   axisToSide,
@@ -44,7 +50,11 @@ import {
   splitLines,
   stallLift,
 } from "./utils/diff-model";
-import { unifiedRows, unifiedStripeMarks } from "./utils/unified";
+import {
+  unifiedChunkRow,
+  unifiedRows,
+  unifiedStripeMarks,
+} from "./utils/unified";
 import "./diff.css";
 
 /**
@@ -432,6 +442,38 @@ export function DiffApp() {
   const rightLines = splitLines(store.right);
   const visibleLines = Math.ceil(viewportHeight / LINE_HEIGHT);
 
+  // A diff opens on its first change, where the carets start: once the
+  // viewport has a height, a first difference below the fold scrolls into
+  // view the way the stepper would bring it. Once per loaded content — a
+  // quiet disk refresh keeps the view where it is.
+  const revealedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (store.loading || store.fallback || visibleLines === 0) return;
+    const key = `${filePath}|${store.leftRef}|${store.rightRef}|${reloadNonce}`;
+    if (revealedFor.current === key) return;
+    revealedFor.current = key;
+    const { chunks, folds, viewMode } = useDiffStore.getState();
+    const first = chunks.findIndex((chunk) => chunk.kind !== "equal");
+    if (first < 0) return;
+    const chunk = chunks[first];
+    const side = chunk.right.count > 0 ? "right" : "left";
+    const span = side === "right" ? chunk.right : chunk.left;
+    const target =
+      viewMode === "unified"
+        ? unifiedChunkRow(unifiedRows(chunks, folds), first)
+        : sideToAxis(chunks, span.start, side, folds);
+    if (target > visibleLines - 2) scrollToAxis(Math.max(0, target - 2));
+  }, [
+    store.loading,
+    store.fallback,
+    store.leftRef,
+    store.rightRef,
+    visibleLines,
+    filePath,
+    reloadNonce,
+    scrollToAxis,
+  ]);
+
   // The horizontal axis: each pane scrolls sideways on its own, in lockstep
   // while synchronised scrolling is on. A pane's scrollable width is measured
   // from the whole document's widest line rather than from the rows on
@@ -608,6 +650,27 @@ export function DiffApp() {
     );
   };
 
+  // The read-only panes' carets. Every pane carries one (IntelliJ's shape):
+  // the editable side's is the editor's own, wired above; the others are
+  // placed by click, walked by the arrow keys, and handed to Edit Source.
+  const readOnlyCaret = (side: Side) => {
+    if (editable === side || store.fallback) return {};
+    return {
+      caret: store.readOnlyCarets[side],
+      onPlaceCaret: (position: Position) =>
+        useDiffStore.getState().placeCaret(side, position),
+      onRevealRow: (row: number) => {
+        const source = displayToSource(store.folds, Math.floor(row), side);
+        const line =
+          source.kind === "line"
+            ? source.line
+            : (side === "left" ? source.fold.left : source.fold.right).start;
+        scrollToAxis(sideToAxis(store.chunks, line, side, store.folds));
+      },
+      label: `${side === "left" ? store.leftLabel : store.rightLabel} side of ${filePath}, read-only. Arrow keys move the caret.`,
+    };
+  };
+
   // The unified row list: the same chunks and folds, rendered one column.
   const rows = useMemo(
     () => (unified ? unifiedRows(store.chunks, store.folds) : []),
@@ -675,6 +738,13 @@ export function DiffApp() {
     return positions;
   }, [matches, chunks, folds, axisUnits, unified, unifiedRowIndex]);
 
+  const unifiedCaret = useMemo(() => {
+    if (!unified || store.fallback) return null;
+    const side = store.activePane ?? "right";
+    const position = caretOn(store, side);
+    return position ? { side, ...position } : null;
+  }, [unified, store]);
+
   const stripeMarks = useMemo(
     () =>
       unified
@@ -716,7 +786,10 @@ export function DiffApp() {
     <div className="diff-root">
       <DiffToolbar
         onStep={step}
-        onEditSource={() => void bridge.request("openFile", { filePath })}
+        onEditSource={() => {
+          const position = editSourcePosition(useDiffStore.getState());
+          void bridge.request("openFile", { filePath, ...(position ?? {}) });
+        }}
         onFile={(delta) => void bridge.request("stepDiffFile", { delta })}
       />
       {store.findOpen &&
@@ -815,6 +888,12 @@ export function DiffApp() {
                   }
                   matches={matches}
                   activeMatch={activeMatch}
+                  caret={unifiedCaret}
+                  onPlaceCaret={(side, position) =>
+                    useDiffStore.getState().placeCaret(side, position)
+                  }
+                  onRevealRow={scrollToAxis}
+                  label={`Unified diff of ${filePath}, read-only. Arrow keys move the caret.`}
                 />
               ) : layout.mode === "single" ? (
                 <>
@@ -849,6 +928,7 @@ export function DiffApp() {
                       }
                       matches={matches}
                       activeMatch={activeMatch}
+                      {...readOnlyCaret(layout.side)}
                     />,
                   )}
                 </>
@@ -881,6 +961,7 @@ export function DiffApp() {
                         }
                         matches={matches}
                         activeMatch={activeMatch}
+                        {...readOnlyCaret("left")}
                       />,
                     )}
                   </div>
@@ -915,6 +996,7 @@ export function DiffApp() {
                       }
                       matches={matches}
                       activeMatch={activeMatch}
+                      {...readOnlyCaret("right")}
                     />,
                   )}
                 </>

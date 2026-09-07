@@ -1,6 +1,15 @@
-import { type Ref, useMemo } from "react";
+import { type Ref, useCallback, useEffect, useMemo, useRef } from "react";
 import { useShiki } from "../../shared/hooks/useShiki";
-import type { DiffChunk, FoldRegion } from "../utils/diff-model";
+import {
+  colAtVisual,
+  lineEnd,
+  lineStart,
+  moveHorizontal,
+  moveWord,
+  type Position,
+  visualCol,
+} from "../editor/editor-model";
+import type { DiffChunk, FoldRegion, Side } from "../utils/diff-model";
 import type { FindMatch } from "../utils/find";
 import {
   buildPieces,
@@ -9,7 +18,17 @@ import {
   syntaxSpans,
 } from "../utils/highlight";
 import type { UnifiedRow } from "../utils/unified";
-import { gutterMetrics, LINE_HEIGHT } from "./metrics";
+import {
+  gutterMetrics,
+  LINE_HEIGHT,
+  PANE_TEXT_PADDING,
+  useCharWidth,
+} from "./metrics";
+
+/** A caret in the one-column view names the document it sits in. */
+export interface UnifiedCaret extends Position {
+  side: Side;
+}
 
 interface UnifiedPaneProps {
   rows: UnifiedRow[];
@@ -33,6 +52,34 @@ interface UnifiedPaneProps {
   contentWidth?: number;
   /** The pane scrolled sideways; `x` is its new scrollLeft. */
   onScrollX?: (x: number) => void;
+  /**
+   * The read-only caret, on whichever document the active pane shows. The
+   * unified view is read-only even for the working tree, so this is the
+   * only caret it draws; a click places it on the row's own document.
+   */
+  caret?: UnifiedCaret | null;
+  onPlaceCaret?: (side: Side, position: Position) => void;
+  /** Scroll the surface so a row sits inside the viewport. */
+  onRevealRow?: (row: number) => void;
+  /** Accessible name for the pane, which takes focus for its caret. */
+  label?: string;
+}
+
+/** The row showing `caret`, or -1. An equal row stands for both twins. */
+export function unifiedCaretRow(
+  rows: readonly UnifiedRow[],
+  caret: UnifiedCaret,
+): number {
+  return rows.findIndex((row) => {
+    if (row.kind !== "line") return false;
+    if (row.side === caret.side && row.line === caret.line) return true;
+    return (
+      row.chunkKind === "equal" &&
+      caret.side === "left" &&
+      row.leftNumber !== null &&
+      row.leftNumber - 1 === caret.line
+    );
+  });
 }
 
 /**
@@ -57,9 +104,155 @@ export function UnifiedPane({
   ref,
   contentWidth,
   onScrollX,
+  caret = null,
+  onPlaceCaret,
+  onRevealRow,
+  label,
 }: UnifiedPaneProps) {
   const highlighter = useShiki();
   const metrics = gutterMetrics(Math.max(leftLines.length, rightLines.length));
+
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const setHost = useCallback(
+    (node: HTMLDivElement | null) => {
+      hostRef.current = node;
+      if (typeof ref === "function") ref(node);
+      else if (ref) ref.current = node;
+    },
+    [ref],
+  );
+  const charWidth = useCharWidth(hostRef);
+  // Where a row's text starts: after both number columns and the text inset.
+  const textInset = metrics.numberWidth * 2 + PANE_TEXT_PADDING;
+  const textOf = useCallback(
+    (side: Side, line: number) =>
+      (side === "left" ? leftLines[line] : rightLines[line]) ?? "",
+    [leftLines, rightLines],
+  );
+
+  const onMouseDown = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const host = hostRef.current;
+      if (!host || !onPlaceCaret) return;
+      if ((event.target as HTMLElement).closest("button")) return;
+      const bounds = host.getBoundingClientRect();
+      if (event.clientY >= bounds.top + host.clientHeight) return;
+      const index = Math.floor(
+        offset + (event.clientY - bounds.top) / LINE_HEIGHT,
+      );
+      const row = rows[Math.max(0, index)];
+      if (!row || row.kind !== "line") return;
+      const x = event.clientX - bounds.left - textInset + host.scrollLeft;
+      const col = colAtVisual(
+        textOf(row.side, row.line),
+        Math.max(0, x / charWidth),
+      );
+      onPlaceCaret(row.side, { line: row.line, col });
+    },
+    [onPlaceCaret, offset, rows, textInset, charWidth, textOf],
+  );
+
+  const caretRow = caret ? unifiedCaretRow(rows, caret) : -1;
+
+  const onKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!caret || !onPlaceCaret || caretRow < 0) return;
+      if (event.target !== event.currentTarget) return;
+      const primary = event.metaKey || event.ctrlKey;
+      const text = textOf(caret.side, caret.line);
+      const lines = caret.side === "left" ? leftLines : rightLines;
+      // Vertical moves walk rows, not lines: the next row may belong to the
+      // other document, and the caret follows it there.
+      const toRow = (delta: number) => {
+        let index = caretRow;
+        const step = delta < 0 ? -1 : 1;
+        for (let n = Math.abs(delta); n > 0; ) {
+          const candidate = index + step;
+          if (candidate < 0 || candidate >= rows.length) break;
+          index = candidate;
+          if (rows[index].kind === "line") n--;
+        }
+        const row = rows[index];
+        if (row.kind !== "line") return;
+        const goal = visualCol(text, caret.col);
+        const target = textOf(row.side, row.line);
+        onPlaceCaret(row.side, {
+          line: row.line,
+          col: colAtVisual(target, goal),
+        });
+      };
+      let next: Position | null = null;
+      switch (event.key) {
+        case "ArrowLeft":
+        case "ArrowRight": {
+          const delta = event.key === "ArrowLeft" ? -1 : 1;
+          next = primary
+            ? delta < 0
+              ? lineStart(caret)
+              : lineEnd(lines, caret)
+            : event.altKey
+              ? moveWord(lines, caret, delta)
+              : moveHorizontal(lines, caret, delta);
+          break;
+        }
+        case "ArrowUp":
+        case "ArrowDown":
+          toRow(event.key === "ArrowUp" ? -1 : 1);
+          break;
+        case "PageUp":
+        case "PageDown":
+          toRow(
+            (event.key === "PageUp" ? -1 : 1) * Math.max(1, visibleLines - 2),
+          );
+          break;
+        case "Home":
+          next = lineStart(caret);
+          break;
+        case "End":
+          next = lineEnd(lines, caret);
+          break;
+        default:
+          return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      if (next) onPlaceCaret(caret.side, next);
+    },
+    [
+      caret,
+      onPlaceCaret,
+      caretRow,
+      rows,
+      textOf,
+      leftLines,
+      rightLines,
+      visibleLines,
+    ],
+  );
+
+  // Follow the caret; see DiffPane for why this keys on identity alone.
+  const caretKey = caret ? `${caret.side}:${caret.line}:${caret.col}` : null;
+  const revealRef = useRef({ caretRow, offset, visibleLines, onRevealRow });
+  revealRef.current = { caretRow, offset, visibleLines, onRevealRow };
+  useEffect(() => {
+    if (caretKey === null) return;
+    const {
+      caretRow: row,
+      offset: at,
+      visibleLines: count,
+      onRevealRow: go,
+    } = revealRef.current;
+    if (!go || count === 0 || row < 0) return;
+    if (row < at + 0.5 || row > at + count - 1.5) {
+      go(Math.max(0, row - Math.floor(count / 2)));
+    }
+  }, [caretKey]);
+
+  const caretShown =
+    caret !== null &&
+    caretRow >= 0 &&
+    caretRow >= offset - 1 &&
+    caretRow <= offset + visibleLines + 1;
 
   const first = Math.max(0, Math.floor(offset));
   const last = Math.min(rows.length, first + visibleLines + 2);
@@ -169,8 +362,12 @@ export function UnifiedPane({
   return (
     <div
       className="diff-unified"
-      ref={ref}
+      ref={setHost}
       onScroll={(event) => onScrollX?.(event.currentTarget.scrollLeft)}
+      onMouseDown={onPlaceCaret ? onMouseDown : undefined}
+      onKeyDown={onPlaceCaret ? onKeyDown : undefined}
+      tabIndex={onPlaceCaret ? 0 : undefined}
+      aria-label={onPlaceCaret ? label : undefined}
     >
       <div
         className="diff-pane-content"
@@ -182,6 +379,19 @@ export function UnifiedPane({
               }
         }
       >
+        {caretShown && caret && (
+          <div
+            className="diff-readonly-caret"
+            aria-hidden="true"
+            style={{
+              top: (caretRow - offset) * LINE_HEIGHT,
+              left:
+                textInset +
+                visualCol(textOf(caret.side, caret.line), caret.col) *
+                  charWidth,
+            }}
+          />
+        )}
         <div
           className="diff-pane-lines"
           style={{
