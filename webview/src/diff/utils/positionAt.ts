@@ -53,7 +53,8 @@ export function needsReveal(
 }
 
 /**
- * The (line, column) under a pointer, or null over a fold row.
+ * The (line, column) under a pointer, or null over a fold row and over the
+ * empty space below a pane that shows no line at all.
  *
  * One geometry for every pane: the editable side's caret, the read-only
  * carets, the unified view's caret, and the hover target all resolve a
@@ -73,11 +74,24 @@ export function positionAt(
     lines,
     textInset = PANE_TEXT_PADDING,
   } = geometry;
-  const line = toSourceLine(rowAt(event, geometry));
+  const row = rowAt(event, geometry);
+  let line = toSourceLine(row);
   if (line === null) return null;
   if (lines.length === 0) return { line: 0, col: 0 };
-  const clamped = Math.min(line, lines.length - 1);
+  if (line >= lines.length) {
+    // Past the content: the caret goes to the last line the pane shows,
+    // not to the file's last line. The two differ when a fold hides the
+    // file's tail, and putting the caret on a hidden line would open the
+    // whole run for a click on empty space. The walk back is bounded by the
+    // rows between the click and the content, so by the viewport's height.
+    line = null;
+    for (let above = row - 1; above >= 0 && line === null; above--) {
+      const candidate = toSourceLine(above);
+      if (candidate !== null && candidate < lines.length) line = candidate;
+    }
+    if (line === null) return null;
+  }
   const x = event.clientX - rect.left - textInset + scrollX;
-  const col = colAtVisual(lines[clamped] ?? "", Math.max(0, x / charWidth));
-  return { line: clamped, col };
+  const col = colAtVisual(lines[line] ?? "", Math.max(0, x / charWidth));
+  return { line, col };
 }

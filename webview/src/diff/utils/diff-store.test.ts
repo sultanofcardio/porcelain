@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { WORKING_TREE_REF } from "../../shared/bridge/types";
 import { useDiffStore } from "../../shared/store/diff-store";
+import { caretAt } from "../editor/editor-model";
 
 const lines = (...values: string[]) => `${values.join("\n")}\n`;
 
@@ -257,6 +259,166 @@ describe("fold state", () => {
     useDiffStore.getState().setFindQuery("right", "new");
     useDiffStore.getState().revealActiveMatch("right");
     expect(useDiffStore.getState().folds).toHaveLength(1);
+  });
+
+  // A change, the same forty lines, another change: the run is interior, so
+  // it keeps three lines of context on each edge and hides lines 4..37.
+  const body = Array.from({ length: 40 }, (_, i) => `line${i}`);
+  const twoChanges = (
+    refs = { leftRef: meta.leftRef, rightRef: meta.rightRef },
+  ) =>
+    useDiffStore.getState().setSides({
+      kind: "text",
+      left: lines("old", ...body, "tail-old"),
+      right: lines("new", ...body, "tail-new"),
+      ...meta,
+      ...refs,
+      filePath: "src/two.ts",
+    });
+  const fold = () => useDiffStore.getState().folds[0];
+
+  it("opens a fold in stages from its head when the caret sits above it", () => {
+    // Every caret starts on the first change, above the run.
+    const key = fold().key;
+    expect(key).toBe(4);
+    const folded = useDiffStore.getState().axis;
+    expect(useDiffStore.getState().revealFold(key).rows).toBe(0);
+    expect(fold().key).toBe(key);
+    expect(fold().left).toEqual({ start: 8, count: 33 });
+    expect(fold().revealed).toEqual({ head: 4, tail: 0 });
+    expect(useDiffStore.getState().axis).toBe(folded + 4);
+    useDiffStore.getState().revealFold(key);
+    expect(fold().left).toEqual({ start: 16, count: 25 });
+    // The third step opens the rest, which is what expansion already means.
+    useDiffStore.getState().revealFold(key);
+    const state = useDiffStore.getState();
+    expect(state.folds).toHaveLength(0);
+    expect(state.expandedFolds.has(key)).toBe(true);
+    expect(state.foldReveals.size).toBe(0);
+    expect(state.axis).toBe(41);
+  });
+
+  it("opens from the tail below a caret, reporting the rows that push the caret", () => {
+    twoChanges();
+    useDiffStore.getState().placeCaret("right", { line: 41, col: 0 });
+    const key = fold().key;
+    expect(useDiffStore.getState().revealFold(key)).toEqual({
+      pane: "right",
+      caretRow: 8,
+      rows: 4,
+    });
+    expect(fold().left).toEqual({ start: 4, count: 30 });
+    expect(fold().revealed).toEqual({ head: 0, tail: 4 });
+    // Each end keeps its own count: a caret moved above the run opens its
+    // head from the first stage, and the tail's progress stays.
+    useDiffStore.getState().placeCaret("right", { line: 0, col: 0 });
+    expect(useDiffStore.getState().revealFold(key).rows).toBe(0);
+    expect(fold().revealed).toEqual({ head: 4, tail: 4 });
+    expect(fold().left).toEqual({ start: 8, count: 26 });
+  });
+
+  it("reports the caret's push in rows when the view is unified", () => {
+    twoChanges();
+    useDiffStore.getState().setViewMode("unified");
+    useDiffStore.getState().placeCaret("right", { line: 41, col: 0 });
+    expect(useDiffStore.getState().revealFold(fold().key).rows).toBe(4);
+  });
+
+  it("keeps a partial reveal on its run across an edit above it", () => {
+    // The keys are left line numbers, so an editable left side is what can
+    // move them: a line inserted at the top shifts the run down by one.
+    twoChanges({ leftRef: WORKING_TREE_REF, rightRef: meta.rightRef });
+    const key = fold().key;
+    useDiffStore.getState().revealFold(key);
+    expect(fold().left).toEqual({ start: 8, count: 30 });
+    useDiffStore
+      .getState()
+      .editAt(
+        { anchor: { line: 0, col: 0 }, head: { line: 0, col: 0 } },
+        "inserted\n",
+        null,
+      );
+    expect(fold().key).toBe(key + 1);
+    expect(fold().revealed).toEqual({ head: 4, tail: 0 });
+    expect(fold().left).toEqual({ start: 9, count: 30 });
+  });
+
+  it("forgets partial reveals when the context width or the collapse toggle changes", () => {
+    useDiffStore.getState().revealFold(fold().key);
+    expect(useDiffStore.getState().foldReveals.size).toBe(1);
+    useDiffStore.getState().setContextLines(5);
+    expect(useDiffStore.getState().foldReveals.size).toBe(0);
+    expect(fold().revealed).toEqual({ head: 0, tail: 0 });
+    expect(fold().hiddenLines).toBe(35);
+    useDiffStore.getState().revealFold(fold().key);
+    expect(fold().hiddenLines).toBe(31);
+    // The toolbar's collapse: partly opened runs close along with expanded ones.
+    useDiffStore.getState().setCollapsed(true);
+    expect(useDiffStore.getState().foldReveals.size).toBe(0);
+    expect(fold().hiddenLines).toBe(35);
+  });
+
+  it("expands a partly opened fold whole for a find match still hidden in it", () => {
+    const key = fold().key;
+    useDiffStore.getState().revealFold(key);
+    useDiffStore.getState().openFind();
+    // line20 sits on line 21, inside what the run still hides.
+    useDiffStore.getState().setFindQuery("right", "line20");
+    useDiffStore.getState().revealActiveMatch("right");
+    const state = useDiffStore.getState();
+    expect(state.folds).toHaveLength(0);
+    expect(state.foldReveals.size).toBe(0);
+  });
+
+  it("moves a read-only caret out of a run that collapses, to the nearer edge", () => {
+    twoChanges();
+    // Placing the caret inside the run opens it; collapsing closes it again
+    // and sends the caret to the first line of context below, the closer
+    // neighbour, with its column kept.
+    useDiffStore.getState().placeCaret("right", { line: 36, col: 2 });
+    expect(useDiffStore.getState().folds).toHaveLength(0);
+    useDiffStore.getState().setCollapsed(true);
+    let state = useDiffStore.getState();
+    expect(state.folds).toHaveLength(1);
+    expect(state.readOnlyCarets.right).toEqual({ line: 38, col: 2 });
+    expect(state.expandedFolds.size).toBe(0);
+    // Nearer the top of the run, the caret leaves upward instead.
+    useDiffStore.getState().placeCaret("right", { line: 5, col: 0 });
+    useDiffStore.getState().setCollapsed(true);
+    state = useDiffStore.getState();
+    expect(state.readOnlyCarets.right).toEqual({ line: 3, col: 0 });
+    expect(state.folds).toHaveLength(1);
+  });
+
+  it("moves the editable cursor out too, through the settings toggle", () => {
+    twoChanges({ leftRef: WORKING_TREE_REF, rightRef: meta.rightRef });
+    useDiffStore.getState().setCursor(caretAt(5, 1));
+    expect(useDiffStore.getState().folds).toHaveLength(0);
+    useDiffStore.getState().toggleCollapseUnchanged();
+    useDiffStore.getState().toggleCollapseUnchanged();
+    const state = useDiffStore.getState();
+    expect(state.folds).toHaveLength(1);
+    expect(state.cursor?.head).toEqual({ line: 3, col: 1 });
+    expect(state.cursor?.anchor).toEqual({ line: 3, col: 1 });
+  });
+
+  it("keeps a run open when it hides the whole document, since the caret has nowhere to go", () => {
+    load(lines(...body), lines(...body), "src/same.ts");
+    expect(useDiffStore.getState().folds).toHaveLength(0);
+    useDiffStore.getState().setCollapsed(true);
+    const state = useDiffStore.getState();
+    expect(state.folds).toHaveLength(0);
+    expect(state.readOnlyCarets.right).toEqual({ line: 0, col: 0 });
+  });
+
+  it("brings the whole run back when a partly opened fold is toggled shut", () => {
+    const key = fold().key;
+    useDiffStore.getState().revealFold(key);
+    useDiffStore.getState().toggleFold(key);
+    expect(useDiffStore.getState().folds).toHaveLength(0);
+    useDiffStore.getState().toggleFold(key);
+    expect(fold().hiddenLines).toBe(37);
+    expect(fold().revealed).toEqual({ head: 0, tail: 0 });
   });
 
   it("keeps each bar's search independent of the other side", () => {

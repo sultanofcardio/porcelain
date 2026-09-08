@@ -628,35 +628,80 @@ button.diff-menu-step:focus-visible {
 }
 
 /*
- * One collapsed run of unchanged lines. A pane-level row rather than one bar
- * across the whole surface: the drift above a fold can differ per side, so a
- * single full-width row would sit at the right height in at most one pane.
+ * One collapsed run of unchanged lines: a wavy separator carrying the hidden
+ * count, IntelliJ's shape. A pane-level row rather than one bar across the
+ * whole surface: the drift above a fold can differ per side, so a single
+ * full-width row would sit at the right height in at most one pane.
+ *
+ * The row is pinned to the pane's left edge and sized to its viewport (set
+ * inline from a measure), so it covers exactly what is on screen while the
+ * text scrolls sideways under it and the count stays centred.
  */
 button.diff-fold-row {
-  display: block;
+  --fold-tint: color-mix(
+    in srgb,
+    var(--vscode-focusBorder, #4d9de0) 22%,
+    transparent
+  );
+  position: sticky;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
   width: 100%;
   height: 20px;
-  line-height: 18px;
-  padding: 0 0 0 10px;
+  padding: 0 12px;
   border: none;
-  border-top: 1px solid rgba(128, 128, 128, 0.18);
-  border-bottom: 1px solid rgba(128, 128, 128, 0.18);
-  background: rgba(128, 128, 128, 0.08);
+  background: rgba(128, 128, 128, 0.06);
   color: var(--description-fg);
   font-family: var(--font-family);
   font-size: 11px;
-  text-align: left;
+  line-height: 18px;
+  white-space: nowrap;
   cursor: pointer;
 }
-/* The label holds its place while the row scrolls sideways under it, the way
-   the unified view's line numbers do. */
-.diff-fold-label {
-  position: sticky;
-  left: 10px;
+/* The separator: a repeating wave, masked so it takes the row's colour and
+   stays crisp at any width. */
+.diff-fold-wave {
+  flex: 1;
+  min-width: 8px;
+  height: 6px;
+  background: currentColor;
+  opacity: 0.55;
+  -webkit-mask:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='6' viewBox='0 0 8 6'%3E%3Cpath d='M0 3 Q2 0 4 3 T8 3' fill='none' stroke='%23000' stroke-width='1'/%3E%3C/svg%3E")
+    repeat-x center / 8px 6px;
+  mask:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='6' viewBox='0 0 8 6'%3E%3Cpath d='M0 3 Q2 0 4 3 T8 3' fill='none' stroke='%23000' stroke-width='1'/%3E%3C/svg%3E")
+    repeat-x center / 8px 6px;
 }
-button.diff-fold-row:hover {
-  background: rgba(128, 128, 128, 0.16);
+.diff-fold-count {
+  flex: none;
+}
+button.diff-fold-row:hover,
+button.diff-fold-row:focus-visible {
   color: var(--app-fg);
+}
+/* The tint sits on the edge the next lines will appear on: below the
+   separator when the run opens from its tail, above it from its head. */
+/* Doubled class: the theme's own button:hover rule ties a single one on
+   specificity and would win on source order. */
+button.diff-fold-row.diff-fold-row-tail:hover,
+button.diff-fold-row.diff-fold-row-tail:focus-visible {
+  background: linear-gradient(
+    to top,
+    var(--fold-tint),
+    rgba(128, 128, 128, 0.06) 60%
+  );
+}
+button.diff-fold-row.diff-fold-row-head:hover,
+button.diff-fold-row.diff-fold-row-head:focus-visible {
+  background: linear-gradient(
+    to bottom,
+    var(--fold-tint),
+    rgba(128, 128, 128, 0.06) 60%
+  );
 }
 button.diff-fold-row:focus-visible {
   outline: 1px solid var(--vscode-focusBorder, #4d9de0);

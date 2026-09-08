@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyReveals,
   axisLength,
   axisToSide,
   chooseLayout,
@@ -12,6 +13,10 @@ import {
   displayLine,
   displayLineCount,
   displayToSource,
+  foldStep,
+  nearestVisibleLine,
+  nextReveal,
+  revealEnd,
   sideToAxis,
 } from "./diff-model";
 
@@ -254,6 +259,152 @@ describe("computeFolds", () => {
   });
 });
 
+describe("staged fold reveals", () => {
+  // A change, forty equal lines, a change: the run folds to lines 4..37,
+  // 34 hidden, with three lines of context kept on each edge.
+  const chunks: DiffChunk[] = [
+    {
+      kind: "modified",
+      left: { start: 0, count: 1 },
+      right: { start: 0, count: 1 },
+    },
+    {
+      kind: "equal",
+      left: { start: 1, count: 40 },
+      right: { start: 1, count: 40 },
+    },
+    {
+      kind: "modified",
+      left: { start: 41, count: 1 },
+      right: { start: 41, count: 1 },
+    },
+  ];
+  const [fold] = computeFolds(chunks, { contextLines: 3 });
+  const revealedBy = (head: number, tail: number) =>
+    applyReveals([fold], new Map([[fold.key, { head, tail }]]))[0];
+
+  it("steps 4 lines, then 8 more, then the rest", () => {
+    expect(nextReveal(0)).toBe(4);
+    expect(nextReveal(4)).toBe(12);
+    expect(nextReveal(12)).toBe(Number.POSITIVE_INFINITY);
+    // A step cut short by the run's length still completes its stage.
+    expect(nextReveal(2)).toBe(4);
+  });
+
+  it("opens toward the caret: the head of a fold below it, the tail of one above", () => {
+    expect(revealEnd(fold, "left", 2)).toBe("head");
+    expect(revealEnd(fold, "right", 0)).toBe("head");
+    expect(revealEnd(fold, "left", 39)).toBe("tail");
+    expect(revealEnd(fold, "right", 41)).toBe("tail");
+    // At the file's edges the rule is the same: nothing is special-cased.
+    expect(revealEnd(fold, "left", 0)).toBe("head");
+    expect(revealEnd(fold, "left", 41)).toBe("tail");
+    expect(revealEnd(fold, "left", null)).toBe("head");
+  });
+
+  it("sizes each end's next step on its own, and names the last as the rest", () => {
+    expect(foldStep(fold, "head")).toEqual({
+      end: "head",
+      lines: 4,
+      rest: false,
+    });
+    const once = revealedBy(4, 0);
+    expect(foldStep(once, "head")).toEqual({
+      end: "head",
+      lines: 8,
+      rest: false,
+    });
+    expect(foldStep(once, "tail")).toEqual({
+      end: "tail",
+      lines: 4,
+      rest: false,
+    });
+    const twice = revealedBy(12, 0);
+    expect(foldStep(twice, "head")).toEqual({
+      end: "head",
+      lines: 22,
+      rest: true,
+    });
+    // A run shorter than the step opens whole on the first click.
+    const short = revealedBy(31, 0);
+    expect(short.hiddenLines).toBe(3);
+    expect(foldStep(short, "tail")).toEqual({
+      end: "tail",
+      lines: 3,
+      rest: true,
+    });
+  });
+
+  it("shrinks the run from the head, the tail, or both, under the same key", () => {
+    expect(revealedBy(4, 0)).toEqual({
+      ...fold,
+      left: { start: 8, count: 30 },
+      right: { start: 8, count: 30 },
+      hiddenLines: 30,
+      revealed: { head: 4, tail: 0 },
+    });
+    const tail = revealedBy(0, 4);
+    expect(tail.key).toBe(fold.key);
+    expect(tail.left).toEqual({ start: 4, count: 30 });
+    const both = revealedBy(4, 12);
+    expect(both.left).toEqual({ start: 8, count: 18 });
+    expect(both.right).toEqual({ start: 8, count: 18 });
+    expect(both.hiddenLines).toBe(18);
+  });
+
+  it("lengthens the axis and the display by exactly the lines revealed", () => {
+    const folded = axisLength(chunks, [fold]);
+    expect(folded).toBe(42 - 34 + 1);
+    const opened = [revealedBy(4, 8)];
+    expect(axisLength(chunks, opened)).toBe(folded + 12);
+    expect(displayLineCount(42, opened)).toBe(
+      displayLineCount(42, [fold]) + 12,
+    );
+    // Lines below the run move down by what was revealed above them; a
+    // line the tail reveal uncovered is its own display row again.
+    expect(displayLine(opened, 41, "left")).toBe(
+      displayLine([fold], 41, "left") + 12,
+    );
+    expect(displayToSource(opened, 8, "left")).toEqual({
+      kind: "fold",
+      fold: opened[0],
+    });
+    expect(displayToSource(opened, 9, "left")).toEqual({
+      kind: "line",
+      line: 30,
+    });
+  });
+});
+
+describe("nearestVisibleLine", () => {
+  const run = (start: number, count: number, lineCount: number) => ({
+    fold: {
+      key: start,
+      chunkIndex: 0,
+      left: { start, count },
+      right: { start, count },
+      hiddenLines: count,
+      revealed: { head: 0, tail: 0 },
+    },
+    lineCount,
+  });
+
+  it("picks the closer of the context lines flanking the run, above on a tie", () => {
+    // Lines 4..37 hidden: line 3 sits just above, line 38 just below.
+    const { fold, lineCount } = run(4, 34, 42);
+    expect(nearestVisibleLine(fold, "left", 5, lineCount)).toBe(3);
+    expect(nearestVisibleLine(fold, "right", 36, lineCount)).toBe(38);
+    expect(nearestVisibleLine(fold, "left", 20, lineCount)).toBe(3);
+    expect(nearestVisibleLine(fold, "left", 21, lineCount)).toBe(38);
+  });
+
+  it("has only one neighbour at the file's edges, and none for a whole-file run", () => {
+    expect(nearestVisibleLine(run(0, 27, 40).fold, "left", 26, 40)).toBe(27);
+    expect(nearestVisibleLine(run(4, 36, 40).fold, "left", 39, 40)).toBe(3);
+    expect(nearestVisibleLine(run(0, 40, 40).fold, "left", 10, 40)).toBeNull();
+  });
+});
+
 describe("chooseLayout", () => {
   it("collapses an added file to its right side", () => {
     expect(chooseLayout("", lines("a", "b"))).toEqual({
@@ -360,18 +511,34 @@ describe("the display-line coordinate", () => {
     // its inner edge. Pinned here because every number below depends on it.
     expect(folds).toEqual([
       {
+        key: 5,
         chunkIndex: 1,
         left: { start: 5, count: 34 },
         right: { start: 5, count: 34 },
         hiddenLines: 34,
+        revealed: { head: 0, tail: 0 },
       },
       {
+        key: 45,
         chunkIndex: 3,
         left: { start: 45, count: 5 },
         right: { start: 50, count: 5 },
         hiddenLines: 5,
+        revealed: { head: 0, tail: 0 },
       },
     ]);
+  });
+
+  it("drops a fold its reveals have consumed and leaves the others whole", () => {
+    // An edit can shrink a run under a reveal that used to fit inside it.
+    const survivors = applyReveals(
+      folds,
+      new Map([[5, { head: 20, tail: 14 }]]),
+    );
+    expect(survivors).toEqual([folds[1]]);
+    expect(applyReveals(folds, new Map([[5, { head: 30, tail: 30 }]]))).toEqual(
+      [folds[1]],
+    );
   });
 
   it("shrinks the axis to the visible rows plus one per fold", () => {

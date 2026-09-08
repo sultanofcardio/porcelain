@@ -24,6 +24,7 @@ import {
   LINE_HEIGHT,
   PANE_TEXT_PADDING,
 } from "./components/metrics";
+import { caretAt } from "./editor/editor-model";
 
 const pristine = useDiffStore.getState();
 
@@ -187,6 +188,224 @@ describe("revealing a read-only caret", () => {
 
     await waitFor(() => expect(firstLineOf(leftPane)).toBeGreaterThan(100));
     expect(firstLineOf(rightPane)).toBe(rightBefore);
+  });
+
+  it("scrolls with a fold opening above the caret, so the caret's line stays put", async () => {
+    // Changes at 5 and 150 leave a foldable run between them: lines 9..146
+    // hidden behind one row, with the caret starting on line 5 above it.
+    const changed = body.map((line, i) =>
+      i === 5 || i === 150 ? "changed" : line,
+    );
+    mocks.request.mockImplementation((command: string) =>
+      command === "getDiffSides"
+        ? Promise.resolve({
+            kind: "text",
+            left: leftText,
+            right: `${changed.join("\n")}\n`,
+            filePath: "a.txt",
+            leftRef: "HEAD",
+            rightRef: WORKING_TREE_REF,
+            leftLabel: "HEAD",
+            rightLabel: "Working tree",
+            language: "plaintext",
+          })
+        : Promise.resolve(undefined),
+    );
+    useDiffStore.setState({ collapseUnchanged: true });
+    render(<DiffApp />);
+    await waitFor(() => expect(useDiffStore.getState().loading).toBe(false));
+    const viewport = screen.getByRole("region", { name: "Diff of a.txt" });
+    expect(viewport.scrollTop).toBe(0);
+
+    // Below the caret, the run opens from its head: nothing above the caret
+    // moves, so the view stays where it is.
+    fireEvent.click(
+      screen.getAllByRole("button", {
+        name: "Show 4 of 138 unchanged lines above",
+      })[0],
+    );
+    expect(useDiffStore.getState().folds[0].revealed).toEqual({
+      head: 4,
+      tail: 0,
+    });
+    expect(viewport.scrollTop).toBe(0);
+
+    // With the caret on the change below the run, the next step comes from
+    // the tail, between the row and the caret; the view follows by as much.
+    act(() => useDiffStore.getState().setCursor(caretAt(150, 0)));
+    fireEvent.click(
+      screen.getAllByRole("button", {
+        name: "Show 4 of 134 unchanged lines below",
+      })[0],
+    );
+    expect(useDiffStore.getState().folds[0].revealed).toEqual({
+      head: 4,
+      tail: 4,
+    });
+    expect(viewport.scrollTop).toBe(4 * LINE_HEIGHT);
+  });
+
+  it("holds a decoupled left caret still when its fold opens from the tail", async () => {
+    const changed = body.map((line, i) =>
+      i === 5 || i === 150 ? "changed" : line,
+    );
+    mocks.request.mockImplementation((command: string) =>
+      command === "getDiffSides"
+        ? Promise.resolve({
+            kind: "text",
+            left: leftText,
+            right: `${changed.join("\n")}\n`,
+            filePath: "a.txt",
+            leftRef: "HEAD",
+            rightRef: WORKING_TREE_REF,
+            leftLabel: "HEAD",
+            rightLabel: "Working tree",
+            language: "plaintext",
+          })
+        : Promise.resolve(undefined),
+    );
+    useDiffStore.setState({ collapseUnchanged: true });
+    render(<DiffApp />);
+    await waitFor(() => expect(useDiffStore.getState().loading).toBe(false));
+
+    act(() => useDiffStore.getState().toggleSyncScroll());
+    expect(useDiffStore.getState().syncScroll).toBe(false);
+
+    const viewport = screen.getByRole("region", { name: "Diff of a.txt" });
+    const panes = [...document.querySelectorAll(".diff-pane")];
+    const [leftPane, rightPane] = [panes[0], panes.at(-1) as Element];
+
+    // The reference caret is the left pane's, below the foldable run and far
+    // enough down that the decoupled pane has scrolled to reach it.
+    act(() =>
+      useDiffStore.getState().placeCaret("left", { line: 190, col: 0 }),
+    );
+    await waitFor(() => expect(firstLineOf(leftPane)).toBeGreaterThan(150));
+    const leftBefore = firstLineOf(leftPane);
+    const rightBefore = firstLineOf(rightPane);
+    const scrollBefore = viewport.scrollTop;
+
+    // The run opens from its tail, inserting rows between the separator and
+    // the caret: the left pane absorbs the push on its own scroller.
+    fireEvent.click(
+      screen.getAllByRole("button", {
+        name: "Show 4 of 138 unchanged lines below",
+      })[0],
+    );
+    expect(useDiffStore.getState().folds[0].revealed).toEqual({
+      head: 0,
+      tail: 4,
+    });
+    expect(firstLineOf(leftPane)).toBe(leftBefore);
+    expect(viewport.scrollTop).toBe(scrollBefore);
+    expect(firstLineOf(rightPane)).toBe(rightBefore);
+  });
+
+  it("holds the caret still through a gap the reference pane is parked in", async () => {
+    // The right side is missing lines 1..5, so the shared axis runs five rows
+    // that the right pane does not move through at all. The fold row and the
+    // caret both sit below that gap, on screen.
+    const right = [body[0], ...body.slice(6)];
+    right[145] = "changed";
+    mocks.request.mockImplementation((command: string) =>
+      command === "getDiffSides"
+        ? Promise.resolve({
+            kind: "text",
+            left: leftText,
+            right: `${right.join("\n")}\n`,
+            filePath: "a.txt",
+            leftRef: "HEAD",
+            rightRef: WORKING_TREE_REF,
+            leftLabel: "HEAD",
+            rightLabel: "Working tree",
+            language: "plaintext",
+          })
+        : Promise.resolve(undefined),
+    );
+    useDiffStore.setState({ collapseUnchanged: true });
+    render(<DiffApp />);
+    await waitFor(() => expect(useDiffStore.getState().loading).toBe(false));
+    act(() => useDiffStore.getState().setContextLines(8));
+    act(() => useDiffStore.getState().setCursor(caretAt(145, 0)));
+
+    const viewport = screen.getByRole("region", { name: "Diff of a.txt" });
+    act(() => {
+      viewport.scrollTop = 0;
+      fireEvent.scroll(viewport);
+    });
+    const rightPane = document.querySelectorAll(".diff-pane")[1] as Element;
+    const caretTop = () =>
+      Number.parseFloat(
+        (document.querySelector(".diff-editor-caret") as HTMLElement).style.top,
+      );
+    const topBefore = caretTop();
+    const firstBefore = firstLineOf(rightPane);
+
+    fireEvent.click(
+      screen.getAllByRole("button", {
+        name: "Show 4 of 128 unchanged lines below",
+      })[0],
+    );
+
+    // Four rows went in above the caret, so the pane carrying it scrolls by
+    // exactly four rows and the caret does not move on screen. The axis this
+    // side is on ramps here, so the position is solved rather than counted.
+    expect(caretTop()).toBeCloseTo(topBefore, 3);
+    expect(firstLineOf(rightPane)).toBe(firstBefore + 4);
+  });
+
+  it("leaves the view alone when the caret it would hold still is off screen", async () => {
+    // One foldable run near the top, then a long changed stretch that cannot
+    // fold: the caret below it is a hundred rows past the viewport.
+    const changed = body.map((line, i) =>
+      i === 5 || i >= 60 ? `changed ${i}` : line,
+    );
+    mocks.request.mockImplementation((command: string) =>
+      command === "getDiffSides"
+        ? Promise.resolve({
+            kind: "text",
+            left: leftText,
+            right: `${changed.join("\n")}\n`,
+            filePath: "a.txt",
+            leftRef: "HEAD",
+            rightRef: WORKING_TREE_REF,
+            leftLabel: "HEAD",
+            rightLabel: "Working tree",
+            language: "plaintext",
+          })
+        : Promise.resolve(undefined),
+    );
+    useDiffStore.setState({ collapseUnchanged: true });
+    render(<DiffApp />);
+    await waitFor(() => expect(useDiffStore.getState().loading).toBe(false));
+
+    const viewport = screen.getByRole("region", { name: "Diff of a.txt" });
+    act(() => {
+      viewport.scrollTop = 0;
+      fireEvent.scroll(viewport);
+    });
+    // The caret is far below the fold row and well past the bottom of the
+    // viewport: nothing the reader can see needs holding still.
+    act(() => useDiffStore.getState().setCursor(caretAt(190, 0)));
+    act(() => {
+      viewport.scrollTop = 0;
+      fireEvent.scroll(viewport);
+    });
+    const rightPane = document.querySelectorAll(".diff-pane")[1] as Element;
+    const firstBefore = firstLineOf(rightPane);
+
+    fireEvent.click(
+      screen.getAllByRole("button", {
+        name: "Show 4 of 48 unchanged lines below",
+      })[0],
+    );
+
+    expect(useDiffStore.getState().folds[0].revealed).toEqual({
+      head: 0,
+      tail: 4,
+    });
+    expect(viewport.scrollTop).toBe(0);
+    expect(firstLineOf(rightPane)).toBe(firstBefore);
   });
 
   it("clears the unified view's parked number columns when it scrolls back", async () => {

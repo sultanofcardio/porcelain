@@ -45,6 +45,24 @@ describe("positionAt", () => {
     });
   });
 
+  it("lands a click below the content on the last visible line, not a hidden one", () => {
+    // A fold hides the file's tail: rows 0 and 1 show lines 0 and 1, row 2
+    // is the fold row standing in for lines 2..9, and nothing follows it.
+    // A click in the empty space below must not resolve to line 9 (which
+    // would open the whole run) but to the end of the last line on show.
+    const tail = Array.from({ length: 10 }, (_, i) => `line${i}`);
+    const folded = {
+      ...geometry,
+      lines: tail,
+      toSourceLine: (row: number) =>
+        row < 2 ? row : row === 2 ? null : row + 7,
+    };
+    expect(positionAt(at(5, 3), folded)).toEqual({ line: 1, col: 3 });
+    expect(positionAt(at(3, 0), folded)).toEqual({ line: 1, col: 0 });
+    // The fold row itself still belongs to its button.
+    expect(positionAt(at(2, 0), folded)).toBeNull();
+  });
+
   it("steps by visual cell, so a tab counts for its whole stop", () => {
     // Cell 3 of "\tbeta" is inside the tab's eight-cell stop.
     expect(

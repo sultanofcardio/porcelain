@@ -500,6 +500,46 @@ export function stallLift(
 }
 
 /**
+ * The axis position that renders `offset` at the top of `side`'s pane: what
+ * the panes compute as `axisToSide` minus `stallLift`, run backwards.
+ *
+ * A caret's height on screen is measured against that rendered offset, so
+ * holding a caret still means solving for the offset rather than adding to
+ * the axis. Adding cannot work: the axis maps to pane rows at a slope that
+ * varies chunk by chunk — flat across a gap the side stands still through —
+ * and the lift bends it again on the approach to one. Both are monotone in
+ * the axis, so a bisection lands on the position, and on the lowest one
+ * wherever a stretch of axis renders the same row.
+ */
+export function axisForSideOffset(
+  chunks: readonly DiffChunk[],
+  offset: number,
+  side: Side,
+  viewportLines: number,
+  folds: readonly FoldRegion[] = [],
+): number {
+  const rendered = (position: number) =>
+    axisToSide(chunks, position, side, folds) -
+    stallLift(chunks, position, side, viewportLines, folds);
+  // With no lift in play the mapping inverts exactly, which covers every
+  // position but the approach to a gap; only that ramp needs solving.
+  const direct = axisAtDisplayRow(chunks, offset, side, folds);
+  if (rendered(direct) === offset) return direct;
+  let low = 0;
+  let high = axisLength(chunks, folds);
+  if (rendered(high) <= offset) return high;
+  // Enough halvings to settle a scroll position well inside one pixel of any
+  // axis a diff can have. The bracket closes from above, so the row the pane
+  // floors to is the one asked for rather than the one below it.
+  for (let step = 0; step < 32; step++) {
+    const mid = (low + high) / 2;
+    if (rendered(mid) < offset) low = mid;
+    else high = mid;
+  }
+  return high;
+}
+
+/**
  * The axis position that puts `line` of `side` at the top of its pane.
  *
  * Used for jumping — to a difference, a search hit, a click on the change
@@ -517,9 +557,21 @@ export function sideToAxis(
 ): number {
   if (chunks.length === 0) return Math.max(0, line);
   if (line <= 0) return 0;
+  return axisAtDisplayRow(chunks, displayLine(folds, line, side), side, folds);
+}
 
+/**
+ * `axisToSide` run backwards: the axis position that puts a side's display
+ * row — fractional rows included — at the top of its pane, before the stall
+ * lift the panes subtract on top.
+ */
+function axisAtDisplayRow(
+  chunks: readonly DiffChunk[],
+  display: number,
+  side: Side,
+  folds: readonly FoldRegion[],
+): number {
   const folded = foldByChunk(folds);
-  const display = displayLine(folds, line, side);
   let axis = 0;
   let displayStart = 0;
   for (const [index, chunk] of chunks.entries()) {
@@ -751,13 +803,144 @@ export function stepVisibleLines(
   return current;
 }
 
+/** How many lines a fold has already given up at each of its ends. */
+export interface FoldReveal {
+  head: number;
+  tail: number;
+}
+
+/** One end of a hidden run: its first lines, or its last. */
+export type FoldEnd = "head" | "tail";
+
 export interface FoldRegion {
+  /**
+   * The fold's identity across derivations: the hidden run's first line on
+   * the reference side as first computed, before any partial reveal moved
+   * the run's edges. Expansion and reveal state key on it, so a whitespace
+   * re-chunk or a reveal cannot turn one fold into another under the reader.
+   */
+  key: number;
   /** Index into the chunk list of the equal chunk being folded. */
   chunkIndex: number;
   left: Span;
   right: Span;
-  /** How many lines the fold hides, after context is subtracted. */
+  /** How many lines the fold hides, after context and reveals are subtracted. */
   hiddenLines: number;
+  /** What has been revealed at each end so far, for the next step's size. */
+  revealed: FoldReveal;
+}
+
+const NO_REVEAL: FoldReveal = { head: 0, tail: 0 };
+
+/**
+ * How a fold opens: 4 lines on the first click, 8 more on the second, and
+ * everything left on the third, IntelliJ's staging. Each end counts its own
+ * steps, so opening a run from one end does not spend the other's.
+ */
+export const REVEAL_STEPS = [4, 8] as const;
+
+/**
+ * How many lines in total one end should have revealed after its next step,
+ * given how many it has revealed so far. Past the staged steps the answer is
+ * the rest of the run.
+ */
+export function nextReveal(revealed: number): number {
+  let total = 0;
+  for (const step of REVEAL_STEPS) {
+    total += step;
+    if (revealed < total) return total;
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
+/**
+ * Which end of a fold the next click opens: the one nearest the caret, so
+ * the separator moves away from where the reader is looking. A fold below
+ * the caret gives up its head, a fold above its tail. The caret can never
+ * be inside a fold, since placing it there expands the run, so the two
+ * cases are exhaustive; with no caret at all the run opens from its head,
+ * as if the caret sat at the top of the file.
+ */
+export function revealEnd(
+  fold: FoldRegion,
+  side: Side,
+  caretLine: number | null,
+): FoldEnd {
+  if (caretLine === null) return "head";
+  const hidden = side === "left" ? fold.left : fold.right;
+  return caretLine < hidden.start ? "head" : "tail";
+}
+
+/**
+ * Where a caret goes when a run collapses under it: the nearest line still
+ * on show, the last line of context above the run or the first below it,
+ * whichever is closer (the one above on a tie). A run at the file's edge
+ * has only one neighbour. A run hiding the whole document has none, and
+ * the answer is null: the caret has nowhere to go.
+ */
+export function nearestVisibleLine(
+  fold: FoldRegion,
+  side: Side,
+  line: number,
+  lineCount: number,
+): number | null {
+  const hidden = side === "left" ? fold.left : fold.right;
+  const above = hidden.start - 1;
+  const below = hidden.start + hidden.count;
+  const hasAbove = above >= 0;
+  const hasBelow = below < lineCount;
+  if (!hasAbove && !hasBelow) return null;
+  if (!hasBelow) return above;
+  if (!hasAbove) return below;
+  return line - above <= below - line ? above : below;
+}
+
+/** What one click on a fold's row would do next. */
+export interface FoldStep {
+  end: FoldEnd;
+  /** How many lines the step reveals. */
+  lines: number;
+  /** Whether the step opens the whole of what is left. */
+  rest: boolean;
+}
+
+export function foldStep(fold: FoldRegion, end: FoldEnd): FoldStep {
+  const done = fold.revealed[end];
+  const lines = Math.min(nextReveal(done) - done, fold.hiddenLines);
+  return { end, lines, rest: lines >= fold.hiddenLines };
+}
+
+/**
+ * The folds with their partial reveals taken off: a head reveal moves the
+ * run's start down, a tail reveal pulls its end up, and both shrink what
+ * it hides. Everything downstream (the axis, the panes, the connectors,
+ * the stripe, find) renders from the spans, so this one pass is the whole
+ * of what a staged reveal changes. A fold whose reveals cover it, which an
+ * edit shrinking the run can bring about, is gone from the list.
+ */
+export function applyReveals(
+  folds: readonly FoldRegion[],
+  reveals: ReadonlyMap<number, FoldReveal>,
+): FoldRegion[] {
+  if (reveals.size === 0) return [...folds];
+  const out: FoldRegion[] = [];
+  for (const fold of folds) {
+    const reveal = reveals.get(fold.key);
+    if (!reveal) {
+      out.push(fold);
+      continue;
+    }
+    const hidden = fold.hiddenLines - reveal.head - reveal.tail;
+    if (hidden <= 0) continue;
+    out.push({
+      ...fold,
+      left: { start: fold.left.start + reveal.head, count: hidden },
+      right: { start: fold.right.start + reveal.head, count: hidden },
+      hiddenLines: hidden,
+      revealed: { head: reveal.head, tail: reveal.tail },
+    });
+  }
+  return out;
 }
 
 export interface FoldOptions {
@@ -798,10 +981,12 @@ export function computeFolds(
     if (hidden <= 0) continue;
 
     folds.push({
+      key: chunk.left.start + leadingContext,
       chunkIndex: index,
       left: { start: chunk.left.start + leadingContext, count: hidden },
       right: { start: chunk.right.start + leadingContext, count: hidden },
       hiddenLines: hidden,
+      revealed: NO_REVEAL,
     });
   }
 

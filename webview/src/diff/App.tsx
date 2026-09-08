@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 import { bridge } from "../shared/bridge";
 import {
   type CommandType,
@@ -18,6 +19,8 @@ import {
   chunkAxis,
   editableSide,
   editSourcePosition,
+  type FoldRevealShift,
+  foldRevealEnd,
   useDiffStore,
 } from "../shared/store/diff-store";
 import { ChangeStripe, splitStripeMarks } from "./components/ChangeStripe";
@@ -42,11 +45,13 @@ import type { Position } from "./editor/editor-model";
 import { type SurfacePresentation, useAutoSave } from "./hooks/useAutoSave";
 import { useRevealMatch } from "./hooks/useRevealMatch";
 import {
+  axisForSideOffset,
   axisToSide,
   chooseLayout,
   type DiffChunk,
   displayLine,
   displayToSource,
+  type FoldRegion,
   type Side,
   sideToAxis,
   splitLines,
@@ -273,6 +278,13 @@ export function DiffApp() {
     if (store.syncScroll) return;
     setIndependentLeft(leftAtDecouple.current);
   }, [store.syncScroll]);
+
+  // A fold opening from its tail puts rows between its separator and the
+  // caret, which would push the line the reader is looking at down the
+  // view. The store reports that push and the view follows it below, once
+  // the pane offsets it has to speak in are known.
+  // Each fold row names and tints its next step from the active caret.
+  const foldEnd = (fold: FoldRegion) => foldRevealEnd(store, fold);
 
   // A working-tree diff can stage, unstage and revert individual changes. The
   // checkbox reflects what git has staged rather than a separate notion of
@@ -813,6 +825,74 @@ export function DiffApp() {
     axisToSide(store.chunks, axisPosition, "right", store.folds) -
     stallLift(store.chunks, axisPosition, "right", visibleLines, store.folds);
 
+  /**
+   * A staged fold reveal, with the view following the push it gives the
+   * reference caret's line so that line stays where it is on screen.
+   *
+   * The reveal is flushed first because the scroll range only grows once the
+   * new rows are in the DOM; scrolling before that would clamp at the old
+   * extent. The push arrives in the reference pane's own rows, so each
+   * scroller is asked in its own units — the axis is not a substitute, since
+   * it maps to pane rows at a slope that goes to zero wherever that side is
+   * parked through a gap on the other.
+   */
+  const revealFold = (fold: FoldRegion) => {
+    let shift: FoldRevealShift = { pane: "right", caretRow: null, rows: 0 };
+    flushSync(() => {
+      shift = useDiffStore.getState().revealFold(fold.key);
+    });
+    const { pane, caretRow, rows: pushed } = shift;
+    if (pushed === 0 || caretRow === null) return;
+    // Decoupled, the left pane is off the axis: moving the axis would scroll
+    // the right pane while the caret being compensated for stayed put.
+    const decoupled =
+      pane === "left" &&
+      !store.syncScroll &&
+      !unified &&
+      layout.mode === "split";
+    const paneOffset = unified
+      ? axisPosition
+      : decoupled
+        ? independentLeft
+        : pane === "left"
+          ? leftOffset
+          : rightOffset;
+    // A caret the reader cannot see is not what they are holding on to:
+    // scrolling for it would drag the separator they just clicked out from
+    // under them.
+    if (caretRow < paneOffset || caretRow >= paneOffset + visibleLines) return;
+    if (decoupled) {
+      setIndependentLeft((previous) =>
+        Math.max(
+          0,
+          Math.min(previous + pushed, Math.max(0, leftLines.length - 1)),
+        ),
+      );
+      return;
+    }
+    const element = viewportRef.current;
+    if (!element) return;
+    if (unified) {
+      element.scrollTop += pushed * LINE_HEIGHT;
+      setAxisPosition(element.scrollTop / LINE_HEIGHT);
+      return;
+    }
+    // Solve for the axis that renders the reference pane exactly `pushed`
+    // rows further down. Adding the push to the axis instead would land
+    // somewhere else entirely wherever that side is parked through a gap on
+    // the other, which is where the caret needs holding most.
+    const after = useDiffStore.getState();
+    const axis = axisForSideOffset(
+      after.chunks,
+      paneOffset + pushed,
+      pane,
+      visibleLines,
+      after.folds,
+    );
+    element.scrollTop = Math.max(0, axis) * LINE_HEIGHT;
+    setAxisPosition(element.scrollTop / LINE_HEIGHT);
+  };
+
   // The shell stays mounted through loading and failure. Returning early left
   // the viewport unmounted, so the ResizeObserver had nothing to observe and
   // `viewportHeight` stayed 0 — which silently clipped both panes to nothing
@@ -945,9 +1025,8 @@ export function DiffApp() {
                   }
                   onScrollX={(x) => horizontal.onScrollX(scrollOwner, x)}
                   scrollX={horizontal.positions[scrollOwner] ?? 0}
-                  onToggleFold={(fold) =>
-                    useDiffStore.getState().toggleFold(fold.left.start)
-                  }
+                  onRevealFold={revealFold}
+                  foldEnd={foldEnd}
                   matches={matches}
                   activeMatch={activeMatch}
                   caret={unifiedCaret}
@@ -990,9 +1069,8 @@ export function DiffApp() {
                       contentWidth={contentWidthOf(layout.side)}
                       onScrollX={(x) => horizontal.onScrollX(layout.side, x)}
                       folds={store.folds}
-                      onToggleFold={(fold) =>
-                        useDiffStore.getState().toggleFold(fold.left.start)
-                      }
+                      onRevealFold={revealFold}
+                      foldEnd={foldEnd}
                       matches={matches}
                       activeMatch={activeMatch}
                       {...readOnlyCaret(layout.side)}
@@ -1023,9 +1101,8 @@ export function DiffApp() {
                         contentWidth={contentWidthOf("left")}
                         onScrollX={(x) => horizontal.onScrollX("left", x)}
                         folds={store.folds}
-                        onToggleFold={(fold) =>
-                          useDiffStore.getState().toggleFold(fold.left.start)
-                        }
+                        onRevealFold={revealFold}
+                        foldEnd={foldEnd}
                         matches={matches}
                         activeMatch={activeMatch}
                         {...readOnlyCaret("left")}
@@ -1058,9 +1135,8 @@ export function DiffApp() {
                       contentWidth={contentWidthOf("right")}
                       onScrollX={(x) => horizontal.onScrollX("right", x)}
                       folds={store.folds}
-                      onToggleFold={(fold) =>
-                        useDiffStore.getState().toggleFold(fold.left.start)
-                      }
+                      onRevealFold={revealFold}
+                      foldEnd={foldEnd}
                       matches={matches}
                       activeMatch={activeMatch}
                       {...readOnlyCaret("right")}

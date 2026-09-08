@@ -30,6 +30,7 @@ export function MergeToolbar({
   const openFind = useMergeStore((s) => s.openFind);
   const collapse = useMergeStore((s) => s.collapseUnchanged);
   const expandedFolds = useMergeStore((s) => s.expandedFolds);
+  const foldReveals = useMergeStore((s) => s.foldReveals);
   const setCollapsed = useMergeStore((s) => s.setCollapsed);
   const undo = useMergeStore((s) => s.undo);
   const redo = useMergeStore((s) => s.redo);
@@ -46,7 +47,8 @@ export function MergeToolbar({
   const nonConflicting = nonConflictingCount();
   const autoResolvable = autoResolvableCount();
 
-  const fullyCollapsed = collapse && expandedFolds.size === 0;
+  const fullyCollapsed =
+    collapse && expandedFolds.size === 0 && foldReveals.size === 0;
   const pending = conflictTotal - conflictResolved;
 
   return (

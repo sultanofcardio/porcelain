@@ -17,6 +17,7 @@ import {
   displayLine,
   displayLineCount,
   displayToSource,
+  type FoldEnd,
   type FoldRegion,
   type Side,
   stepVisibleLines,
@@ -29,12 +30,14 @@ import {
   syntaxSpans,
 } from "../utils/highlight";
 import { needsReveal, positionAt } from "../utils/positionAt";
+import { FoldRow } from "./FoldRow";
 import {
   CARET_WIDTH,
   LINE_HEIGHT,
   PANE_TEXT_PADDING,
   useCharWidth,
   useForwardedRef,
+  usePaneWidth,
 } from "./metrics";
 
 interface DiffPaneProps {
@@ -50,7 +53,14 @@ interface DiffPaneProps {
   visibleLines: number;
   /** The folds currently collapsed. Empty means display rows are lines. */
   folds?: FoldRegion[];
-  onToggleFold?: (fold: FoldRegion) => void;
+  /** A fold row was clicked: open the run one step further. */
+  onRevealFold?: (fold: FoldRegion) => void;
+  /**
+   * Which end of a fold the next click opens, for its row to name and tint
+   * the step. The caller knows the caret this is measured from; without an
+   * answer a row opens from its head.
+   */
+  foldEnd?: (fold: FoldRegion) => FoldEnd;
   /** Find hits across both sides; the pane keeps only its own. */
   matches?: FindMatch[];
   /** The match the find stepper is on, when there is one. */
@@ -144,7 +154,8 @@ export function DiffPane({
   offset,
   visibleLines,
   folds = [],
-  onToggleFold,
+  onRevealFold,
+  foldEnd,
   matches = [],
   activeMatch = null,
   overrideKinds,
@@ -166,6 +177,7 @@ export function DiffPane({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const setHost = useForwardedRef(hostRef, ref);
   const charWidth = useCharWidth(hostRef);
+  const paneWidth = usePaneWidth(hostRef);
   const goalRef = useRef<number | null>(null);
 
   const toSourceLine = useCallback(
@@ -519,19 +531,13 @@ export function DiffPane({
           {rows.map((row) => {
             if ("fold" in row) {
               return (
-                <button
+                <FoldRow
                   key={row.row}
-                  type="button"
-                  className="diff-fold-row"
-                  // The count carries the accessible name; the glyph is decor.
-                  aria-label={`Expand ${row.fold.hiddenLines} unchanged lines`}
-                  onClick={() => onToggleFold?.(row.fold)}
-                >
-                  <span className="diff-fold-label">
-                    <span aria-hidden="true">▸ </span>
-                    {row.fold.hiddenLines} unchanged lines
-                  </span>
-                </button>
+                  fold={row.fold}
+                  end={foldEnd?.(row.fold) ?? "head"}
+                  onReveal={onRevealFold}
+                  width={paneWidth}
+                />
               );
             }
             const kind = overrideKinds?.get(row.line) ?? row.kind;

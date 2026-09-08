@@ -60,13 +60,13 @@ describe("UnifiedPane", () => {
     ).toBe(true);
   });
 
-  it("renders a fold row that expands on click", () => {
+  it("renders a fold row that reveals the next step on click", () => {
     const body = Array.from({ length: 40 }, (_, i) => `line${i}`);
     const left = lines("old", ...body);
     const right = lines("new", ...body);
     const chunks = computeChunks(left, right);
     const folds = computeFolds(chunks);
-    const onToggleFold = vi.fn();
+    const onRevealFold = vi.fn();
     render(
       <UnifiedPane
         rows={unifiedRows(chunks, folds)}
@@ -77,11 +77,14 @@ describe("UnifiedPane", () => {
         granularity="word"
         offset={0}
         visibleLines={20}
-        onToggleFold={onToggleFold}
+        onRevealFold={onRevealFold}
+        foldEnd={() => "tail"}
       />,
     );
-    screen.getByRole("button", { name: /Expand 37 unchanged lines/ }).click();
-    expect(onToggleFold).toHaveBeenCalledWith(folds[0]);
+    screen
+      .getByRole("button", { name: "Show 4 of 37 unchanged lines below" })
+      .click();
+    expect(onRevealFold).toHaveBeenCalledWith(folds[0]);
   });
 
   it("shows a left-side match on an equal row, which renders the right text", () => {

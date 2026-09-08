@@ -9,7 +9,7 @@ import {
   type Position,
   visualCol,
 } from "../editor/editor-model";
-import type { DiffChunk, FoldRegion, Side } from "../utils/diff-model";
+import type { DiffChunk, FoldEnd, FoldRegion, Side } from "../utils/diff-model";
 import type { FindMatch } from "../utils/find";
 import {
   buildPieces,
@@ -19,6 +19,7 @@ import {
 } from "../utils/highlight";
 import { needsReveal, positionAt, rowAt } from "../utils/positionAt";
 import { type UnifiedRow, unifiedRowOf } from "../utils/unified";
+import { FoldRow } from "./FoldRow";
 import {
   CARET_WIDTH,
   gutterMetrics,
@@ -26,6 +27,7 @@ import {
   PANE_TEXT_PADDING,
   useCharWidth,
   useForwardedRef,
+  usePaneWidth,
 } from "./metrics";
 
 /** A caret in the one-column view names the document it sits in. */
@@ -43,7 +45,10 @@ interface UnifiedPaneProps {
   /** Fractional row offset of the top of the viewport. */
   offset: number;
   visibleLines: number;
-  onToggleFold?: (fold: FoldRegion) => void;
+  /** A fold row was clicked: open the run one step further. */
+  onRevealFold?: (fold: FoldRegion) => void;
+  /** Which end of a fold the next click opens; see DiffPane. */
+  foldEnd?: (fold: FoldRegion) => FoldEnd;
   matches?: FindMatch[];
   activeMatch?: FindMatch | null;
   /** The pane's element - its horizontal scroll container, as in DiffPane. */
@@ -104,7 +109,8 @@ export function UnifiedPane({
   granularity,
   offset,
   visibleLines,
-  onToggleFold,
+  onRevealFold,
+  foldEnd,
   matches = [],
   activeMatch = null,
   ref,
@@ -123,6 +129,7 @@ export function UnifiedPane({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const setHost = useForwardedRef(hostRef, ref);
   const charWidth = useCharWidth(hostRef);
+  const paneWidth = usePaneWidth(hostRef);
   const goalRef = useRef<number | null>(null);
   // Where a row's text starts: after both number columns and the text inset.
   const textInset = metrics.numberWidth * 2 + PANE_TEXT_PADDING;
@@ -456,22 +463,14 @@ export function UnifiedPane({
         >
           {rendered.map((entry) =>
             "fold" in entry ? (
-              <button
+              <FoldRow
                 key={entry.index}
-                type="button"
-                className="diff-fold-row"
-                aria-label={`Expand ${entry.fold.hiddenLines} unchanged lines`}
-                onClick={() => onToggleFold?.(entry.fold)}
-                style={{ paddingLeft: metrics.numberWidth * 2 + 10 }}
-              >
-                <span
-                  className="diff-fold-label"
-                  style={{ left: metrics.numberWidth * 2 + 10 }}
-                >
-                  <span aria-hidden="true">▸ </span>
-                  {entry.fold.hiddenLines} unchanged lines
-                </span>
-              </button>
+                fold={entry.fold}
+                end={foldEnd?.(entry.fold) ?? "head"}
+                onReveal={onRevealFold}
+                width={paneWidth}
+                inset={metrics.numberWidth * 2}
+              />
             ) : (
               <div
                 key={entry.index}
