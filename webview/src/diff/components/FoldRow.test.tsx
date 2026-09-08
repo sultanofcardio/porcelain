@@ -19,7 +19,7 @@ describe("FoldRow", () => {
     applyReveals([fold], new Map([[fold.key, { head, tail }]]))[0];
 
   it("shows the count, and names the next step with where its lines appear", () => {
-    const { container } = render(<FoldRow fold={fold} end="tail" />);
+    render(<FoldRow fold={fold} end="tail" />);
     const button = screen.getByRole("button", {
       name: "Show 4 of 34 unchanged lines below",
     });

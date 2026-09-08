@@ -53,7 +53,8 @@ export function needsReveal(
 }
 
 /**
- * The (line, column) under a pointer, or null over a fold row.
+ * The (line, column) under a pointer, or null over a fold row and over the
+ * empty space below a pane that shows no line at all.
  *
  * One geometry for every pane: the editable side's caret, the read-only
  * carets, the unified view's caret, and the hover target all resolve a
