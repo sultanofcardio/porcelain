@@ -203,10 +203,10 @@ export interface MergeStoreState {
   toggleFold: (key: number) => void;
   /**
    * Open a fold one step further from the end nearest the result caret.
-   * Returns how far the axis should move for that caret to stay put on
-   * screen, as the diff store's does.
+   * Reports what that did to the result caret in the rows the result pane
+   * renders, as the diff store's does.
    */
-  revealFold: (key: number) => number;
+  revealFold: (key: number) => MergeRevealShift;
   setCollapsed: (collapsed: boolean) => void;
   setContextLines: (value: number) => void;
 
@@ -470,17 +470,27 @@ export function mergeFoldRevealEnd(
   );
 }
 
-/** The result caret's axis position, for holding it still through a reveal. */
-function caretAxis(
-  state: Pick<MergeStoreState, "cursor" | "folds" | "axis">,
-): number {
+/** What a staged reveal did to the result caret, in rendered result rows. */
+export interface MergeRevealShift {
+  /** The row that caret was rendered on before the reveal; null with none. */
+  caretRow: number | null;
+  /** How many rows the reveal pushed that caret down. */
+  rows: number;
+}
+
+/**
+ * Which row of the result pane the caret renders on, for holding it still
+ * through a reveal. Deliberately not an axis position: the axis maps to pane
+ * rows at a slope that varies segment by segment (zero where the result pane
+ * is parked through a gap), so an axis delta is not the row delta the caret
+ * actually moved by.
+ */
+function caretResultRow(
+  state: Pick<MergeStoreState, "cursor" | "folds">,
+): number | null {
   const line = state.cursor?.head.line;
-  if (line === undefined) return 0;
-  return paneToAxis(
-    state.axis,
-    "result",
-    displayLine(state.folds.pairO, line, "right"),
-  );
+  if (line === undefined) return null;
+  return displayLine(state.folds.pairO, line, "right");
 }
 
 /**
@@ -987,7 +997,7 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
   revealFold: (key) => {
     const state = get();
     const fold = state.folds.pairO.find((candidate) => candidate.key === key);
-    if (!fold) return 0;
+    if (!fold) return { caretRow: null, rows: 0 };
     const step = foldStep(fold, mergeFoldRevealEnd(state, "result", fold));
     let opened: Pick<MergeStoreState, "expandedFolds" | "foldReveals">;
     if (step.rest) {
@@ -1002,7 +1012,12 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
     }
     const patch = { ...opened, ...derive({ ...state, ...opened }) };
     set(patch);
-    return caretAxis({ ...state, ...patch }) - caretAxis(state);
+    const caretRow = caretResultRow(state);
+    const after = caretResultRow({ ...state, ...patch });
+    return {
+      caretRow,
+      rows: caretRow === null || after === null ? 0 : after - caretRow,
+    };
   },
 
   setCollapsed: (collapsed) =>

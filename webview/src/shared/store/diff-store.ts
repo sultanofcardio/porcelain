@@ -18,6 +18,7 @@ import {
   countDifferences,
   counterpartLine,
   type DiffChunk,
+  displayLine,
   type FoldEnd,
   type FoldRegion,
   type FoldReveal,
@@ -214,12 +215,11 @@ export interface DiffStoreState {
   toggleFold: (key: number) => void;
   /**
    * Open a fold one step further from the end nearest the active pane's
-   * caret. Returns how far the view should scroll, in the current view's
-   * units, for that caret to stay where it was on screen: rows revealed
-   * above the caret push its line down, and the caller's viewport is the
-   * only thing that can follow.
+   * caret. Reports what that did to the reference caret, in the rows the
+   * pane carrying it renders: rows revealed above it push its line down, and
+   * only the caller knows how its scrollers turn a pane row into a position.
    */
-  revealFold: (key: number) => number;
+  revealFold: (key: number) => FoldRevealShift;
   swapSides: () => void;
   stepDifference: (delta: number) => void;
   /** Axis position that reveals the active difference, or null when there is none. */
@@ -503,28 +503,41 @@ export function foldRevealEnd(
   return revealEnd(fold, side, caretOn(state, side)?.line ?? null);
 }
 
+/** What a staged reveal did to the reference caret, in rendered pane rows. */
+export interface FoldRevealShift {
+  /** The pane whose caret the reveal opened away from. */
+  pane: Side;
+  /** The row that caret was rendered on before the reveal; null with none. */
+  caretRow: number | null;
+  /** How many rows the reveal pushed that caret down. */
+  rows: number;
+}
+
 /**
- * Where the reference caret sits in the current view's scroll units: a row
- * of the unified list, or a position on the shared axis. What a staged
- * reveal compares before and after, so the viewport can keep that caret's
- * line still while rows appear above it.
+ * Which row of its own pane the reference caret renders on: a row of the
+ * unified list, or a display row of the split pane. What a staged reveal
+ * compares before and after, so the caller can keep that caret's line still
+ * while rows appear above it.
+ *
+ * Deliberately not an axis position: the axis maps to pane rows at a slope
+ * that varies chunk by chunk (zero across a side's gap), so an axis delta is
+ * not the row delta the caret actually moved by.
  */
-function caretScrollPosition(
+function caretDisplayRow(
   state: Pick<
     DiffStoreState,
     | "leftRef"
     | "rightRef"
     | "cursor"
     | "readOnlyCarets"
-    | "activePane"
     | "chunks"
     | "folds"
     | "viewMode"
   >,
-): number {
-  const side = referencePane(state);
+  side: Side,
+): number | null {
   const caret = caretOn(state, side);
-  if (!caret) return 0;
+  if (!caret) return null;
   if (state.viewMode === "unified") {
     const row = unifiedRowOf(
       unifiedRows(state.chunks, state.folds),
@@ -533,7 +546,7 @@ function caretScrollPosition(
     );
     return Math.max(0, row);
   }
-  return sideToAxis(state.chunks, caret.line, side, state.folds);
+  return displayLine(state.folds, caret.line, side);
 }
 
 /**
@@ -560,7 +573,7 @@ export function editSourcePosition(
 ): { line: number; column: number } | null {
   if (state.fallback || state.loading) return null;
   const editable = editableSide(state);
-  const side = state.activePane ?? editable ?? "right";
+  const side = referencePane(state);
   const caret = caretOn(state, side);
   if (!caret) return null;
   if (editable === null || editable === side) {
@@ -1163,8 +1176,9 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
 
   revealFold: (key) => {
     const state = get();
+    const pane = referencePane(state);
     const fold = state.folds.find((candidate) => candidate.key === key);
-    if (!fold) return 0;
+    if (!fold) return { pane, caretRow: null, rows: 0 };
     const step = foldStep(fold, foldRevealEnd(state, fold));
     // The last step opens the run whole, which is what expansion already
     // means; anything short of it is remembered per end, so a caret that
@@ -1182,11 +1196,15 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
     }
     const patch = { ...opened, ...derive({ ...state, ...opened }) };
     set(patch);
-    // Rows revealed above the caret push its line down the view; the
-    // difference in the caret's own scroll position is exactly that push.
-    return (
-      caretScrollPosition({ ...state, ...patch }) - caretScrollPosition(state)
-    );
+    // Rows revealed above the caret push its line down its pane; the
+    // difference in the caret's own row is exactly that push.
+    const caretRow = caretDisplayRow(state, pane);
+    const after = caretDisplayRow({ ...state, ...patch }, pane);
+    return {
+      pane,
+      caretRow,
+      rows: caretRow === null || after === null ? 0 : after - caretRow,
+    };
   },
 
   // Swapping re-runs the diff rather than mirroring the existing chunks:

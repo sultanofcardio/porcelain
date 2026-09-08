@@ -31,6 +31,7 @@ import { bridge } from "../shared/bridge";
 import type { FileVersionsResult } from "../shared/bridge/types";
 import { useHorizontalScroll } from "../shared/hooks/useHorizontalScroll";
 import {
+  type MergeRevealShift,
   mergeFoldRevealEnd,
   PANE_SIDE,
   paneFolds,
@@ -122,18 +123,10 @@ export function MergeApp() {
     if (element) element.scrollTop = Math.max(0, position) * LINE_HEIGHT;
   }, []);
 
-  // A staged fold reveal, with the viewport following the push it gives the
-  // result caret's line; see DiffApp's revealFold for why the flush.
-  const revealFold = useCallback((fold: FoldRegion) => {
-    let shift = 0;
-    flushSync(() => {
-      shift = useMergeStore.getState().revealFold(fold.key);
-    });
-    const element = viewportRef.current;
-    if (shift === 0 || !element) return;
-    element.scrollTop += shift * LINE_HEIGHT;
-    setAxisPosition(element.scrollTop / LINE_HEIGHT);
-  }, []);
+  // A staged fold reveal follows the push it gives the result caret's line;
+  // see DiffApp's revealFold for why the flush and why the push is applied to
+  // the result pane's own rows rather than added to the axis. Defined below,
+  // where the offsets it speaks in are known.
   const foldEnd = (pane: MergePane) => (fold: FoldRegion) =>
     mergeFoldRevealEnd(store, pane, fold);
 
@@ -243,6 +236,27 @@ export function MergeApp() {
 
   const offsets = axisToOffsets(store.axis, axisPosition);
   const visibleLines = Math.ceil(viewportHeight / LINE_HEIGHT);
+
+  const revealFold = (fold: FoldRegion) => {
+    let shift: MergeRevealShift = { caretRow: null, rows: 0 };
+    flushSync(() => {
+      shift = useMergeStore.getState().revealFold(fold.key);
+    });
+    const { caretRow, rows: pushed } = shift;
+    const element = viewportRef.current;
+    if (pushed === 0 || caretRow === null || !element) return;
+    // A caret the reader cannot see is not what they are holding on to.
+    if (caretRow < offsets.result || caretRow >= offsets.result + visibleLines)
+      return;
+    scrollToAxis(
+      paneToAxis(
+        useMergeStore.getState().axis,
+        "result",
+        offsets.result + pushed,
+      ),
+    );
+    setAxisPosition(element.scrollTop / LINE_HEIGHT);
+  };
 
   const oursLines = store.ours.lines;
   const resultLines = store.result.lines;

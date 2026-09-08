@@ -281,7 +281,7 @@ describe("fold state", () => {
     const key = fold().key;
     expect(key).toBe(4);
     const folded = useDiffStore.getState().axis;
-    expect(useDiffStore.getState().revealFold(key)).toBe(0);
+    expect(useDiffStore.getState().revealFold(key).rows).toBe(0);
     expect(fold().key).toBe(key);
     expect(fold().left).toEqual({ start: 8, count: 33 });
     expect(fold().revealed).toEqual({ head: 4, tail: 0 });
@@ -301,13 +301,17 @@ describe("fold state", () => {
     twoChanges();
     useDiffStore.getState().placeCaret("right", { line: 41, col: 0 });
     const key = fold().key;
-    expect(useDiffStore.getState().revealFold(key)).toBe(4);
+    expect(useDiffStore.getState().revealFold(key)).toEqual({
+      pane: "right",
+      caretRow: 8,
+      rows: 4,
+    });
     expect(fold().left).toEqual({ start: 4, count: 30 });
     expect(fold().revealed).toEqual({ head: 0, tail: 4 });
     // Each end keeps its own count: a caret moved above the run opens its
     // head from the first stage, and the tail's progress stays.
     useDiffStore.getState().placeCaret("right", { line: 0, col: 0 });
-    expect(useDiffStore.getState().revealFold(key)).toBe(0);
+    expect(useDiffStore.getState().revealFold(key).rows).toBe(0);
     expect(fold().revealed).toEqual({ head: 4, tail: 4 });
     expect(fold().left).toEqual({ start: 8, count: 26 });
   });
@@ -316,7 +320,7 @@ describe("fold state", () => {
     twoChanges();
     useDiffStore.getState().setViewMode("unified");
     useDiffStore.getState().placeCaret("right", { line: 41, col: 0 });
-    expect(useDiffStore.getState().revealFold(fold().key)).toBe(4);
+    expect(useDiffStore.getState().revealFold(fold().key).rows).toBe(4);
   });
 
   it("keeps a partial reveal on its run across an edit above it", () => {

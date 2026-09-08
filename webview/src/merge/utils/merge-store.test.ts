@@ -431,20 +431,26 @@ describe("staged fold reveals in the merge editor", () => {
     expect(key).toBe(4);
     expect(folds().pairO[0].hiddenLines).toBe(24);
     // No caret yet: the run opens from its head.
-    expect(useMergeStore.getState().revealFold(key)).toBe(0);
+    expect(useMergeStore.getState().revealFold(key)).toEqual({
+      caretRow: null,
+      rows: 0,
+    });
     expect(folds().pairO[0].right).toEqual({ start: 8, count: 20 });
     expect(folds().pairT[0].left).toEqual({ start: 8, count: 20 });
     expect(folds().pairT[0].revealed).toEqual({ head: 4, tail: 0 });
     // A caret below the run turns the next step to its tail, and the axis
     // moves by the rows put in above the caret.
     useMergeStore.getState().setCursor(caretAt(31, 0));
-    expect(useMergeStore.getState().revealFold(key)).toBe(4);
+    expect(useMergeStore.getState().revealFold(key)).toEqual({
+      caretRow: 12,
+      rows: 4,
+    });
     expect(folds().pairO[0].right).toEqual({ start: 8, count: 16 });
     expect(folds().pairT[0].left).toEqual({ start: 8, count: 16 });
     expect(folds().pairT[0].hiddenLines).toBe(folds().pairO[0].hiddenLines);
     expect(folds().pairO[0].revealed).toEqual({ head: 4, tail: 4 });
     // Eight more from the tail, then the rest.
-    expect(useMergeStore.getState().revealFold(key)).toBe(8);
+    expect(useMergeStore.getState().revealFold(key).rows).toBe(8);
     expect(folds().pairO[0].hiddenLines).toBe(8);
     useMergeStore.getState().revealFold(key);
     expect(folds().pairO).toHaveLength(0);

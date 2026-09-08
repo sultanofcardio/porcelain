@@ -500,6 +500,46 @@ export function stallLift(
 }
 
 /**
+ * The axis position that renders `offset` at the top of `side`'s pane: what
+ * the panes compute as `axisToSide` minus `stallLift`, run backwards.
+ *
+ * A caret's height on screen is measured against that rendered offset, so
+ * holding a caret still means solving for the offset rather than adding to
+ * the axis. Adding cannot work: the axis maps to pane rows at a slope that
+ * varies chunk by chunk — flat across a gap the side stands still through —
+ * and the lift bends it again on the approach to one. Both are monotone in
+ * the axis, so a bisection lands on the position, and on the lowest one
+ * wherever a stretch of axis renders the same row.
+ */
+export function axisForSideOffset(
+  chunks: readonly DiffChunk[],
+  offset: number,
+  side: Side,
+  viewportLines: number,
+  folds: readonly FoldRegion[] = [],
+): number {
+  const rendered = (position: number) =>
+    axisToSide(chunks, position, side, folds) -
+    stallLift(chunks, position, side, viewportLines, folds);
+  // With no lift in play the mapping inverts exactly, which covers every
+  // position but the approach to a gap; only that ramp needs solving.
+  const direct = axisAtDisplayRow(chunks, offset, side, folds);
+  if (rendered(direct) === offset) return direct;
+  let low = 0;
+  let high = axisLength(chunks, folds);
+  if (rendered(high) <= offset) return high;
+  // Enough halvings to settle a scroll position well inside one pixel of any
+  // axis a diff can have. The bracket closes from above, so the row the pane
+  // floors to is the one asked for rather than the one below it.
+  for (let step = 0; step < 32; step++) {
+    const mid = (low + high) / 2;
+    if (rendered(mid) < offset) low = mid;
+    else high = mid;
+  }
+  return high;
+}
+
+/**
  * The axis position that puts `line` of `side` at the top of its pane.
  *
  * Used for jumping — to a difference, a search hit, a click on the change
@@ -517,9 +557,21 @@ export function sideToAxis(
 ): number {
   if (chunks.length === 0) return Math.max(0, line);
   if (line <= 0) return 0;
+  return axisAtDisplayRow(chunks, displayLine(folds, line, side), side, folds);
+}
 
+/**
+ * `axisToSide` run backwards: the axis position that puts a side's display
+ * row — fractional rows included — at the top of its pane, before the stall
+ * lift the panes subtract on top.
+ */
+function axisAtDisplayRow(
+  chunks: readonly DiffChunk[],
+  display: number,
+  side: Side,
+  folds: readonly FoldRegion[],
+): number {
   const folded = foldByChunk(folds);
-  const display = displayLine(folds, line, side);
   let axis = 0;
   let displayStart = 0;
   for (const [index, chunk] of chunks.entries()) {
