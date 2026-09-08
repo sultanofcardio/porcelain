@@ -114,6 +114,43 @@ describe("DiffPane read-only caret", () => {
     expect(onPlaceCaret).not.toHaveBeenCalled();
   });
 
+  it("puts a click below the content on the last visible line, leaving a trailing run folded", () => {
+    // The run at the end of the file folds with no trailing context, so its
+    // row is the pane's last: lines 0..33, then the row hiding 34..39. A
+    // click in the empty space under it used to resolve to line 39 and the
+    // caret rule opened the whole run; the click belongs to line 33.
+    const onPlaceCaret = vi.fn();
+    const many = Array.from({ length: 40 }, (_, i) => `line ${i}`);
+    const changed = many.map((l, i) => (i === 30 ? "changed" : l));
+    const wide = computeChunks(
+      `${many.join("\n")}\n`,
+      `${changed.join("\n")}\n`,
+    );
+    const folds = computeFolds(wide);
+    expect(folds.map((fold) => fold.left)).toContainEqual({
+      start: 34,
+      count: 6,
+    });
+    const { container } = renderPane({
+      lines: many,
+      counterpart: changed,
+      chunks: wide,
+      folds,
+      offset: 20,
+      visibleLines: 20,
+      caret: { line: 30, col: 0 },
+      onPlaceCaret,
+    });
+    const pane = container.querySelector(".diff-pane") as HTMLElement;
+    Object.defineProperty(pane, "clientHeight", { value: 400 });
+    // Row 37: three rows under the fold row, in the pane's empty tail.
+    fireEvent.mouseDown(pane, {
+      clientX: PANE_TEXT_PADDING + 2 * CELL + 1,
+      clientY: (37 - 20) * LINE_HEIGHT + 4,
+    });
+    expect(onPlaceCaret).toHaveBeenCalledWith({ line: 33, col: 2 });
+  });
+
   it("walks the caret with the arrow keys and keeps them from the viewport", () => {
     const onPlaceCaret = vi.fn();
     const outer = vi.fn();

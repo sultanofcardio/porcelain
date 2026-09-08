@@ -24,13 +24,6 @@ interface FoldRowProps {
   inset?: number;
 }
 
-/** The hint's wording for the next step: "Show 4 lines", "Show all 29 lines". */
-export function foldStepLabel(step: FoldStep): string {
-  return step.rest
-    ? `Show all ${step.lines} lines`
-    : `Show ${step.lines} lines`;
-}
-
 /**
  * The row's accessible name: the next step, where its lines will appear
  * relative to the row, and how much the row still hides. Head lines appear
@@ -48,8 +41,8 @@ export function foldRowName(fold: FoldRegion, step: FoldStep): string {
  * One collapsed run of unchanged lines, IntelliJ's way: a wavy separator
  * carrying the hidden count, which a click opens in stages (4 lines, 8 more,
  * then the rest) from the end nearest the caret. The whole row is the click
- * target; hovering tints the edge the lines will appear on and names the
- * step. One 20 px row per pane, so the axis arithmetic is untouched.
+ * target; hovering tints the edge the lines will appear on. One 20 px row
+ * per pane, so the axis arithmetic is untouched.
  */
 export function FoldRow({
   fold,
@@ -74,10 +67,7 @@ export function FoldRow({
       <span className="diff-fold-count" aria-hidden="true">
         {fold.hiddenLines} unchanged lines
       </span>
-      <span className="diff-fold-after" aria-hidden="true">
-        <span className="diff-fold-wave" />
-        <span className="diff-fold-hint">{foldStepLabel(step)}</span>
-      </span>
+      <span className="diff-fold-wave" aria-hidden="true" />
     </button>
   );
 }

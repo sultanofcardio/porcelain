@@ -679,33 +679,9 @@ button.diff-fold-row {
 .diff-fold-count {
   flex: none;
 }
-/* The trailing half of the separator, with the hint tucked into its end: the
-   hint grows out of nothing on hover, so the count never shifts off centre. */
-.diff-fold-after {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-.diff-fold-hint {
-  flex: none;
-  max-width: 0;
-  overflow: hidden;
-  padding-left: 0;
-  font-size: 10.5px;
-  color: var(--app-fg);
-  transition:
-    max-width 0.15s ease,
-    padding-left 0.15s ease;
-}
 button.diff-fold-row:hover,
 button.diff-fold-row:focus-visible {
   color: var(--app-fg);
-}
-button.diff-fold-row:hover .diff-fold-hint,
-button.diff-fold-row:focus-visible .diff-fold-hint {
-  max-width: 160px;
-  padding-left: 10px;
 }
 /* The tint sits on the edge the next lines will appear on: below the
    separator when the run opens from its tail, above it from its head. */

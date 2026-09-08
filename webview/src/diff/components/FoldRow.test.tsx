@@ -24,12 +24,8 @@ describe("FoldRow", () => {
       name: "Show 4 of 34 unchanged lines below",
     });
     expect(button.classList.contains("diff-fold-row-tail")).toBe(true);
-    expect(container.querySelector(".diff-fold-count")?.textContent).toBe(
-      "34 unchanged lines",
-    );
-    expect(container.querySelector(".diff-fold-hint")?.textContent).toBe(
-      "Show 4 lines",
-    );
+    // The count is the row's only text: the step lives in the name alone.
+    expect(button.textContent).toBe("34 unchanged lines");
   });
 
   it("counts each end's steps on its own, and calls the last the rest", () => {
@@ -46,12 +42,11 @@ describe("FoldRow", () => {
       }),
     ).toBeTruthy();
     rerender(<FoldRow fold={revealedBy(4, 12)} end="tail" />);
-    const last = screen.getByRole("button", {
-      name: "Show all 18 unchanged lines below",
-    });
-    expect(last.querySelector(".diff-fold-hint")?.textContent).toBe(
-      "Show all 18 lines",
-    );
+    expect(
+      screen.getByRole("button", {
+        name: "Show all 18 unchanged lines below",
+      }),
+    ).toBeTruthy();
   });
 
   it("hands its fold to the reveal callback on click", () => {
