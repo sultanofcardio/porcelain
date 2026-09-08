@@ -1,7 +1,7 @@
 title: Porcelain
 description: Switch editors, not your Git workflow.
-url: https://sultanofcardio.github.io
-baseurl: /porcelain
+url: https://porcelain.kenroy.dev
+baseurl: ""
 markdown: kramdown
 kramdown:
   input: GFM
