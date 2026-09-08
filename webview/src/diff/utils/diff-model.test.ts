@@ -14,6 +14,7 @@ import {
   displayLineCount,
   displayToSource,
   foldStep,
+  nearestVisibleLine,
   nextReveal,
   revealEnd,
   sideToAxis,
@@ -372,6 +373,35 @@ describe("staged fold reveals", () => {
       kind: "line",
       line: 30,
     });
+  });
+});
+
+describe("nearestVisibleLine", () => {
+  const run = (start: number, count: number, lineCount: number) => ({
+    fold: {
+      key: start,
+      chunkIndex: 0,
+      left: { start, count },
+      right: { start, count },
+      hiddenLines: count,
+      revealed: { head: 0, tail: 0 },
+    },
+    lineCount,
+  });
+
+  it("picks the closer of the context lines flanking the run, above on a tie", () => {
+    // Lines 4..37 hidden: line 3 sits just above, line 38 just below.
+    const { fold, lineCount } = run(4, 34, 42);
+    expect(nearestVisibleLine(fold, "left", 5, lineCount)).toBe(3);
+    expect(nearestVisibleLine(fold, "right", 36, lineCount)).toBe(38);
+    expect(nearestVisibleLine(fold, "left", 20, lineCount)).toBe(3);
+    expect(nearestVisibleLine(fold, "left", 21, lineCount)).toBe(38);
+  });
+
+  it("has only one neighbour at the file's edges, and none for a whole-file run", () => {
+    expect(nearestVisibleLine(run(0, 27, 40).fold, "left", 26, 40)).toBe(27);
+    expect(nearestVisibleLine(run(4, 36, 40).fold, "left", 39, 40)).toBe(3);
+    expect(nearestVisibleLine(run(0, 40, 40).fold, "left", 10, 40)).toBeNull();
   });
 });
 

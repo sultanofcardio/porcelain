@@ -475,6 +475,22 @@ describe("staged fold reveals in the merge editor", () => {
     expect(folds().pairT[0].left).toEqual({ start: 9, count: 20 });
   });
 
+  it("moves the result caret out of a run that collapses, to the nearer edge", () => {
+    loadRuns();
+    // Setting the cursor into the run opens it; collapsing sends the cursor
+    // to the closer context line and closes the run in both pairs.
+    useMergeStore.getState().setCursor(caretAt(26, 3));
+    expect(folds().pairO).toHaveLength(0);
+    useMergeStore.getState().setCollapsed(true);
+    expect(folds().pairO).toHaveLength(1);
+    expect(folds().pairT).toHaveLength(1);
+    expect(useMergeStore.getState().cursor?.head).toEqual({ line: 28, col: 3 });
+    useMergeStore.getState().setCursor(caretAt(5, 0));
+    useMergeStore.getState().setCollapsed(true);
+    expect(useMergeStore.getState().cursor?.head).toEqual({ line: 3, col: 0 });
+    expect(folds().pairO).toHaveLength(1);
+  });
+
   it("forgets partial reveals with the context width and the collapse toggle", () => {
     loadRuns();
     useMergeStore.getState().revealFold(folds().pairO[0].key);

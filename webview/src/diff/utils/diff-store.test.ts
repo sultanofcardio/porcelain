@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { WORKING_TREE_REF } from "../../shared/bridge/types";
 import { useDiffStore } from "../../shared/store/diff-store";
+import { caretAt } from "../editor/editor-model";
 
 const lines = (...values: string[]) => `${values.join("\n")}\n`;
 
@@ -367,6 +368,47 @@ describe("fold state", () => {
     const state = useDiffStore.getState();
     expect(state.folds).toHaveLength(0);
     expect(state.foldReveals.size).toBe(0);
+  });
+
+  it("moves a read-only caret out of a run that collapses, to the nearer edge", () => {
+    twoChanges();
+    // Placing the caret inside the run opens it; collapsing closes it again
+    // and sends the caret to the first line of context below, the closer
+    // neighbour, with its column kept.
+    useDiffStore.getState().placeCaret("right", { line: 36, col: 2 });
+    expect(useDiffStore.getState().folds).toHaveLength(0);
+    useDiffStore.getState().setCollapsed(true);
+    let state = useDiffStore.getState();
+    expect(state.folds).toHaveLength(1);
+    expect(state.readOnlyCarets.right).toEqual({ line: 38, col: 2 });
+    expect(state.expandedFolds.size).toBe(0);
+    // Nearer the top of the run, the caret leaves upward instead.
+    useDiffStore.getState().placeCaret("right", { line: 5, col: 0 });
+    useDiffStore.getState().setCollapsed(true);
+    state = useDiffStore.getState();
+    expect(state.readOnlyCarets.right).toEqual({ line: 3, col: 0 });
+    expect(state.folds).toHaveLength(1);
+  });
+
+  it("moves the editable cursor out too, through the settings toggle", () => {
+    twoChanges({ leftRef: WORKING_TREE_REF, rightRef: meta.rightRef });
+    useDiffStore.getState().setCursor(caretAt(5, 1));
+    expect(useDiffStore.getState().folds).toHaveLength(0);
+    useDiffStore.getState().toggleCollapseUnchanged();
+    useDiffStore.getState().toggleCollapseUnchanged();
+    const state = useDiffStore.getState();
+    expect(state.folds).toHaveLength(1);
+    expect(state.cursor?.head).toEqual({ line: 3, col: 1 });
+    expect(state.cursor?.anchor).toEqual({ line: 3, col: 1 });
+  });
+
+  it("keeps a run open when it hides the whole document, since the caret has nowhere to go", () => {
+    load(lines(...body), lines(...body), "src/same.ts");
+    expect(useDiffStore.getState().folds).toHaveLength(0);
+    useDiffStore.getState().setCollapsed(true);
+    const state = useDiffStore.getState();
+    expect(state.folds).toHaveLength(0);
+    expect(state.readOnlyCarets.right).toEqual({ line: 0, col: 0 });
   });
 
   it("brings the whole run back when a partly opened fold is toggled shut", () => {

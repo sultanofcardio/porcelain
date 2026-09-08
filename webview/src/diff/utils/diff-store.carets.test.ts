@@ -182,26 +182,33 @@ describe("folds rebuilt under a caret that did not move", () => {
     expect(hiding("left", 5)).toEqual([]);
   });
 
-  it("keeps a read-only caret visible when everything is re-collapsed", () => {
+  it("re-collapsing moves a read-only caret out of the run rather than holding it open", () => {
+    // The leading run hides lines 0..4 and has no context above it, so the
+    // caret leaves downward, to the first line of context below the run.
     useDiffStore.getState().placeCaret("left", { line: 2, col: 0 });
     expect(useDiffStore.getState().folds).toHaveLength(0);
 
     useDiffStore.getState().setCollapsed(true);
 
-    expect(useDiffStore.getState().collapseUnchanged).toBe(true);
-    expect(hiding("left", 2)).toEqual([]);
+    const state = useDiffStore.getState();
+    expect(state.collapseUnchanged).toBe(true);
+    expect(state.folds).toHaveLength(1);
+    expect(state.readOnlyCarets.left).toEqual({ line: 5, col: 0 });
+    expect(hiding("left", 5)).toEqual([]);
   });
 
-  it("keeps the editable cursor visible across the collapse toggle", () => {
+  it("the collapse toggle moves the editable cursor out the same way", () => {
     useDiffStore.getState().setCursor(caretAt(2, 0));
     expect(useDiffStore.getState().folds).toHaveLength(0);
 
     useDiffStore.getState().toggleCollapseUnchanged();
     useDiffStore.getState().toggleCollapseUnchanged();
 
-    expect(useDiffStore.getState().collapseUnchanged).toBe(true);
-    expect(useDiffStore.getState().cursor?.head).toEqual({ line: 2, col: 0 });
-    expect(hiding("right", 2)).toEqual([]);
+    const state = useDiffStore.getState();
+    expect(state.collapseUnchanged).toBe(true);
+    expect(state.folds).toHaveLength(1);
+    expect(state.cursor?.head).toEqual({ line: 5, col: 0 });
+    expect(hiding("right", 5)).toEqual([]);
   });
 
   it("keeps a caret visible when a whitespace policy re-chunks the file", () => {

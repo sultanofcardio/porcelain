@@ -18,6 +18,7 @@ import {
   type FoldRegion,
   type FoldReveal,
   foldStep,
+  nearestVisibleLine,
   revealEnd,
 } from "../../diff/utils/diff-model";
 import { type FindMatch, sideMatches } from "../../diff/utils/find";
@@ -1026,10 +1027,49 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
         expandedFolds: new Set<number>(),
         foldReveals: new Map<number, FoldReveal>(),
       };
+      const derived = derive({
+        ...state,
+        collapseUnchanged: collapsed,
+        ...forgotten,
+      });
+      // A result caret in a run that closes moves out to the nearest line
+      // still on show rather than holding the run open, as in the diff
+      // store's collapseAll; a run hiding the whole document stays open.
+      const head = state.cursor?.head;
+      const hiding = head
+        ? derived.folds.pairO.find(
+            (fold) =>
+              head.line >= fold.right.start &&
+              head.line < fold.right.start + fold.right.count,
+          )
+        : undefined;
+      if (!hiding || !head) {
+        return { collapseUnchanged: collapsed, ...forgotten, ...derived };
+      }
+      const target = nearestVisibleLine(
+        hiding,
+        "right",
+        head.line,
+        state.result.lines.length,
+      );
+      if (target === null) {
+        const opened = expandFolds(forgotten, [hiding.key]);
+        return {
+          collapseUnchanged: collapsed,
+          ...opened,
+          ...derive({ ...state, collapseUnchanged: collapsed, ...opened }),
+        };
+      }
+      const position = clampPosition(state.result.lines, {
+        line: target,
+        col: head.col,
+      });
       return {
         collapseUnchanged: collapsed,
         ...forgotten,
-        ...derive({ ...state, collapseUnchanged: collapsed, ...forgotten }),
+        ...derived,
+        cursor: caretAt(position.line, position.col),
+        goalVisual: null,
       };
     }),
 

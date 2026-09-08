@@ -871,6 +871,30 @@ export function revealEnd(
   return caretLine < hidden.start ? "head" : "tail";
 }
 
+/**
+ * Where a caret goes when a run collapses under it: the nearest line still
+ * on show, the last line of context above the run or the first below it,
+ * whichever is closer (the one above on a tie). A run at the file's edge
+ * has only one neighbour. A run hiding the whole document has none, and
+ * the answer is null: the caret has nowhere to go.
+ */
+export function nearestVisibleLine(
+  fold: FoldRegion,
+  side: Side,
+  line: number,
+  lineCount: number,
+): number | null {
+  const hidden = side === "left" ? fold.left : fold.right;
+  const above = hidden.start - 1;
+  const below = hidden.start + hidden.count;
+  const hasAbove = above >= 0;
+  const hasBelow = below < lineCount;
+  if (!hasAbove && !hasBelow) return null;
+  if (!hasBelow) return above;
+  if (!hasAbove) return below;
+  return line - above <= below - line ? above : below;
+}
+
 /** What one click on a fold's row would do next. */
 export interface FoldStep {
   end: FoldEnd;

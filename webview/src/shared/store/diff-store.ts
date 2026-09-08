@@ -24,6 +24,7 @@ import {
   type FoldReveal,
   firstChangeLine,
   foldStep,
+  nearestVisibleLine,
   revealEnd,
   type Side,
   sideToAxis,
@@ -413,6 +414,67 @@ function expandFolds(
     foldReveals.delete(key);
   }
   return { expandedFolds, foldReveals };
+}
+
+/**
+ * Collapse everything, or expand everything, the way the toolbar's toggle
+ * and the settings menu's switch mean it: expansion history and partial
+ * reveals are forgotten either way.
+ *
+ * A caret sitting in a run that collapses gives way to the run rather than
+ * holding it open: "collapse" is the reader's word for the whole document,
+ * and a run kept open on the caret's account would make it a lie. The caret
+ * moves to the nearest line still on show, with its column carried over and
+ * clamped; the editable side's selection collapses to that caret. The one
+ * run with nowhere to send a caret is one hiding the whole document (two
+ * identical texts), which stays open as it always did.
+ */
+function collapseAll(
+  state: DiffStoreState,
+  collapseUnchanged: boolean,
+): Partial<DiffStoreState> {
+  const forgotten = {
+    expandedFolds: new Set<number>(),
+    foldReveals: new Map<number, FoldReveal>(),
+  };
+  const derived = derive({ ...state, collapseUnchanged, ...forgotten });
+  const editable = editableSide(state);
+  let cursor = state.cursor;
+  const readOnlyCarets = { ...state.readOnlyCarets };
+  let moved = false;
+  const stuck: number[] = [];
+  for (const side of ["left", "right"] as const) {
+    const caret = caretOn(state, side);
+    if (!caret) continue;
+    const hiding = derived.folds.find((fold) => {
+      const hidden = side === "left" ? fold.left : fold.right;
+      return (
+        caret.line >= hidden.start && caret.line < hidden.start + hidden.count
+      );
+    });
+    if (!hiding) continue;
+    const lines = splitLines(side === "left" ? state.left : state.right);
+    const target = nearestVisibleLine(hiding, side, caret.line, lines.length);
+    if (target === null) {
+      stuck.push(hiding.key);
+      continue;
+    }
+    const position = clampPosition(lines, { line: target, col: caret.col });
+    if (editable === side) cursor = caretAt(position.line, position.col);
+    else readOnlyCarets[side] = position;
+    moved = true;
+  }
+  const opened = stuck.length > 0 ? expandFolds(forgotten, stuck) : forgotten;
+  return {
+    collapseUnchanged,
+    ...opened,
+    ...(stuck.length > 0
+      ? derive({ ...state, collapseUnchanged, ...opened })
+      : derived),
+    cursor,
+    readOnlyCarets,
+    goalVisual: moved ? null : state.goalVisual,
+  };
 }
 
 /**
@@ -1110,41 +1172,16 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
 
   toggleSyncScroll: () => set((state) => ({ syncScroll: !state.syncScroll })),
 
+  // Turning collapsing back on re-collapses everything: the toggle reads as
+  // "collapse unchanged", not "restore my expansion history". A caret in a
+  // run that closes moves out to the nearest line on show; see collapseAll.
   toggleCollapseUnchanged: () =>
-    set((state) => {
-      const collapseUnchanged = !state.collapseUnchanged;
-      // Turning collapsing back on re-collapses everything: the toggle reads
-      // as "collapse unchanged", not "restore my expansion history". The runs
-      // holding a caret stay open, since no caret may sit on hidden content.
-      const forgotten = {
-        expandedFolds: new Set<number>(),
-        foldReveals: new Map<number, FoldReveal>(),
-      };
-      return {
-        collapseUnchanged,
-        ...deriveVisibleFolds({ ...state, collapseUnchanged, ...forgotten }),
-      };
-    }),
+    set((state) => collapseAll(state, !state.collapseUnchanged)),
 
-  setCollapsed: (collapsed) =>
-    set((state) => {
-      // Collapsing forgets expansion history either way, partial reveals
-      // included: "collapse" means everything, and expanded-all needs no
-      // per-fold bookkeeping. The runs holding a caret are the one
-      // exception, as above.
-      const forgotten = {
-        expandedFolds: new Set<number>(),
-        foldReveals: new Map<number, FoldReveal>(),
-      };
-      return {
-        collapseUnchanged: collapsed,
-        ...deriveVisibleFolds({
-          ...state,
-          collapseUnchanged: collapsed,
-          ...forgotten,
-        }),
-      };
-    }),
+  // Collapsing forgets expansion history either way, partial reveals
+  // included: "collapse" means everything, and expanded-all needs no
+  // per-fold bookkeeping.
+  setCollapsed: (collapsed) => set((state) => collapseAll(state, collapsed)),
 
   setContextLines: (contextLines) =>
     set((state) => {
