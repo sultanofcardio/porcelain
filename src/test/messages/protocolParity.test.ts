@@ -83,6 +83,13 @@ describe("host/Webview protocol parity", () => {
     );
   });
 
+  it("keeps the auto-save mode union synchronized", () => {
+    assert.deepStrictEqual(
+      stringUnion(HOST_PROTOCOL, "AutoSaveMode"),
+      stringUnion(WEBVIEW_PROTOCOL, "AutoSaveMode"),
+    );
+  });
+
   it("keeps event unions synchronized and covers every emitted host event", () => {
     const hostEvents = stringUnion(HOST_PROTOCOL, "EventType");
     const webviewEvents = stringUnion(WEBVIEW_PROTOCOL, "EventType");

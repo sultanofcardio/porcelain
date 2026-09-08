@@ -39,6 +39,7 @@ import { RevisionHeader } from "./components/RevisionHeader";
 import { UnifiedPane } from "./components/UnifiedPane";
 import { type DisplayMapping, EditablePane } from "./editor/EditablePane";
 import type { Position } from "./editor/editor-model";
+import { type SurfacePresentation, useAutoSave } from "./hooks/useAutoSave";
 import { useRevealMatch } from "./hooks/useRevealMatch";
 import {
   axisToSide,
@@ -51,6 +52,10 @@ import {
   splitLines,
   stallLift,
 } from "./utils/diff-model";
+import {
+  editorSettingsFromDataset,
+  editorSettingsFromEvent,
+} from "./utils/editor-settings";
 import { unifiedRows, unifiedStripeMarks } from "./utils/unified";
 import "./diff.css";
 
@@ -176,11 +181,12 @@ export function DiffApp() {
     try {
       await bridge.request("writeFileContent", { filePath, content });
       useDiffStore.getState().markSaved(content);
+      useDiffStore.getState().setSaveError(null);
       return true;
     } catch (error) {
       useDiffStore
         .getState()
-        .setError(
+        .setSaveError(
           `Save failed: ${error instanceof Error ? error.message : error}`,
         );
       return false;
@@ -188,6 +194,33 @@ export function DiffApp() {
   }, [filePath]);
   const saveRef = useRef(save);
   saveRef.current = save;
+
+  // The settings channel. The host seeds the values on the root element and
+  // broadcasts every later change; the store holds them so the header can
+  // say how the dirty dot will clear. Seeded here rather than at module
+  // load so a test can set the dataset before mounting.
+  useEffect(() => {
+    const dataset = document.getElementById("root")?.dataset ?? {};
+    useDiffStore.getState().setSettings(editorSettingsFromDataset(dataset));
+    return bridge.onEvent((event, data) => {
+      if (event !== "configChanged") return;
+      useDiffStore.getState().setSettings(editorSettingsFromEvent(data));
+    });
+  }, []);
+  // Which surface the host rendered this diff on. Read once: the payload is
+  // fixed for the life of the webview, and it decides what "the window" means
+  // to onWindowChange autosave.
+  const [presentation] = useState<SurfacePresentation>(() =>
+    document.getElementById("root")?.dataset.presentation === "editorTab"
+      ? "editorTab"
+      : "floatingWindow",
+  );
+  const autoSave = useAutoSave(
+    store.settings.autoSave,
+    store.settings.autoSaveDelay,
+    saveRef,
+    presentation,
+  );
 
   // Measured rather than derived, because the number of rows to render depends
   // on it.
@@ -634,6 +667,7 @@ export function DiffApp() {
         }
         onUndo={() => useDiffStore.getState().undo()}
         onRedo={() => useDiffStore.getState().redo()}
+        onBlur={autoSave.onEditorBlur}
         onRevealRow={(row) => {
           const source = displayToSource(store.folds, Math.floor(row), side);
           if (source.kind !== "line") return;
@@ -857,6 +891,20 @@ export function DiffApp() {
             onClick={() => useDiffStore.getState().setDiskChanged(false)}
           >
             Keep my edits
+          </button>
+        </div>
+      )}
+      {/* A write that failed, said in its own words: the load-flavoured
+          status would blame the diff for a problem with the disk. The next
+          successful save clears it, and so does dismissing it. */}
+      {store.saveError && (
+        <div className="diff-save-banner" role="alert">
+          <span>{store.saveError}</span>
+          <button
+            type="button"
+            onClick={() => useDiffStore.getState().setSaveError(null)}
+          >
+            Dismiss
           </button>
         </div>
       )}

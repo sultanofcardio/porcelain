@@ -106,21 +106,47 @@ async function makeActiveWindowCompact(): Promise<void> {
   }
 }
 
+/** What became of an editor a detach was attempted on. */
+export interface DetachResult {
+  /** The column hosting it now, or undefined when no tab matched. */
+  column: vscode.ViewColumn | undefined;
+  /**
+   * Whether it reached a window of its own. Finding the tab afterwards does
+   * not answer this: the tab is still findable in the group it started in
+   * when the command declines to move it.
+   */
+  moved: boolean;
+}
+
 /**
- * Move the active editor into a new window and return the view column it
- * landed in, or undefined when the editor could not be detached (in which case
- * it stays where it is, as a normal tab).
+ * Whether an editor changed groups. A window of its own is always a new
+ * group, so a column that did not change means the editor did not move, and
+ * a missing one means there is nothing to claim moved.
+ */
+export function movedToNewGroup(
+  before: vscode.ViewColumn | undefined,
+  after: vscode.ViewColumn | undefined,
+): boolean {
+  return after !== undefined && after !== before;
+}
+
+/**
+ * Move the active editor into a new window and report where it ended up and
+ * whether it actually went anywhere. The command acts on whatever editor is
+ * active and some builds decline to move a webview, so the caller is told
+ * the outcome rather than left to infer it from the tab still existing.
  *
  * Only used on builds without `newEmptyEditorWindow`; it renders the editor in
  * the main window first, which the user sees as a flash.
  */
 export async function detachActiveEditor(
-  moved: (tab: vscode.Tab) => boolean,
-): Promise<vscode.ViewColumn | undefined> {
+  owns: (tab: vscode.Tab) => boolean,
+): Promise<DetachResult> {
   if (!(await hasCommand(MOVE_EDITOR_TO_NEW_WINDOW))) {
     noticeFloatingUnavailable();
-    return undefined;
+    return { column: undefined, moved: false };
   }
+  const before = await locateColumn(owns);
   try {
     await vscode.commands.executeCommand(MOVE_EDITOR_TO_NEW_WINDOW);
   } catch (error) {
@@ -129,9 +155,10 @@ export async function detachActiveEditor(
       error,
     );
     noticeFloatingUnavailable();
-    return undefined;
+    return { column: undefined, moved: false };
   }
-  return locateColumn(moved);
+  const after = await locateColumn(owns);
+  return { column: after, moved: movedToNewGroup(before, after) };
 }
 
 /**

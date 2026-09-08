@@ -2,9 +2,15 @@ import * as vscode from "vscode";
 import type { MessageRouter } from "../messages/messageRouter";
 import { shortenRef } from "./diffEditorManager";
 import {
+  affectsEditorSettings,
+  editorSettingsAttrs,
+  readEditorSettings,
+} from "./editorSettings";
+import {
   detachActiveEditor,
   getSurfacePresentation,
   openEmptyFloatingWindow,
+  type SurfacePresentation,
 } from "./floatingWindow";
 import { PORCELAIN_SCHEME } from "./gitContentProvider";
 import { getWebviewHtml } from "./html";
@@ -168,11 +174,51 @@ export class DiffViewerManager {
   /** Serialises show(): two quick opens racing openEmptyFloatingWindow would
    * each open a window, and the loser's stays empty forever. */
   private pendingShow: Promise<void> = Promise.resolve();
+  /** The diff on screen: what a settings change is resolved against. */
+  private current: DiffSpec | undefined;
+  private readonly settingsListener: vscode.Disposable;
+  private readonly windowStateListener: vscode.Disposable;
+  /**
+   * The surface the open panel actually landed on, resolved once when it was
+   * created. A build without floating-window support keeps the panel as a
+   * tab whatever the preference says, and re-showing or re-configuring must
+   * not tell the webview otherwise: the panel stays in the window it was
+   * born in.
+   */
+  private presentation: SurfacePresentation = "editorTab";
 
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly messageRouter: MessageRouter,
-  ) {}
+  ) {
+    // The settings channel's live half. The initial values ride on the
+    // webview's data-* payload; from then on every change to a forwarded key
+    // is re-read for the open diff's file and broadcast, so flipping
+    // files.autoSave takes effect in an open diff the way it does in an open
+    // editor. Only the diff webview listens for the event.
+    this.settingsListener = vscode.workspace.onDidChangeConfiguration(
+      (event) => {
+        const spec = this.current;
+        if (!this.panel || !spec) return;
+        const scope = settingsScope(spec);
+        if (!affectsEditorSettings(event, scope)) return;
+        this.messageRouter.broadcastEvent(
+          "configChanged",
+          readEditorSettings(scope),
+        );
+      },
+    );
+    // The docked half of onWindowChange autosave. A webview iframe's own
+    // blur fires whenever focus leaves it, which is focus-change semantics,
+    // so a diff on an editor tab learns about the window from the host
+    // instead. A floating diff window is its own window and uses its blur.
+    this.windowStateListener = vscode.window.onDidChangeWindowState((state) => {
+      if (!this.panel) return;
+      this.messageRouter.broadcastEvent("windowStateChanged", {
+        focused: state.focused,
+      });
+    });
+  }
 
   show(spec: DiffSpec): Promise<void> {
     const run = this.pendingShow.then(() => this.showNow(spec));
@@ -181,6 +227,7 @@ export class DiffViewerManager {
   }
 
   private async showNow(spec: DiffSpec): Promise<void> {
+    this.current = spec;
     const existing = this.panel;
     if (existing) {
       existing.title = spec.title;
@@ -191,8 +238,10 @@ export class DiffViewerManager {
 
     // Same ordering as every other surface: create the window first so the
     // content renders where it belongs instead of appearing here and jumping.
-    const floating = getSurfacePresentation() === "floatingWindow";
-    const detached = floating ? await openEmptyFloatingWindow() : false;
+    const configured = getSurfacePresentation();
+    const floating = configured === "floatingWindow";
+    const openedWindow = floating ? await openEmptyFloatingWindow() : false;
+    this.presentation = resolvePresentation(configured, openedWindow, false);
 
     const panel = vscode.window.createWebviewPanel(
       "porcelain.diff",
@@ -217,28 +266,94 @@ export class DiffViewerManager {
       }
     });
 
-    if (floating && !detached) {
-      await detachActiveEditor(
+    if (floating && !openedWindow) {
+      const detach = await detachActiveEditor(
         (tab) =>
           tab.input instanceof vscode.TabInputWebview &&
           tab.label === panel.title,
       );
+      const landed = resolvePresentation(
+        configured,
+        openedWindow,
+        detach.moved,
+      );
+      // Only the fallback path can reach here, and only a successful detach
+      // changes the answer. The reassignment remounts the app once, in the
+      // same turn the editor visibly moves to its own window.
+      if (landed !== this.presentation) {
+        this.presentation = landed;
+        panel.webview.html = this.html(panel.webview, spec);
+      }
     }
   }
 
   private html(webview: vscode.Webview, spec: DiffSpec): string {
-    return getWebviewHtml(webview, this.extensionUri, "diff", {
-      "repo-id": spec.repoId,
-      "diff-path": spec.path,
-      "left-path": spec.leftPath,
-      "right-path": spec.rightPath,
-      "left-ref": spec.leftRef,
-      "right-ref": spec.rightRef,
-    });
+    return getWebviewHtml(
+      webview,
+      this.extensionUri,
+      "diff",
+      diffWebviewAttrs(spec, this.presentation),
+    );
   }
 
   dispose(): void {
+    this.settingsListener.dispose();
+    this.windowStateListener.dispose();
     this.panel?.dispose();
     this.panel = undefined;
+    this.current = undefined;
+    this.presentation = "editorTab";
   }
+}
+
+/**
+ * The resource the settings are resolved for: the file on disk, so a
+ * folder-level `files.autoSave` in a multi-root workspace applies to the
+ * diffs of that folder. That is the working-tree side when there is one,
+ * since it is the side autosave writes; otherwise the file the diff names.
+ */
+export function settingsScope(spec: DiffSpec): vscode.Uri {
+  const path =
+    spec.leftRef === WORKING_TREE_REF && spec.rightRef !== WORKING_TREE_REF
+      ? spec.leftPath
+      : spec.rightPath;
+  return vscode.Uri.joinPath(vscode.Uri.file(spec.repoId), path);
+}
+
+/**
+ * Where a diff panel ended up, as opposed to where it was asked to go.
+ * Wanting a floating window is not having one: a build that ships neither
+ * window command leaves the panel as a tab in the main window, and the
+ * webview has to be told the truth, because onWindowChange autosave writes
+ * to disk on what it believes is the window going away.
+ */
+export function resolvePresentation(
+  configured: SurfacePresentation,
+  openedWindow: boolean,
+  detached: boolean,
+): SurfacePresentation {
+  if (configured !== "floatingWindow") return "editorTab";
+  return openedWindow || detached ? "floatingWindow" : "editorTab";
+}
+
+/**
+ * The data-* payload a diff webview opens with: which revisions it shows,
+ * the editor settings it honours, and the surface it is rendered on. The
+ * presentation is on the payload because the webview cannot tell a floating
+ * window from an editor tab, and onWindowChange autosave has to.
+ */
+export function diffWebviewAttrs(
+  spec: DiffSpec,
+  presentation: SurfacePresentation,
+): Record<string, string> {
+  return {
+    "repo-id": spec.repoId,
+    "diff-path": spec.path,
+    "left-path": spec.leftPath,
+    "right-path": spec.rightPath,
+    "left-ref": spec.leftRef,
+    "right-ref": spec.rightRef,
+    presentation,
+    ...editorSettingsAttrs(readEditorSettings(settingsScope(spec))),
+  };
 }

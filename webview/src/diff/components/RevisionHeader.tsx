@@ -1,5 +1,6 @@
 import { editableSide, useDiffStore } from "../../shared/store/diff-store";
 import { chooseLayout } from "../utils/diff-model";
+import { autoSaveHint } from "../utils/editor-settings";
 
 function Side({
   label,
@@ -7,6 +8,7 @@ function Side({
   tag,
   editable = false,
   dirty = false,
+  dirtyHint = "",
 }: {
   label: string;
   path: string;
@@ -15,6 +17,8 @@ function Side({
   editable?: boolean;
   /** Unsaved edits — the dot every editor puts on a modified tab. */
   dirty?: boolean;
+  /** The dot's tooltip: how, or whether, the edits reach the disk on their own. */
+  dirtyHint?: string;
 }) {
   return (
     <div>
@@ -34,7 +38,7 @@ function Side({
           className="diff-dirty"
           role="img"
           aria-label="Unsaved changes"
-          title="Unsaved changes — Cmd+S saves"
+          title={dirtyHint}
         />
       )}
       {tag && <span className="diff-tag">{tag}</span>}
@@ -57,12 +61,13 @@ function Side({
  * the absent revision would otherwise have given.
  */
 export function RevisionHeader() {
-  const { leftLabel, rightLabel, filePath, left, right, dirty } =
+  const { leftLabel, rightLabel, filePath, left, right, dirty, settings } =
     useDiffStore();
   const leftRef = useDiffStore((s) => s.leftRef);
   const rightRef = useDiffStore((s) => s.rightRef);
   const layout = chooseLayout(left, right);
   const editable = editableSide({ leftRef, rightRef });
+  const dirtyHint = autoSaveHint(settings);
 
   if (layout.mode === "single") {
     const added = layout.side === "right";
@@ -74,6 +79,7 @@ export function RevisionHeader() {
           tag={added ? "Added" : "Deleted"}
           editable={editable === layout.side}
           dirty={editable === layout.side && dirty}
+          dirtyHint={dirtyHint}
         />
       </div>
     );
@@ -86,12 +92,14 @@ export function RevisionHeader() {
         path={filePath}
         editable={editable === "left"}
         dirty={editable === "left" && dirty}
+        dirtyHint={dirtyHint}
       />
       <Side
         label={rightLabel}
         path={filePath}
         editable={editable === "right"}
         dirty={editable === "right" && dirty}
+        dirtyHint={dirtyHint}
       />
     </div>
   );

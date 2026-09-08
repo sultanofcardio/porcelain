@@ -136,9 +136,7 @@ describe("Edit source", () => {
     );
     press();
 
-    await waitFor(() =>
-      expect(useDiffStore.getState().error).toMatch(/Save failed/),
-    );
+    await screen.findByText("Save failed: read-only file system");
     expect(mocks.request).not.toHaveBeenCalledWith(
       "openFile",
       expect.anything(),

@@ -50,6 +50,11 @@ interface EditablePaneProps {
   /** Scroll the surface so a display row sits inside the viewport. */
   onRevealRow: (displayRow: number) => void;
   /**
+   * Focus left the editor. Fires after any composition in flight has been
+   * committed, so a listener that saves sees the text as typed.
+   */
+  onBlur?: () => void;
+  /**
    * How far the pane beneath is scrolled sideways, in px. The overlay draws
    * in the pane's *visible* coordinates, so the caret and selection shift
    * left by this much and a click's x reads back through it.
@@ -90,6 +95,7 @@ export function EditablePane({
   onUndo,
   onRedo,
   onRevealRow,
+  onBlur,
   scrollX = 0,
   onRevealX,
   children,
@@ -583,6 +589,7 @@ export function EditablePane({
             onCompositionEnd(inputRef.current?.value ?? "");
             if (inputRef.current) inputRef.current.value = "";
           }
+          onBlur?.();
         }}
       />
     </div>
