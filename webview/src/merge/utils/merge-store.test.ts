@@ -407,3 +407,77 @@ describe("merge store", () => {
     expect(after.revealSeq).toBe(before.revealSeq);
   });
 });
+
+describe("staged fold reveals in the merge editor", () => {
+  // Two conflicts around thirty lines all three panes agree on: the run is
+  // interior, keeps three lines of context on each edge, and hides result
+  // lines 4..27 in both pairs.
+  const body = Array.from({ length: 30 }, (_, i) => `line${i}`).join("\n");
+  const loadRuns = (ours = "O") =>
+    useMergeStore
+      .getState()
+      .load(
+        textVersions(
+          `b\n${body}\nz\n`,
+          `${ours}\n${body}\nZO\n`,
+          `T\n${body}\nZT\n`,
+        ),
+      );
+  const folds = () => useMergeStore.getState().folds;
+
+  it("shrinks both pair lists alike, step by step, from the end nearest the result caret", () => {
+    loadRuns();
+    const key = folds().pairO[0].key;
+    expect(key).toBe(4);
+    expect(folds().pairO[0].hiddenLines).toBe(24);
+    // No caret yet: the run opens from its head.
+    expect(useMergeStore.getState().revealFold(key)).toBe(0);
+    expect(folds().pairO[0].right).toEqual({ start: 8, count: 20 });
+    expect(folds().pairT[0].left).toEqual({ start: 8, count: 20 });
+    expect(folds().pairT[0].revealed).toEqual({ head: 4, tail: 0 });
+    // A caret below the run turns the next step to its tail, and the axis
+    // moves by the rows put in above the caret.
+    useMergeStore.getState().setCursor(caretAt(31, 0));
+    expect(useMergeStore.getState().revealFold(key)).toBe(4);
+    expect(folds().pairO[0].right).toEqual({ start: 8, count: 16 });
+    expect(folds().pairT[0].left).toEqual({ start: 8, count: 16 });
+    expect(folds().pairT[0].hiddenLines).toBe(folds().pairO[0].hiddenLines);
+    expect(folds().pairO[0].revealed).toEqual({ head: 4, tail: 4 });
+    // Eight more from the tail, then the rest.
+    expect(useMergeStore.getState().revealFold(key)).toBe(8);
+    expect(folds().pairO[0].hiddenLines).toBe(8);
+    useMergeStore.getState().revealFold(key);
+    expect(folds().pairO).toHaveLength(0);
+    expect(folds().pairT).toHaveLength(0);
+    expect(useMergeStore.getState().expandedFolds.has(key)).toBe(true);
+    expect(useMergeStore.getState().foldReveals.size).toBe(0);
+  });
+
+  it("keeps a partial reveal across an accept that moves the run", () => {
+    loadRuns("O1\nO2");
+    const key = folds().pairO[0].key;
+    useMergeStore.getState().revealFold(key);
+    expect(folds().pairO[0].right).toEqual({ start: 8, count: 20 });
+    // Accepting ours splices one line into two above the run: the key must
+    // follow or the reveal lands on a run one line off.
+    useMergeStore
+      .getState()
+      .decideRegion(0, { action: "accept", side: "ours" });
+    expect(folds().pairO[0].key).toBe(key + 1);
+    expect(folds().pairO[0].revealed).toEqual({ head: 4, tail: 0 });
+    expect(folds().pairO[0].right).toEqual({ start: 9, count: 20 });
+    expect(folds().pairT[0].left).toEqual({ start: 9, count: 20 });
+  });
+
+  it("forgets partial reveals with the context width and the collapse toggle", () => {
+    loadRuns();
+    useMergeStore.getState().revealFold(folds().pairO[0].key);
+    useMergeStore.getState().setContextLines(5);
+    expect(useMergeStore.getState().foldReveals.size).toBe(0);
+    expect(folds().pairO[0].hiddenLines).toBe(20);
+    useMergeStore.getState().revealFold(folds().pairO[0].key);
+    useMergeStore.getState().setCollapsed(true);
+    expect(useMergeStore.getState().foldReveals.size).toBe(0);
+    expect(folds().pairO[0].hiddenLines).toBe(20);
+  });
+});

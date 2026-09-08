@@ -24,6 +24,7 @@ import {
   LINE_HEIGHT,
   PANE_TEXT_PADDING,
 } from "./components/metrics";
+import { caretAt } from "./editor/editor-model";
 
 const pristine = useDiffStore.getState();
 
@@ -187,6 +188,61 @@ describe("revealing a read-only caret", () => {
 
     await waitFor(() => expect(firstLineOf(leftPane)).toBeGreaterThan(100));
     expect(firstLineOf(rightPane)).toBe(rightBefore);
+  });
+
+  it("scrolls with a fold opening above the caret, so the caret's line stays put", async () => {
+    // Changes at 5 and 150 leave a foldable run between them: lines 9..146
+    // hidden behind one row, with the caret starting on line 5 above it.
+    const changed = body.map((line, i) =>
+      i === 5 || i === 150 ? "changed" : line,
+    );
+    mocks.request.mockImplementation((command: string) =>
+      command === "getDiffSides"
+        ? Promise.resolve({
+            kind: "text",
+            left: leftText,
+            right: `${changed.join("\n")}\n`,
+            filePath: "a.txt",
+            leftRef: "HEAD",
+            rightRef: WORKING_TREE_REF,
+            leftLabel: "HEAD",
+            rightLabel: "Working tree",
+            language: "plaintext",
+          })
+        : Promise.resolve(undefined),
+    );
+    useDiffStore.setState({ collapseUnchanged: true });
+    render(<DiffApp />);
+    await waitFor(() => expect(useDiffStore.getState().loading).toBe(false));
+    const viewport = screen.getByRole("region", { name: "Diff of a.txt" });
+    expect(viewport.scrollTop).toBe(0);
+
+    // Below the caret, the run opens from its head: nothing above the caret
+    // moves, so the view stays where it is.
+    fireEvent.click(
+      screen.getAllByRole("button", {
+        name: "Show 4 of 138 unchanged lines above",
+      })[0],
+    );
+    expect(useDiffStore.getState().folds[0].revealed).toEqual({
+      head: 4,
+      tail: 0,
+    });
+    expect(viewport.scrollTop).toBe(0);
+
+    // With the caret on the change below the run, the next step comes from
+    // the tail, between the row and the caret; the view follows by as much.
+    act(() => useDiffStore.getState().setCursor(caretAt(150, 0)));
+    fireEvent.click(
+      screen.getAllByRole("button", {
+        name: "Show 4 of 134 unchanged lines below",
+      })[0],
+    );
+    expect(useDiffStore.getState().folds[0].revealed).toEqual({
+      head: 4,
+      tail: 4,
+    });
+    expect(viewport.scrollTop).toBe(4 * LINE_HEIGHT);
   });
 
   it("clears the unified view's parked number columns when it scrolls back", async () => {

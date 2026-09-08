@@ -130,6 +130,27 @@ export function useCharWidth(ref: RefObject<HTMLElement | null>): number {
 }
 
 /**
+ * A pane's visible width in px, followed through resizes: what its fold rows
+ * size themselves to, so a row pinned to the pane's left edge covers exactly
+ * the viewport however far the text is scrolled sideways. Zero until the
+ * first measure, and wherever ResizeObserver is missing (jsdom) after one
+ * read at mount.
+ */
+export function usePaneWidth(ref: RefObject<HTMLElement | null>): number {
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    setWidth(element.clientWidth);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setWidth(element.clientWidth));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref]);
+  return width;
+}
+
+/**
  * The widest line of a document, in visual cells: tabs expand to their stops
  * and a surrogate pair is one cell - the coordinate the editor's caret uses.
  * Every cell counts as one column, exact for the monospace rows; a pane also

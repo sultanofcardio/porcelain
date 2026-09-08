@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useDiffStore } from "../../shared/store/diff-store";
-import { computeChunks, computeFolds } from "../utils/diff-model";
+import { applyReveals, computeChunks, computeFolds } from "../utils/diff-model";
 import { DiffPane } from "./DiffPane";
 import { DiffSettingsMenu } from "./DiffSettingsMenu";
 import { DiffToolbar } from "./DiffToolbar";
@@ -103,7 +103,7 @@ describe("diff surface accessibility", () => {
     expect(prefixes).toEqual(["Line 1: ", "Line 2, modified: "]);
   });
 
-  it("gives the fold row a button role and a count for a name", () => {
+  it("gives the fold row a button role, named after its next step and its count", () => {
     const body = Array.from({ length: 40 }, (_, i) => `line${i}`).join("\n");
     const left = `old\n${body}\n`;
     const right = `new\n${body}\n`;
@@ -127,7 +127,63 @@ describe("diff surface accessibility", () => {
       />,
     );
     expect(
-      screen.getByRole("button", { name: /Expand 37 unchanged lines/ }),
+      screen.getByRole("button", {
+        name: "Show 4 of 37 unchanged lines above",
+      }),
     ).toBeTruthy();
+  });
+
+  it("renames each fold row as its run opens, one button per fold in reading order", () => {
+    // Two runs around one edit, both folded, with a caret below them both:
+    // the rows open from their tails and say so.
+    const run = (prefix: string) =>
+      Array.from({ length: 30 }, (_, i) => `${prefix}${i}`);
+    const left = `${[...run("a"), "old", ...run("b")].join("\n")}\n`;
+    const right = `${[...run("a"), "new", ...run("b")].join("\n")}\n`;
+    const chunks = computeChunks(left, right);
+    const folds = computeFolds(chunks);
+    expect(folds).toHaveLength(2);
+    const lines = right.split("\n").slice(0, -1);
+    const paneFor = (visible: typeof folds) => (
+      <DiffPane
+        side="right"
+        lines={lines}
+        counterpart={left.split("\n").slice(0, -1)}
+        chunks={chunks}
+        language="plaintext"
+        granularity="word"
+        offset={0}
+        visibleLines={40}
+        folds={visible}
+        foldEnd={() => "tail"}
+      />
+    );
+    const { rerender } = render(paneFor(folds));
+    const names = () =>
+      screen
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label"));
+    expect(names()).toEqual([
+      "Show 4 of 27 unchanged lines below",
+      "Show 4 of 27 unchanged lines below",
+    ]);
+
+    // Four lines given up at the first run's tail: its row asks for the
+    // next stage, the other's does not move.
+    rerender(
+      paneFor(
+        applyReveals(folds, new Map([[folds[0].key, { head: 0, tail: 4 }]])),
+      ),
+    );
+    expect(names()).toEqual([
+      "Show 8 of 23 unchanged lines below",
+      "Show 4 of 27 unchanged lines below",
+    ]);
+    rerender(
+      paneFor(
+        applyReveals(folds, new Map([[folds[0].key, { head: 0, tail: 12 }]])),
+      ),
+    );
+    expect(names()[0]).toBe("Show all 15 unchanged lines below");
   });
 });

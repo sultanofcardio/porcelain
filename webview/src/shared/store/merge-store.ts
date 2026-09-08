@@ -10,9 +10,15 @@ import {
   type Position,
 } from "../../diff/editor/editor-model";
 import {
+  applyReveals,
   computeChunks,
   type DiffChunk,
   displayLine,
+  type FoldEnd,
+  type FoldRegion,
+  type FoldReveal,
+  foldStep,
+  revealEnd,
 } from "../../diff/utils/diff-model";
 import { type FindMatch, sideMatches } from "../../diff/utils/find";
 import {
@@ -38,6 +44,7 @@ import {
 import type { FileVersionsResult } from "../bridge/types";
 import {
   type LineSplice,
+  remapLineKeyMap,
   remapLineKeys,
   type SideFindState,
 } from "./diff-store";
@@ -109,6 +116,12 @@ export interface MergeStoreState {
   contextLines: number;
   /** Result start lines of folds the user has expanded. */
   expandedFolds: ReadonlySet<number>;
+  /**
+   * Folds opened part of the way, by result start line: what each has given
+   * up at its head and tail. One map serves both pair lists, which carry the
+   * same runs under the same keys, so a reveal shrinks them identically.
+   */
+  foldReveals: ReadonlyMap<number, FoldReveal>;
   /** Index into `regions` of the conflict the stepper is on. */
   activeRegion: number;
 
@@ -186,7 +199,14 @@ export interface MergeStoreState {
   undo: () => void;
   redo: () => void;
 
-  toggleFold: (resultStart: number) => void;
+  /** Expand or re-collapse one fold whole, by its result start line. */
+  toggleFold: (key: number) => void;
+  /**
+   * Open a fold one step further from the end nearest the result caret.
+   * Returns how far the axis should move for that caret to stay put on
+   * screen, as the diff store's does.
+   */
+  revealFold: (key: number) => number;
   setCollapsed: (collapsed: boolean) => void;
   setContextLines: (value: number) => void;
 
@@ -249,6 +269,7 @@ function derive(state: {
   collapseUnchanged: boolean;
   contextLines: number;
   expandedFolds: ReadonlySet<number>;
+  foldReveals: ReadonlyMap<number, FoldReveal>;
 }) {
   // The inverse of `splitLines` for a non-empty document is join plus a
   // trailing "\n" — a bare join makes a trailing empty line indistinguishable
@@ -270,14 +291,21 @@ function derive(state: {
       state.result.lines.length,
       { contextLines: state.contextLines },
     );
-    // The pair lists are parallel; expansion is keyed on the hidden run's
-    // result start line, which both pairs agree on by construction.
+    // The pair lists are parallel; expansion and reveals are keyed on the
+    // hidden run's result start line, which both pairs agree on by
+    // construction, so one filter and one reveal map shrink both alike.
     const keep = computed.pairO.map(
-      (fold) => !state.expandedFolds.has(fold.right.start),
+      (fold) => !state.expandedFolds.has(fold.key),
     );
     folds = {
-      pairO: computed.pairO.filter((_, i) => keep[i]),
-      pairT: computed.pairT.filter((_, i) => keep[i]),
+      pairO: applyReveals(
+        computed.pairO.filter((_, i) => keep[i]),
+        state.foldReveals,
+      ),
+      pairT: applyReveals(
+        computed.pairT.filter((_, i) => keep[i]),
+        state.foldReveals,
+      ),
     };
   }
 
@@ -399,9 +427,60 @@ function expandFoldsForRange(
       start < fold.right.start + fold.right.count,
   );
   if (intersecting.length === 0) return {};
+  const opened = expandFolds(
+    state,
+    intersecting.map((fold) => fold.key),
+  );
+  return { ...opened, ...derive({ ...state, ...opened }) };
+}
+
+/**
+ * The fold state with `keys` opened whole. An expanded fold keeps no
+ * partial reveal: dropping the entry lets a re-collapse bring the run back
+ * complete, and keeps the toolbar's "everything is folded" reading honest.
+ */
+function expandFolds(
+  state: Pick<MergeStoreState, "expandedFolds" | "foldReveals">,
+  keys: Iterable<number>,
+): Pick<MergeStoreState, "expandedFolds" | "foldReveals"> {
   const expandedFolds = new Set(state.expandedFolds);
-  for (const fold of intersecting) expandedFolds.add(fold.right.start);
-  return { expandedFolds, ...derive({ ...state, expandedFolds }) };
+  const foldReveals = new Map(state.foldReveals);
+  for (const key of keys) {
+    expandedFolds.add(key);
+    foldReveals.delete(key);
+  }
+  return { expandedFolds, foldReveals };
+}
+
+/**
+ * Which end of a fold the next click opens, for a pane's fold rows: the end
+ * nearest the result caret. Every pane's folds mirror the same result runs,
+ * so the result caret is the one reference whichever pane was clicked; the
+ * result span is pair O's right and pair T's left.
+ */
+export function mergeFoldRevealEnd(
+  state: Pick<MergeStoreState, "cursor">,
+  pane: MergePane,
+  fold: FoldRegion,
+): FoldEnd {
+  return revealEnd(
+    fold,
+    pane === "theirs" ? "left" : "right",
+    state.cursor?.head.line ?? null,
+  );
+}
+
+/** The result caret's axis position, for holding it still through a reveal. */
+function caretAxis(
+  state: Pick<MergeStoreState, "cursor" | "folds" | "axis">,
+): number {
+  const line = state.cursor?.head.line;
+  if (line === undefined) return 0;
+  return paneToAxis(
+    state.axis,
+    "result",
+    displayLine(state.folds.pairO, line, "right"),
+  );
 }
 
 /**
@@ -441,12 +520,14 @@ function applyEditToState(
     delta: edit.lineDelta,
   };
   const expandedFolds = remapLineKeys(state.expandedFolds, splice);
-  const next = { ...state, result, regions, expandedFolds };
+  const foldReveals = remapLineKeyMap(state.foldReveals, splice);
+  const next = { ...state, result, regions, expandedFolds, foldReveals };
   return {
     patch: {
       result,
       regions,
       expandedFolds,
+      foldReveals,
       cursor: caretAt(edit.caret.line, edit.caret.col),
       goalVisual: null,
       dirty: true,
@@ -493,6 +574,7 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
   collapseUnchanged: true,
   contextLines: 3,
   expandedFolds: new Set<number>(),
+  foldReveals: new Map<number, FoldReveal>(),
   activeRegion: -1,
 
   cursor: null,
@@ -525,6 +607,7 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
         canRedo: false,
         dirty: false,
         expandedFolds: new Set<number>(),
+        foldReveals: new Map<number, FoldReveal>(),
       };
       if (versions.kind !== "text") {
         return {
@@ -584,16 +667,19 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
         delta: edited.buffer.lines.length - state.result.lines.length,
       };
       const expandedFolds = remapLineKeys(state.expandedFolds, splice);
+      const foldReveals = remapLineKeyMap(state.foldReveals, splice);
       const next = {
         ...state,
         result: edited.buffer,
         regions: edited.regions,
         expandedFolds,
+        foldReveals,
       };
       return {
         result: edited.buffer,
         regions: edited.regions,
         expandedFolds,
+        foldReveals,
         canUndo: state.history.canUndo,
         canRedo: state.history.canRedo,
         dirty: true,
@@ -885,26 +971,64 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
       };
     }),
 
-  toggleFold: (resultStart) =>
+  toggleFold: (key) =>
     set((state) => {
+      // Either way the fold's partial reveal is spent: expanding opens the
+      // whole run, and re-collapsing brings the whole run back.
+      const foldReveals = new Map(state.foldReveals);
+      foldReveals.delete(key);
       const expandedFolds = new Set(state.expandedFolds);
-      if (expandedFolds.has(resultStart)) expandedFolds.delete(resultStart);
-      else expandedFolds.add(resultStart);
-      return { expandedFolds, ...derive({ ...state, expandedFolds }) };
+      if (expandedFolds.has(key)) expandedFolds.delete(key);
+      else expandedFolds.add(key);
+      const opened = { expandedFolds, foldReveals };
+      return { ...opened, ...derive({ ...state, ...opened }) };
     }),
+
+  revealFold: (key) => {
+    const state = get();
+    const fold = state.folds.pairO.find((candidate) => candidate.key === key);
+    if (!fold) return 0;
+    const step = foldStep(fold, mergeFoldRevealEnd(state, "result", fold));
+    let opened: Pick<MergeStoreState, "expandedFolds" | "foldReveals">;
+    if (step.rest) {
+      opened = expandFolds(state, [key]);
+    } else {
+      const foldReveals = new Map(state.foldReveals);
+      foldReveals.set(key, {
+        ...fold.revealed,
+        [step.end]: fold.revealed[step.end] + step.lines,
+      });
+      opened = { expandedFolds: state.expandedFolds, foldReveals };
+    }
+    const patch = { ...opened, ...derive({ ...state, ...opened }) };
+    set(patch);
+    return caretAxis({ ...state, ...patch }) - caretAxis(state);
+  },
 
   setCollapsed: (collapsed) =>
     set((state) => {
-      const expandedFolds = new Set<number>();
+      const forgotten = {
+        expandedFolds: new Set<number>(),
+        foldReveals: new Map<number, FoldReveal>(),
+      };
       return {
         collapseUnchanged: collapsed,
-        expandedFolds,
-        ...derive({ ...state, collapseUnchanged: collapsed, expandedFolds }),
+        ...forgotten,
+        ...derive({ ...state, collapseUnchanged: collapsed, ...forgotten }),
       };
     }),
 
   setContextLines: (contextLines) =>
-    set((state) => ({ contextLines, ...derive({ ...state, contextLines }) })),
+    set((state) => {
+      // The runs' edges move with the context; what was revealed of a run
+      // no longer names the same lines, so the reveals start over.
+      const foldReveals = new Map<number, FoldReveal>();
+      return {
+        contextLines,
+        foldReveals,
+        ...derive({ ...state, contextLines, foldReveals }),
+      };
+    }),
 
   openFind: () =>
     set((state) => {
@@ -976,13 +1100,7 @@ export const useMergeStore = create<MergeStoreState>((set, get) => ({
       const span = PANE_SIDE[pane] === "left" ? fold.left : fold.right;
       return match.line >= span.start && match.line < span.start + span.count;
     });
-    // Expansion keys on the result start line, which pair O's right span
-    // carries; pair T mirrors the same runs at the same indices.
-    if (hiddenIn) {
-      const index = folds.indexOf(hiddenIn);
-      const pairO = state.folds.pairO[index];
-      if (pairO) state.toggleFold(pairO.right.start);
-    }
+    if (hiddenIn) state.toggleFold(hiddenIn.key);
   },
 
   activeMatchAxis: (pane) => {

@@ -10,6 +10,7 @@ import {
   type Position,
 } from "../../diff/editor/editor-model";
 import {
+  applyReveals,
   axisLength,
   type ChunkOptions,
   computeChunks,
@@ -17,8 +18,12 @@ import {
   countDifferences,
   counterpartLine,
   type DiffChunk,
+  type FoldEnd,
   type FoldRegion,
+  type FoldReveal,
   firstChangeLine,
+  foldStep,
+  revealEnd,
   type Side,
   sideToAxis,
   splitLines,
@@ -89,8 +94,14 @@ export interface DiffStoreState {
   chunks: DiffChunk[];
   /** The folds currently collapsed — computed regions minus expanded ones. */
   folds: FoldRegion[];
-  /** Left start lines of folds the user has expanded. */
+  /** Keys of folds the user has expanded. */
   expandedFolds: ReadonlySet<number>;
+  /**
+   * Folds opened part of the way, by key: how many lines each has given up
+   * at its head and at its tail. A fold opens in steps from the end nearest
+   * the caret, the way IntelliJ's do, and this is the state between steps.
+   */
+  foldReveals: ReadonlyMap<number, FoldReveal>;
   differences: number;
   /** Length of the shared scroll axis, in line-heights. */
   axis: number;
@@ -199,8 +210,16 @@ export interface DiffStoreState {
   setCollapsed: (collapsed: boolean) => void;
   setContextLines: (value: number) => void;
   setViewMode: (mode: ViewMode) => void;
-  /** Expand or re-collapse one fold, identified by its left start line. */
-  toggleFold: (leftStart: number) => void;
+  /** Expand or re-collapse one fold whole, identified by its key. */
+  toggleFold: (key: number) => void;
+  /**
+   * Open a fold one step further from the end nearest the active pane's
+   * caret. Returns how far the view should scroll, in the current view's
+   * units, for that caret to stay where it was on screen: rows revealed
+   * above the caret push its line down, and the caller's viewport is the
+   * only thing that can follow.
+   */
+  revealFold: (key: number) => number;
   swapSides: () => void;
   stepDifference: (delta: number) => void;
   /** Axis position that reveals the active difference, or null when there is none. */
@@ -362,15 +381,38 @@ function deriveVisibleFolds(
   const carets = placed ? { ...state, ...placed } : state;
   const hiding = foldsHidingCarets(derived.folds, carets);
   if (hiding.length === 0) {
-    return { expandedFolds: state.expandedFolds, ...derived, ...placed };
+    return {
+      expandedFolds: state.expandedFolds,
+      foldReveals: state.foldReveals,
+      ...derived,
+      ...placed,
+    };
   }
-  const expandedFolds = new Set(state.expandedFolds);
-  for (const key of hiding) expandedFolds.add(key);
+  const expansion = expandFolds(state, hiding);
   return {
-    expandedFolds,
-    ...derive({ ...state, expandedFolds }),
+    ...expansion,
+    ...derive({ ...state, ...expansion }),
     ...placed,
   };
+}
+
+/**
+ * The fold state with `keys` opened whole. An expanded fold has no partial
+ * reveal to remember: dropping its entry is what lets a later re-collapse
+ * bring the run back complete, and what keeps the toolbar's "everything is
+ * folded" reading honest.
+ */
+function expandFolds(
+  state: Pick<DiffStoreState, "expandedFolds" | "foldReveals">,
+  keys: Iterable<number>,
+): Pick<DiffStoreState, "expandedFolds" | "foldReveals"> {
+  const expandedFolds = new Set(state.expandedFolds);
+  const foldReveals = new Map(state.foldReveals);
+  for (const key of keys) {
+    expandedFolds.add(key);
+    foldReveals.delete(key);
+  }
+  return { expandedFolds, foldReveals };
 }
 
 /**
@@ -395,7 +437,7 @@ function foldsHidingCarets(
         caret.line >= hidden.start &&
         caret.line < hidden.start + hidden.count
       ) {
-        keys.push(fold.left.start);
+        keys.push(fold.key);
         break;
       }
     }
@@ -437,6 +479,61 @@ export function caretOn(
 ): Position | null {
   if (editableSide(state) === side) return state.cursor?.head ?? null;
   return state.readOnlyCarets[side];
+}
+
+/** The pane whose caret folds open away from: the one acted in last. */
+function referencePane(
+  state: Pick<DiffStoreState, "leftRef" | "rightRef" | "activePane">,
+): Side {
+  return state.activePane ?? editableSide(state) ?? "right";
+}
+
+/**
+ * Which end of a fold the next click opens, for the fold rows to name and
+ * tint their next step: the end nearest the active pane's caret.
+ */
+export function foldRevealEnd(
+  state: Pick<
+    DiffStoreState,
+    "leftRef" | "rightRef" | "cursor" | "readOnlyCarets" | "activePane"
+  >,
+  fold: FoldRegion,
+): FoldEnd {
+  const side = referencePane(state);
+  return revealEnd(fold, side, caretOn(state, side)?.line ?? null);
+}
+
+/**
+ * Where the reference caret sits in the current view's scroll units: a row
+ * of the unified list, or a position on the shared axis. What a staged
+ * reveal compares before and after, so the viewport can keep that caret's
+ * line still while rows appear above it.
+ */
+function caretScrollPosition(
+  state: Pick<
+    DiffStoreState,
+    | "leftRef"
+    | "rightRef"
+    | "cursor"
+    | "readOnlyCarets"
+    | "activePane"
+    | "chunks"
+    | "folds"
+    | "viewMode"
+  >,
+): number {
+  const side = referencePane(state);
+  const caret = caretOn(state, side);
+  if (!caret) return 0;
+  if (state.viewMode === "unified") {
+    const row = unifiedRowOf(
+      unifiedRows(state.chunks, state.folds),
+      side,
+      caret.line,
+    );
+    return Math.max(0, row);
+  }
+  return sideToAxis(state.chunks, caret.line, side, state.folds);
 }
 
 /**
@@ -501,10 +598,25 @@ export function remapLineKeys(
 ): ReadonlySet<number> {
   if (splice.delta === 0 || keys.size === 0) return keys;
   const remapped = new Set<number>();
-  for (const key of keys) {
-    remapped.add(key >= splice.end ? key + splice.delta : key);
+  for (const key of keys) remapped.add(shiftLineKey(key, splice));
+  return remapped;
+}
+
+/** `remapLineKeys` for state that carries a value per key (partial reveals). */
+export function remapLineKeyMap<V>(
+  map: ReadonlyMap<number, V>,
+  splice: LineSplice,
+): ReadonlyMap<number, V> {
+  if (splice.delta === 0 || map.size === 0) return map;
+  const remapped = new Map<number, V>();
+  for (const [key, value] of map) {
+    remapped.set(shiftLineKey(key, splice), value);
   }
   return remapped;
+}
+
+function shiftLineKey(key: number, splice: LineSplice): number {
+  return key >= splice.end ? key + splice.delta : key;
 }
 
 /** Mirror a fallback's per-side facts, for Swap Sides. */
@@ -540,20 +652,24 @@ function derive(state: {
   collapseUnchanged: boolean;
   contextLines: number;
   expandedFolds: ReadonlySet<number>;
+  foldReveals: ReadonlyMap<number, FoldReveal>;
 }) {
   const chunks = computeChunks(
     state.left,
     state.right,
     chunkOptionsFor(state.whitespace),
   );
-  // `folds` holds only the folds currently collapsed. Expansion is keyed on
-  // the hidden run's starting left line, not on chunkIndex: toggling
-  // whitespace re-chunks the file and shifts every index, and an expanded
-  // fold that silently became a different expanded fold would be a bug the
-  // user could not even describe.
+  // `folds` holds only the folds currently collapsed, each shrunk by what
+  // has been revealed of it. Both are keyed on the hidden run's starting
+  // left line, not on chunkIndex: toggling whitespace re-chunks the file and
+  // shifts every index, and an expanded fold that silently became a
+  // different expanded fold would be a bug the user could not even describe.
   const folds = state.collapseUnchanged
-    ? computeFolds(chunks, { contextLines: state.contextLines }).filter(
-        (fold) => !state.expandedFolds.has(fold.left.start),
+    ? applyReveals(
+        computeFolds(chunks, { contextLines: state.contextLines }).filter(
+          (fold) => !state.expandedFolds.has(fold.key),
+        ),
+        state.foldReveals,
       )
     : [];
   return {
@@ -654,6 +770,7 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
   chunks: [],
   folds: [],
   expandedFolds: new Set<number>(),
+  foldReveals: new Map<number, FoldReveal>(),
   differences: 0,
   axis: 0,
 
@@ -707,9 +824,8 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
     });
     let expansion = {};
     if (hiding) {
-      const expandedFolds = new Set(state.expandedFolds);
-      expandedFolds.add(hiding.left.start);
-      expansion = { expandedFolds, ...derive({ ...state, expandedFolds }) };
+      const opened = expandFolds(state, [hiding.key]);
+      expansion = { ...opened, ...derive({ ...state, ...opened }) };
     }
     set({
       readOnlyCarets: { ...state.readOnlyCarets, [side]: caret },
@@ -780,7 +896,10 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
       const expandedFolds = new Set<number>(
         carets ? state.expandedFolds : undefined,
       );
-      const next = { ...state, ...meta, ...text, expandedFolds };
+      const foldReveals = new Map<number, FoldReveal>(
+        carets ? state.foldReveals : undefined,
+      );
+      const next = { ...state, ...meta, ...text, expandedFolds, foldReveals };
       // The text may have moved under the kept carets, so a run that was open
       // before can come back collapsed around one. A fresh load places its
       // carets from the same derivation, and they answer to the same rule.
@@ -825,9 +944,11 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
       });
       let expansion = {};
       if (intersecting.length > 0) {
-        const expandedFolds = new Set(state.expandedFolds);
-        for (const fold of intersecting) expandedFolds.add(fold.left.start);
-        expansion = { expandedFolds, ...derive({ ...state, expandedFolds }) };
+        const opened = expandFolds(
+          state,
+          intersecting.map((fold) => fold.key),
+        );
+        expansion = { ...opened, ...derive({ ...state, ...opened }) };
       }
       return { cursor: clamped, goalVisual, activePane: side, ...expansion };
     }),
@@ -982,46 +1103,91 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
       // Turning collapsing back on re-collapses everything: the toggle reads
       // as "collapse unchanged", not "restore my expansion history". The runs
       // holding a caret stay open, since no caret may sit on hidden content.
-      const expandedFolds = new Set<number>();
+      const forgotten = {
+        expandedFolds: new Set<number>(),
+        foldReveals: new Map<number, FoldReveal>(),
+      };
       return {
         collapseUnchanged,
-        ...deriveVisibleFolds({ ...state, collapseUnchanged, expandedFolds }),
+        ...deriveVisibleFolds({ ...state, collapseUnchanged, ...forgotten }),
       };
     }),
 
   setCollapsed: (collapsed) =>
     set((state) => {
-      // Collapsing forgets expansion history either way: "collapse" means
-      // everything, and expanded-all needs no per-fold bookkeeping. The runs
-      // holding a caret are the one exception, as above.
-      const expandedFolds = new Set<number>();
+      // Collapsing forgets expansion history either way, partial reveals
+      // included: "collapse" means everything, and expanded-all needs no
+      // per-fold bookkeeping. The runs holding a caret are the one
+      // exception, as above.
+      const forgotten = {
+        expandedFolds: new Set<number>(),
+        foldReveals: new Map<number, FoldReveal>(),
+      };
       return {
         collapseUnchanged: collapsed,
         ...deriveVisibleFolds({
           ...state,
           collapseUnchanged: collapsed,
-          expandedFolds,
+          ...forgotten,
         }),
       };
     }),
 
   setContextLines: (contextLines) =>
-    set((state) => ({
-      contextLines,
-      ...deriveVisibleFolds({ ...state, contextLines }),
-    })),
+    set((state) => {
+      // The runs' edges move with the context, so what was revealed of a
+      // run no longer names the same lines; the reveals start over.
+      const foldReveals = new Map<number, FoldReveal>();
+      return {
+        contextLines,
+        ...deriveVisibleFolds({ ...state, contextLines, foldReveals }),
+      };
+    }),
 
   setViewMode: (viewMode) => set({ viewMode }),
 
-  toggleFold: (leftStart) =>
+  toggleFold: (key) =>
     set((state) => {
+      // Either way the fold's partial reveal is spent: expanding it opens
+      // the whole run, and re-collapsing it brings the whole run back.
+      const foldReveals = new Map(state.foldReveals);
+      foldReveals.delete(key);
       const expandedFolds = new Set(state.expandedFolds);
-      if (expandedFolds.has(leftStart)) expandedFolds.delete(leftStart);
-      else expandedFolds.add(leftStart);
+      if (expandedFolds.has(key)) expandedFolds.delete(key);
+      else expandedFolds.add(key);
       // No scroll compensation: a fold can only be toggled while its row is
       // visible, and the axis only lengthens below the viewport top.
-      return { expandedFolds, ...derive({ ...state, expandedFolds }) };
+      const opened = { expandedFolds, foldReveals };
+      return { ...opened, ...derive({ ...state, ...opened }) };
     }),
+
+  revealFold: (key) => {
+    const state = get();
+    const fold = state.folds.find((candidate) => candidate.key === key);
+    if (!fold) return 0;
+    const step = foldStep(fold, foldRevealEnd(state, fold));
+    // The last step opens the run whole, which is what expansion already
+    // means; anything short of it is remembered per end, so a caret that
+    // moves between clicks does not reset the other end's progress.
+    let opened: Pick<DiffStoreState, "expandedFolds" | "foldReveals">;
+    if (step.rest) {
+      opened = expandFolds(state, [key]);
+    } else {
+      const foldReveals = new Map(state.foldReveals);
+      foldReveals.set(key, {
+        ...fold.revealed,
+        [step.end]: fold.revealed[step.end] + step.lines,
+      });
+      opened = { expandedFolds: state.expandedFolds, foldReveals };
+    }
+    const patch = { ...opened, ...derive({ ...state, ...opened }) };
+    set(patch);
+    // Rows revealed above the caret push its line down the view; the
+    // difference in the caret's own scroll position is exactly that push.
+    return (
+      caretScrollPosition({ ...state, ...patch }) - caretScrollPosition(state)
+    );
+  },
 
   // Swapping re-runs the diff rather than mirroring the existing chunks:
   // a diff is not symmetric, so reversing the inputs is the only way to get
@@ -1041,14 +1207,18 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
         leftLabel: committed.rightLabel,
         rightLabel: committed.leftLabel,
       };
-      // Expansion is keyed on left start lines, and the swap moves every
-      // fold to the other side's numbering — so everything re-collapses.
-      const expandedFolds = new Set<number>();
+      // Expansion and reveals are keyed on left start lines, and the swap
+      // moves every fold to the other side's numbering — so everything
+      // re-collapses.
+      const forgotten = {
+        expandedFolds: new Set<number>(),
+        foldReveals: new Map<number, FoldReveal>(),
+      };
       // Every caret spoke in the old side's coordinates; they start over on
       // the first change, as they did when the diff opened, and a run that
       // would hide one of them opens.
       const derived = deriveVisibleFolds(
-        { ...committed, ...swapped, expandedFolds },
+        { ...committed, ...swapped, ...forgotten },
         (chunks) =>
           initialCarets(
             chunks,
@@ -1171,7 +1341,7 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
       const span = match.side === "left" ? fold.left : fold.right;
       return match.line >= span.start && match.line < span.start + span.count;
     });
-    if (hiddenIn) state.toggleFold(hiddenIn.left.start);
+    if (hiddenIn) state.toggleFold(hiddenIn.key);
   },
 
   activeMatchAxis: (side) => {
@@ -1256,15 +1426,19 @@ function applyEditorEdit(
     end: edit.replaced.end.line + 1,
     delta: edit.lineDelta,
   };
-  // Expansion keys are left start lines; a left-side splice shifts every
-  // fold below it, and the keys must follow or the folds the user expanded
-  // snap shut under the cursor.
+  // Expansion and reveal keys are left start lines; a left-side splice
+  // shifts every fold below it, and the keys must follow or the folds the
+  // user opened snap shut under the cursor.
   const expandedFolds =
     side === "left"
       ? remapLineKeys(state.expandedFolds, splice)
       : state.expandedFolds;
+  const foldReveals =
+    side === "left"
+      ? remapLineKeyMap(state.foldReveals, splice)
+      : state.foldReveals;
   const cursor = caretAt(edit.caret.line, edit.caret.col);
-  const next = { ...state, ...texts, expandedFolds, cursor };
+  const next = { ...state, ...texts, expandedFolds, foldReveals, cursor };
   return {
     ...texts,
     goalVisual: null,

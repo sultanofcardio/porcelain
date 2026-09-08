@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 import { bridge } from "../shared/bridge";
 import {
   type CommandType,
@@ -18,6 +19,7 @@ import {
   chunkAxis,
   editableSide,
   editSourcePosition,
+  foldRevealEnd,
   useDiffStore,
 } from "../shared/store/diff-store";
 import { ChangeStripe, splitStripeMarks } from "./components/ChangeStripe";
@@ -47,6 +49,7 @@ import {
   type DiffChunk,
   displayLine,
   displayToSource,
+  type FoldRegion,
   type Side,
   sideToAxis,
   splitLines,
@@ -263,6 +266,25 @@ export function DiffApp() {
     const element = viewportRef.current;
     if (element) element.scrollTop = Math.max(0, position) * LINE_HEIGHT;
   }, []);
+
+  // A fold opening from its tail puts rows between its separator and the
+  // caret, which would push the line the reader is looking at down the
+  // view. The store reports that push and the viewport follows it here, in
+  // the same task and before paint. The reveal is flushed first because the
+  // scroll range only grows once the new rows are in the DOM; scrolling
+  // before that would clamp at the old extent.
+  const revealFold = useCallback((fold: FoldRegion) => {
+    let shift = 0;
+    flushSync(() => {
+      shift = useDiffStore.getState().revealFold(fold.key);
+    });
+    const element = viewportRef.current;
+    if (shift === 0 || !element) return;
+    element.scrollTop += shift * LINE_HEIGHT;
+    setAxisPosition(element.scrollTop / LINE_HEIGHT);
+  }, []);
+  // Each fold row names and tints its next step from the active caret.
+  const foldEnd = (fold: FoldRegion) => foldRevealEnd(store, fold);
 
   // The left pane's own position while synchronised scrolling is off. Seeded
   // from wherever the pane already was when sync was switched off, so
@@ -945,9 +967,8 @@ export function DiffApp() {
                   }
                   onScrollX={(x) => horizontal.onScrollX(scrollOwner, x)}
                   scrollX={horizontal.positions[scrollOwner] ?? 0}
-                  onToggleFold={(fold) =>
-                    useDiffStore.getState().toggleFold(fold.left.start)
-                  }
+                  onRevealFold={revealFold}
+                  foldEnd={foldEnd}
                   matches={matches}
                   activeMatch={activeMatch}
                   caret={unifiedCaret}
@@ -990,9 +1011,8 @@ export function DiffApp() {
                       contentWidth={contentWidthOf(layout.side)}
                       onScrollX={(x) => horizontal.onScrollX(layout.side, x)}
                       folds={store.folds}
-                      onToggleFold={(fold) =>
-                        useDiffStore.getState().toggleFold(fold.left.start)
-                      }
+                      onRevealFold={revealFold}
+                      foldEnd={foldEnd}
                       matches={matches}
                       activeMatch={activeMatch}
                       {...readOnlyCaret(layout.side)}
@@ -1023,9 +1043,8 @@ export function DiffApp() {
                         contentWidth={contentWidthOf("left")}
                         onScrollX={(x) => horizontal.onScrollX("left", x)}
                         folds={store.folds}
-                        onToggleFold={(fold) =>
-                          useDiffStore.getState().toggleFold(fold.left.start)
-                        }
+                        onRevealFold={revealFold}
+                        foldEnd={foldEnd}
                         matches={matches}
                         activeMatch={activeMatch}
                         {...readOnlyCaret("left")}
@@ -1058,9 +1077,8 @@ export function DiffApp() {
                       contentWidth={contentWidthOf("right")}
                       onScrollX={(x) => horizontal.onScrollX("right", x)}
                       folds={store.folds}
-                      onToggleFold={(fold) =>
-                        useDiffStore.getState().toggleFold(fold.left.start)
-                      }
+                      onRevealFold={revealFold}
+                      foldEnd={foldEnd}
                       matches={matches}
                       activeMatch={activeMatch}
                       {...readOnlyCaret("right")}

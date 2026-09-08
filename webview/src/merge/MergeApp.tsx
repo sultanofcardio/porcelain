@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 import { ChangeStripe } from "../diff/components/ChangeStripe";
 import { DiffGutter } from "../diff/components/DiffGutter";
 import { DiffPane } from "../diff/components/DiffPane";
@@ -30,6 +31,7 @@ import { bridge } from "../shared/bridge";
 import type { FileVersionsResult } from "../shared/bridge/types";
 import { useHorizontalScroll } from "../shared/hooks/useHorizontalScroll";
 import {
+  mergeFoldRevealEnd,
   PANE_SIDE,
   paneFolds,
   useMergeStore,
@@ -119,6 +121,21 @@ export function MergeApp() {
     const element = viewportRef.current;
     if (element) element.scrollTop = Math.max(0, position) * LINE_HEIGHT;
   }, []);
+
+  // A staged fold reveal, with the viewport following the push it gives the
+  // result caret's line; see DiffApp's revealFold for why the flush.
+  const revealFold = useCallback((fold: FoldRegion) => {
+    let shift = 0;
+    flushSync(() => {
+      shift = useMergeStore.getState().revealFold(fold.key);
+    });
+    const element = viewportRef.current;
+    if (shift === 0 || !element) return;
+    element.scrollTop += shift * LINE_HEIGHT;
+    setAxisPosition(element.scrollTop / LINE_HEIGHT);
+  }, []);
+  const foldEnd = (pane: MergePane) => (fold: FoldRegion) =>
+    mergeFoldRevealEnd(store, pane, fold);
 
   const step = useCallback(
     (delta: number) => {
@@ -505,9 +522,8 @@ export function MergeApp() {
                 contentWidth={contentWidth + (horizontal.padding.ours ?? 0)}
                 onScrollX={(x) => horizontal.onScrollX("ours", x)}
                 folds={store.folds.pairO}
-                onToggleFold={(fold) =>
-                  useMergeStore.getState().toggleFold(fold.right.start)
-                }
+                onRevealFold={revealFold}
+                foldEnd={foldEnd("ours")}
                 matches={store.findPanes.ours.matches}
                 activeMatch={activePane === "ours" ? activeMatch : null}
                 overrideKinds={store.oursKinds}
@@ -577,9 +593,8 @@ export function MergeApp() {
                   contentWidth={contentWidth + (horizontal.padding.result ?? 0)}
                   onScrollX={(x) => horizontal.onScrollX("result", x)}
                   folds={store.folds.pairO}
-                  onToggleFold={(fold) =>
-                    useMergeStore.getState().toggleFold(fold.right.start)
-                  }
+                  onRevealFold={revealFold}
+                  foldEnd={foldEnd("result")}
                   matches={store.findPanes.result.matches}
                   activeMatch={activePane === "result" ? activeMatch : null}
                   overrideKinds={store.resultKinds}
@@ -620,9 +635,8 @@ export function MergeApp() {
                 contentWidth={contentWidth + (horizontal.padding.theirs ?? 0)}
                 onScrollX={(x) => horizontal.onScrollX("theirs", x)}
                 folds={store.folds.pairT}
-                onToggleFold={(fold) =>
-                  useMergeStore.getState().toggleFold(fold.left.start)
-                }
+                onRevealFold={revealFold}
+                foldEnd={foldEnd("theirs")}
                 matches={store.findPanes.theirs.matches}
                 activeMatch={activePane === "theirs" ? activeMatch : null}
                 overrideKinds={store.theirsKinds}

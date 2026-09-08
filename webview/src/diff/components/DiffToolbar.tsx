@@ -40,12 +40,14 @@ export function DiffToolbar({
   const position = changed.indexOf(activeChunk);
   const collapse = useDiffStore((s) => s.collapseUnchanged);
   const expandedFolds = useDiffStore((s) => s.expandedFolds);
+  const foldReveals = useDiffStore((s) => s.foldReveals);
   const setCollapsed = useDiffStore((s) => s.setCollapsed);
-  // Pressed means "everything foldable is folded": hand-expanding a fold
-  // unpresses it, and clicking then re-collapses the lot — which is the whole
-  // reason this is a toggle rather than the bare feature switch the settings
-  // menu already offers.
-  const fullyCollapsed = collapse && expandedFolds.size === 0;
+  // Pressed means "everything foldable is folded": hand-expanding a fold,
+  // or opening one part of the way, unpresses it, and clicking then
+  // re-collapses the lot — which is the whole reason this is a toggle rather
+  // than the bare feature switch the settings menu already offers.
+  const fullyCollapsed =
+    collapse && expandedFolds.size === 0 && foldReveals.size === 0;
   const sync = useDiffStore((s) => s.syncScroll);
   const toggleSync = useDiffStore((s) => s.toggleSyncScroll);
   const viewMode = useDiffStore((s) => s.viewMode);

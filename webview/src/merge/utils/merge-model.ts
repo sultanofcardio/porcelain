@@ -547,17 +547,23 @@ export function computeMergeFolds(
     const hidden = length - leading - trailing;
     if (hidden <= 0) continue;
     const start = run.result.start + leading;
+    // Both pairs carry the run's result start as their key: the one line
+    // number all three panes agree on, and what expansion and reveals key on.
     pairO.push({
+      key: start,
       chunkIndex: run.chunkO,
       left: { start: start + run.oursDelta, count: hidden },
       right: { start, count: hidden },
       hiddenLines: hidden,
+      revealed: { head: 0, tail: 0 },
     });
     pairT.push({
+      key: start,
       chunkIndex: run.chunkT,
       left: { start, count: hidden },
       right: { start: start + run.theirsDelta, count: hidden },
       hiddenLines: hidden,
+      revealed: { head: 0, tail: 0 },
     });
   }
   return { pairO, pairT };
