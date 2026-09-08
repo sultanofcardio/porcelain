@@ -482,7 +482,7 @@ export function caretOn(
 }
 
 /** The pane whose caret folds open away from: the one acted in last. */
-function referencePane(
+export function referencePane(
   state: Pick<DiffStoreState, "leftRef" | "rightRef" | "activePane">,
 ): Side {
   return state.activePane ?? editableSide(state) ?? "right";

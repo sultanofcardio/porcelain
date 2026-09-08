@@ -20,6 +20,7 @@ import {
   editableSide,
   editSourcePosition,
   foldRevealEnd,
+  referencePane,
   useDiffStore,
 } from "../shared/store/diff-store";
 import { ChangeStripe, splitStripeMarks } from "./components/ChangeStripe";
@@ -267,25 +268,6 @@ export function DiffApp() {
     if (element) element.scrollTop = Math.max(0, position) * LINE_HEIGHT;
   }, []);
 
-  // A fold opening from its tail puts rows between its separator and the
-  // caret, which would push the line the reader is looking at down the
-  // view. The store reports that push and the viewport follows it here, in
-  // the same task and before paint. The reveal is flushed first because the
-  // scroll range only grows once the new rows are in the DOM; scrolling
-  // before that would clamp at the old extent.
-  const revealFold = useCallback((fold: FoldRegion) => {
-    let shift = 0;
-    flushSync(() => {
-      shift = useDiffStore.getState().revealFold(fold.key);
-    });
-    const element = viewportRef.current;
-    if (shift === 0 || !element) return;
-    element.scrollTop += shift * LINE_HEIGHT;
-    setAxisPosition(element.scrollTop / LINE_HEIGHT);
-  }, []);
-  // Each fold row names and tints its next step from the active caret.
-  const foldEnd = (fold: FoldRegion) => foldRevealEnd(store, fold);
-
   // The left pane's own position while synchronised scrolling is off. Seeded
   // from wherever the pane already was when sync was switched off, so
   // decoupling never makes the view jump.
@@ -295,6 +277,45 @@ export function DiffApp() {
     if (store.syncScroll) return;
     setIndependentLeft(leftAtDecouple.current);
   }, [store.syncScroll]);
+
+  // A fold opening from its tail puts rows between its separator and the
+  // caret, which would push the line the reader is looking at down the
+  // view. The store reports that push and the view follows it here, in
+  // the same task and before paint. The reveal is flushed first because the
+  // scroll range only grows once the new rows are in the DOM; scrolling
+  // before that would clamp at the old extent.
+  const revealFold = useCallback((fold: FoldRegion) => {
+    // Which scroller carries the caret the shift is meant to hold still.
+    // Decoupled, the left pane is off the axis, so the axis would scroll the
+    // right pane while the caret being compensated for stayed where it was.
+    const before = useDiffStore.getState();
+    const decoupledLeft =
+      !before.syncScroll &&
+      before.viewMode !== "unified" &&
+      chooseLayout(before.left, before.right).mode === "split" &&
+      referencePane(before) === "left";
+    let shift = 0;
+    flushSync(() => {
+      shift = useDiffStore.getState().revealFold(fold.key);
+    });
+    if (shift === 0) return;
+    if (decoupledLeft) {
+      const last = Math.max(
+        0,
+        splitLines(useDiffStore.getState().left).length - 1,
+      );
+      setIndependentLeft((previous) =>
+        Math.max(0, Math.min(previous + shift, last)),
+      );
+      return;
+    }
+    const element = viewportRef.current;
+    if (!element) return;
+    element.scrollTop += shift * LINE_HEIGHT;
+    setAxisPosition(element.scrollTop / LINE_HEIGHT);
+  }, []);
+  // Each fold row names and tints its next step from the active caret.
+  const foldEnd = (fold: FoldRegion) => foldRevealEnd(store, fold);
 
   // A working-tree diff can stage, unstage and revert individual changes. The
   // checkbox reflects what git has staged rather than a separate notion of
