@@ -14,6 +14,7 @@ import {
   WORKING_TREE_REF,
 } from "../shared/bridge/types";
 import { useHorizontalScroll } from "../shared/hooks/useHorizontalScroll";
+import { useShiki } from "../shared/hooks/useShiki";
 import {
   caretOn,
   chunkAxis,
@@ -29,6 +30,7 @@ import { DiffGutter } from "./components/DiffGutter";
 import { DiffPane } from "./components/DiffPane";
 import { DiffToolbar } from "./components/DiffToolbar";
 import { FindBar } from "./components/FindBar";
+import { HoverCard } from "./components/HoverCard";
 import {
   gutterMetrics,
   LINE_HEIGHT,
@@ -43,6 +45,8 @@ import { UnifiedPane } from "./components/UnifiedPane";
 import { type DisplayMapping, EditablePane } from "./editor/EditablePane";
 import type { Position } from "./editor/editor-model";
 import { type SurfacePresentation, useAutoSave } from "./hooks/useAutoSave";
+import { useFoldScopes } from "./hooks/useFoldScopes";
+import { type LanguageHover, useLanguageHover } from "./hooks/useLanguageHover";
 import { useRevealMatch } from "./hooks/useRevealMatch";
 import {
   axisForSideOffset,
@@ -69,6 +73,15 @@ import "./diff.css";
  * its ref callbacks from the array's identity.
  */
 const SIDES: readonly Side[] = ["left", "right"];
+
+/** How long ⌘K waits for its second key. */
+const CHORD_WINDOW_MS = 2000;
+const MODIFIER_KEYS: ReadonlySet<string> = new Set([
+  "Meta",
+  "Control",
+  "Shift",
+  "Alt",
+]);
 
 export function DiffApp() {
   const store = useDiffStore();
@@ -226,6 +239,57 @@ export function DiffApp() {
     saveRef,
     presentation,
   );
+
+  // The language channel: hover cards and go to definition through the
+  // host's providers, and scope badges on the fold rows from its symbol
+  // outline. A side is asked about by the ref and path the host reads it
+  // from; after Swap Sides the store's refs have changed places while the
+  // dataset's paths have not, so a side's path follows the swap here.
+  const sideRef = useCallback(
+    (side: Side) => (side === "left" ? store.leftRef : store.rightRef),
+    [store.leftRef, store.rightRef],
+  );
+  const sidePath = useCallback(
+    (side: Side) => {
+      const own = side === "left" ? leftPath : rightPath;
+      const other = side === "left" ? rightPath : leftPath;
+      return store.swapped ? other : own;
+    },
+    [leftPath, rightPath, store.swapped],
+  );
+  const textPanes = !store.loading && !store.fallback;
+  const hover = useLanguageHover({
+    enabled: store.settings.hoverEnabled,
+    delay: store.settings.hoverDelay,
+    autoSave: store.settings.autoSave,
+    sideRef,
+    sidePath,
+    active: textPanes,
+  });
+  const highlighter = useShiki();
+  // The outline comes from the working tree when a side is one, since that
+  // is the file the servers index; a diff between revisions asks about the
+  // right side, and the answer is whatever a scheme-agnostic server gives.
+  // The working tree's outline follows its saves, so the badges name the
+  // text on disk; a revision's follows its text.
+  const scopeEditable = editableSide(store);
+  const scopeSide: Side | null = !textPanes
+    ? null
+    : (scopeEditable ??
+      (store.right !== "" ? "right" : store.left !== "" ? "left" : null));
+  const foldScope = useFoldScopes({
+    side: scopeSide,
+    ref: scopeSide ? sideRef(scopeSide) : "",
+    path: scopeSide ? sidePath(scopeSide) : "",
+    version:
+      scopeSide === null
+        ? null
+        : scopeEditable === scopeSide
+          ? store.savedText
+          : scopeSide === "left"
+            ? store.left
+            : store.right,
+  });
 
   // Measured rather than derived, because the number of rows to render depends
   // on it.
@@ -419,6 +483,9 @@ export function DiffApp() {
   // Read by the window key handler, which binds once.
   const stepRef = useRef(step);
   stepRef.current = step;
+  const hoverRef = useRef<LanguageHover>(hover);
+  hoverRef.current = hover;
+  const chordAt = useRef(0);
 
   // Remounting the bar is how a second Cmd+F refocuses the input while the
   // bar is already up; its state all lives in the store, so nothing is lost.
@@ -440,6 +507,11 @@ export function DiffApp() {
         event.preventDefault();
         return;
       }
+      // A hover card up takes the Escape; the find bar gets the next one.
+      if (event.key === "Escape" && hoverRef.current.dismiss()) {
+        event.preventDefault();
+        return;
+      }
       if (event.key === "Escape" && useDiffStore.getState().findOpen) {
         useDiffStore.getState().closeFind();
         return;
@@ -450,14 +522,42 @@ export function DiffApp() {
       // and a focused toolbar button must not swallow F7.
       const target = event.target as HTMLElement | null;
       const tag = target?.tagName;
-      if (
-        target &&
+      const editableTarget =
+        target !== null &&
         (tag === "INPUT" ||
           tag === "TEXTAREA" ||
           tag === "SELECT" ||
-          target.isContentEditable)
-      )
-        return;
+          target.isContentEditable);
+      // The language bindings, VS Code's own: F12 goes to the definition at
+      // the caret and ⌘K ⌘I shows the hover there. They work from the
+      // editor too, whose textarea claims neither, but not from the find
+      // input. The chord is consumed by whatever key follows ⌘K, modifiers
+      // aside, so an unfinished one does not lie in wait.
+      const primary = event.metaKey || event.ctrlKey;
+      const chordPending = Date.now() - chordAt.current < CHORD_WINDOW_MS;
+      if (!MODIFIER_KEYS.has(event.key)) chordAt.current = 0;
+      const inEditor =
+        editableTarget && target.classList.contains("diff-editor-input");
+      if (!editableTarget || inEditor) {
+        if (event.key === "F12" && !primary && !event.altKey) {
+          hoverRef.current.goToDefinitionAtCaret();
+          event.preventDefault();
+          return;
+        }
+        if (primary && !event.shiftKey && !event.altKey) {
+          if (event.key === "k" || event.key === "K") {
+            chordAt.current = Date.now();
+            event.preventDefault();
+            return;
+          }
+          if (chordPending && (event.key === "i" || event.key === "I")) {
+            hoverRef.current.showAtCaret();
+            event.preventDefault();
+            return;
+          }
+        }
+      }
+      if (editableTarget) return;
       if (event.key === "F7") {
         stepRef.current(event.shiftKey ? -1 : 1);
         event.preventDefault();
@@ -722,6 +822,15 @@ export function DiffApp() {
         horizontal.reveal(side, from, to),
       label: `${side === "left" ? store.leftLabel : store.rightLabel} side of ${filePath}, read-only. Arrow keys move the caret.`,
     };
+  };
+
+  // What every pane needs for hover, definition and the scope badges; the
+  // panes take the same props whichever document they render.
+  const languageProps = {
+    onPointerText: hover.onPointerText,
+    linkRange: hover.link,
+    onActivateLink: hover.onActivateLink,
+    foldScope,
   };
 
   // The unified row list: the same chunks and folds, rendered one column.
@@ -1040,6 +1149,7 @@ export function DiffApp() {
                     horizontal.reveal(scrollOwner, from, to, numberColumns)
                   }
                   label={`Unified diff of ${filePath}, read-only. Arrow keys move the caret.`}
+                  {...languageProps}
                 />
               ) : layout.mode === "single" ? (
                 <>
@@ -1074,6 +1184,7 @@ export function DiffApp() {
                       matches={matches}
                       activeMatch={activeMatch}
                       {...readOnlyCaret(layout.side)}
+                      {...languageProps}
                     />,
                   )}
                 </>
@@ -1106,6 +1217,7 @@ export function DiffApp() {
                         matches={matches}
                         activeMatch={activeMatch}
                         {...readOnlyCaret("left")}
+                        {...languageProps}
                       />,
                     )}
                   </div>
@@ -1140,6 +1252,7 @@ export function DiffApp() {
                       matches={matches}
                       activeMatch={activeMatch}
                       {...readOnlyCaret("right")}
+                      {...languageProps}
                     />,
                   )}
                 </>
@@ -1172,6 +1285,17 @@ export function DiffApp() {
           onJump={scrollToAxis}
         />
       </div>
+      {hover.card && (
+        <HoverCard
+          anchor={hover.card.anchor}
+          contents={hover.card.contents}
+          notice={hover.card.notice}
+          hint={hover.card.hint}
+          highlighter={highlighter}
+          onPointerEnter={hover.onCardEnter}
+          onPointerLeave={hover.onCardLeave}
+        />
+      )}
     </div>
   );
 }

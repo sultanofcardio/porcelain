@@ -22,6 +22,12 @@ interface FoldRowProps {
    * the unified view's line numbers. Nothing for the split panes.
    */
   inset?: number;
+  /**
+   * The scope the hidden run starts inside, from the document's symbol
+   * outline: what IntelliJ writes on a fold. Null where no provider
+   * answered, and the count stands alone.
+   */
+  scope?: string | null;
 }
 
 /**
@@ -29,12 +35,17 @@ interface FoldRowProps {
  * relative to the row, and how much the row still hides. Head lines appear
  * above the separator (it moves down), tail lines below it.
  */
-export function foldRowName(fold: FoldRegion, step: FoldStep): string {
+export function foldRowName(
+  fold: FoldRegion,
+  step: FoldStep,
+  scope: string | null = null,
+): string {
   const where = step.end === "head" ? "above" : "below";
+  const inside = scope ? ` in ${scope}` : "";
   if (step.rest) {
-    return `Show all ${fold.hiddenLines} unchanged lines ${where}`;
+    return `Show all ${fold.hiddenLines} unchanged lines ${where}${inside}`;
   }
-  return `Show ${step.lines} of ${fold.hiddenLines} unchanged lines ${where}`;
+  return `Show ${step.lines} of ${fold.hiddenLines} unchanged lines ${where}${inside}`;
 }
 
 /**
@@ -50,13 +61,14 @@ export function FoldRow({
   onReveal,
   width,
   inset = 0,
+  scope = null,
 }: FoldRowProps) {
   const step = foldStep(fold, end);
   return (
     <button
       type="button"
       className={`diff-fold-row diff-fold-row-${end}`}
-      aria-label={foldRowName(fold, step)}
+      aria-label={foldRowName(fold, step, scope)}
       onClick={() => onReveal?.(fold)}
       style={{
         width: width ? width : undefined,
@@ -64,6 +76,11 @@ export function FoldRow({
       }}
     >
       <span className="diff-fold-wave" aria-hidden="true" />
+      {scope && (
+        <span className="diff-fold-scope" aria-hidden="true">
+          {scope}
+        </span>
+      )}
       <span className="diff-fold-count" aria-hidden="true">
         {fold.hiddenLines} unchanged lines
       </span>

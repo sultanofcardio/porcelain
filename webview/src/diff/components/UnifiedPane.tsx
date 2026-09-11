@@ -18,6 +18,12 @@ import {
   syntaxSpans,
 } from "../utils/highlight";
 import { needsReveal, positionAt, rowAt } from "../utils/positionAt";
+import {
+  type LinkRange,
+  linkModifierHeld,
+  type PointerTarget,
+  pointerTarget,
+} from "../utils/text-target";
 import { type UnifiedRow, unifiedRowOf } from "../utils/unified";
 import { FoldRow } from "./FoldRow";
 import {
@@ -79,6 +85,14 @@ interface UnifiedPaneProps {
   onRevealX?: (from: number, to: number) => void;
   /** Accessible name for the pane, which takes focus for its caret. */
   label?: string;
+  /** The pointer rests on text: which word, on which document; see DiffPane. */
+  onPointerText?: (target: PointerTarget | null) => void;
+  /** The definition link to underline, on whichever document it names. */
+  linkRange?: LinkRange | null;
+  /** A modifier-click on a word: follow it to its definition. */
+  onActivateLink?: (target: PointerTarget) => void;
+  /** The scope a fold's hidden run starts inside, for its row's badge. */
+  foldScope?: (fold: FoldRegion) => string | null;
 }
 
 /**
@@ -122,6 +136,10 @@ export function UnifiedPane({
   onRevealRow,
   onRevealX,
   label,
+  onPointerText,
+  linkRange,
+  onActivateLink,
+  foldScope,
 }: UnifiedPaneProps) {
   const highlighter = useShiki();
   const metrics = gutterMetrics(Math.max(leftLines.length, rightLines.length));
@@ -139,31 +157,74 @@ export function UnifiedPane({
     [leftLines, rightLines],
   );
 
+  // A unified row names its own document, so a pointer is resolved to its
+  // row first and the shared geometry then reads the column off that side's
+  // lines. Null over a fold row, under the parked number columns, and in
+  // the scrollbar's band along the bottom edge.
+  const rowGeometry = useCallback(
+    (host: HTMLDivElement, event: { clientX: number; clientY: number }) => {
+      const bounds = host.getBoundingClientRect();
+      if (event.clientY >= bounds.top + host.clientHeight) return null;
+      if (event.clientX < bounds.left + metrics.numberWidth * 2) return null;
+      const row = rows[rowAt(event, { rect: bounds, offset })];
+      if (!row || row.kind !== "line") return null;
+      return {
+        row,
+        geometry: {
+          rect: bounds,
+          offset,
+          scrollX: host.scrollLeft,
+          charWidth,
+          toSourceLine: () => row.line,
+          lines: row.side === "left" ? leftLines : rightLines,
+          textInset,
+        },
+      };
+    },
+    [rows, offset, charWidth, leftLines, rightLines, textInset, metrics],
+  );
+
   const onMouseDown = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
       const host = hostRef.current;
-      if (!host || !onPlaceCaret) return;
+      if (!host) return;
       if ((event.target as HTMLElement).closest("button")) return;
-      const bounds = host.getBoundingClientRect();
-      if (event.clientY >= bounds.top + host.clientHeight) return;
-      // A unified row names its own document, so the row is resolved first
-      // and the shared geometry reads the column off that side's lines.
-      const row = rows[rowAt(event, { rect: bounds, offset })];
-      if (!row || row.kind !== "line") return;
-      const position = positionAt(event, {
-        rect: bounds,
-        offset,
-        scrollX: host.scrollLeft,
-        charWidth,
-        toSourceLine: () => row.line,
-        lines: row.side === "left" ? leftLines : rightLines,
-        textInset,
-      });
+      const resolved = rowGeometry(host, event);
+      if (!resolved) return;
+      const { row, geometry } = resolved;
+      if (onActivateLink && event.button === 0 && linkModifierHeld(event)) {
+        const target = pointerTarget(event, geometry, row.side);
+        if (target?.word) onActivateLink(target);
+      }
+      if (!onPlaceCaret) return;
+      const position = positionAt(event, geometry);
       if (!position) return;
       goalRef.current = null;
       onPlaceCaret(row.side, position);
     },
-    [onPlaceCaret, offset, rows, textInset, charWidth, leftLines, rightLines],
+    [onPlaceCaret, onActivateLink, rowGeometry],
+  );
+
+  const onMouseMove = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const host = hostRef.current;
+      if (!host || !onPointerText) return;
+      if ((event.target as HTMLElement).closest("button")) {
+        onPointerText(null);
+        return;
+      }
+      const resolved = rowGeometry(host, event);
+      onPointerText(
+        resolved
+          ? pointerTarget(event, resolved.geometry, resolved.row.side)
+          : null,
+      );
+    },
+    [onPointerText, rowGeometry],
+  );
+  const onMouseLeave = useCallback(
+    () => onPointerText?.(null),
+    [onPointerText],
   );
 
   // Scanning the row list is O(rows), and the pane re-renders on every
@@ -396,6 +457,12 @@ export function UnifiedPane({
           : activeMatch.side === row.side && activeMatch.line === row.line)
           ? { start: activeMatch.start, end: activeMatch.end }
           : null;
+      // The link was resolved from this row's own document, so it matches
+      // the row on the side the row reads from.
+      const link =
+        linkRange && linkRange.side === row.side && linkRange.line === row.line
+          ? { start: linkRange.start, end: linkRange.end }
+          : null;
 
       out.push({
         index,
@@ -406,6 +473,7 @@ export function UnifiedPane({
           ranges,
           found,
           active,
+          link,
         ),
       });
     }
@@ -422,14 +490,17 @@ export function UnifiedPane({
     highlighter,
     matchesByLine,
     activeMatch,
+    linkRange,
   ]);
 
   return (
     <div
-      className="diff-unified"
+      className={`diff-unified${linkRange ? " diff-pane-linking" : ""}`}
       ref={setHost}
       onScroll={(event) => onScrollX?.(event.currentTarget.scrollLeft)}
-      onMouseDown={onPlaceCaret ? onMouseDown : undefined}
+      onMouseDown={onPlaceCaret || onActivateLink ? onMouseDown : undefined}
+      onMouseMove={onPointerText ? onMouseMove : undefined}
+      onMouseLeave={onPointerText ? onMouseLeave : undefined}
       onKeyDown={onPlaceCaret ? onKeyDown : undefined}
       tabIndex={onPlaceCaret ? 0 : undefined}
       role={onPlaceCaret ? "region" : undefined}
@@ -470,6 +541,7 @@ export function UnifiedPane({
                 onReveal={onRevealFold}
                 width={paneWidth}
                 inset={metrics.numberWidth * 2}
+                scope={foldScope?.(entry.fold) ?? null}
               />
             ) : (
               <div
@@ -522,6 +594,7 @@ export function UnifiedPane({
                                 : piece.found
                                   ? "diff-found"
                                   : "",
+                              piece.link ? "diff-link" : "",
                             ]
                               .filter(Boolean)
                               .join(" ") || undefined

@@ -147,6 +147,30 @@ export function colAtVisual(
   return text.length;
 }
 
+/**
+ * The caret column of the character whose cell contains `visual`, or null
+ * past the end of the line - for a pointer resting on text, where the
+ * question is which character is under it and not which caret edge is
+ * nearest. Never splits a surrogate pair.
+ */
+export function colContaining(
+  text: string,
+  visual: number,
+  tabSize: number = TAB_SIZE,
+): number | null {
+  if (visual < 0) return null;
+  let cells = 0;
+  let col = 0;
+  while (col < text.length) {
+    const next = nextCol(text, col);
+    const width = text[col] === "\t" ? tabSize - (cells % tabSize) : 1;
+    if (visual < cells + width) return col;
+    cells += width;
+    col = next;
+  }
+  return null;
+}
+
 /* ── movement ───────────────────────────────────────────────────────────── */
 
 export function moveHorizontal(

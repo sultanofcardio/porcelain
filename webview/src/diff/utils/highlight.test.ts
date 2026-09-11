@@ -101,3 +101,17 @@ describe("buildPieces", () => {
     expect(a?.found).toBeUndefined();
   });
 });
+
+describe("buildPieces definition link", () => {
+  it("splits at the link's edges and marks only the pieces inside it", () => {
+    const pieces = buildPieces("response.setHeader(x)", [], [], [], null, {
+      start: 9,
+      end: 18,
+    });
+    expect(pieces.map((piece) => [piece.text, piece.link ?? false])).toEqual([
+      ["response.", false],
+      ["setHeader", true],
+      ["(x)", false],
+    ]);
+  });
+});

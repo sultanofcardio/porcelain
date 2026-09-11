@@ -11,6 +11,8 @@ export interface Piece {
   found?: boolean;
   /** Set on the find match the stepper is on; implies `found`. */
   activeFound?: boolean;
+  /** Set on the definition link under a held modifier. */
+  link?: boolean;
 }
 
 export interface Range {
@@ -32,12 +34,26 @@ const SUPPORTED = new Set([
   "markdown",
 ]);
 
+/** Short names a fenced block may use for a supported grammar. */
+const ALIASES: Record<string, BundledLanguage> = {
+  typescriptreact: "typescript",
+  javascriptreact: "javascript",
+  ts: "typescript",
+  tsx: "typescript",
+  js: "javascript",
+  jsx: "javascript",
+  mjs: "javascript",
+  cjs: "javascript",
+  md: "markdown",
+  jsonc: "json",
+};
+
 export function normalizeLanguage(
   language: string,
 ): BundledLanguage | SpecialLanguage {
   const lang = language.toLowerCase();
-  if (lang === "typescriptreact") return "typescript";
-  if (lang === "javascriptreact") return "javascript";
+  const alias = ALIASES[lang];
+  if (alias) return alias;
   if (SUPPORTED.has(lang)) return lang as BundledLanguage;
   return "text";
 }
@@ -123,6 +139,8 @@ export function buildPieces(
   found: Range[] = [],
   /** The one match the find stepper is on, when it is on this line. */
   active: Range | null = null,
+  /** The definition link under a held modifier, when it is on this line. */
+  link: Range | null = null,
 ): Piece[] {
   if (line.length === 0) return [];
 
@@ -142,6 +160,10 @@ export function buildPieces(
   if (active) {
     boundaries.add(active.start);
     boundaries.add(active.end);
+  }
+  if (link) {
+    boundaries.add(link.start);
+    boundaries.add(link.end);
   }
 
   const points = [...boundaries]
@@ -164,6 +186,7 @@ export function buildPieces(
       activeFound:
         (isFound && active && active.start <= start && active.end >= end) ||
         undefined,
+      link: (link && link.start <= start && link.end >= end) || undefined,
     });
   }
   return pieces;

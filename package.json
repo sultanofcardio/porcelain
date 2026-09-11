@@ -202,11 +202,11 @@
             "porcelain"
           ],
           "enumDescriptions": [
-            "VS Code's built-in diff editor. Keeps find, hovers, go-to-definition and screen-reader support.",
-            "Porcelain's own diff surface: paired centre gutter, curved connectors, per-side revision headers and a live difference count."
+            "VS Code's built-in diff editor, with its full editor feature set.",
+            "Porcelain's own diff surface: paired centre gutter, curved connectors, per-side revision headers, a live difference count, hovers and go to definition through the language servers."
           ],
           "default": "porcelain",
-          "markdownDescription": "Which renderer shows file diffs, including diffs against the working tree and the index. On the Porcelain surface the working-tree side is editable in place — click a line to edit, `Cmd+S` saves and `files.autoSave` is honoured — while historical revisions and the index stay read-only; Edit Source opens the real file at the caret, saving any unsaved edits first. Binary and oversized files show a placeholder with a way into the built-in editor."
+          "markdownDescription": "Which renderer shows file diffs, including diffs against the working tree and the index. On the Porcelain surface the working-tree side is editable in place — click a line to edit, `Cmd+S` saves and `files.autoSave` is honoured — while historical revisions and the index stay read-only; Edit Source opens the real file at the caret, saving any unsaved edits first. Resting the pointer on a symbol shows the language server's hover, `Cmd+K Cmd+I` shows it at the caret, and `Cmd+click` or `F12` goes to the definition in the built-in editor; on the working-tree side both wait for unsaved edits to reach disk. Binary and oversized files show a placeholder with a way into the built-in editor."
         },
         "porcelain.push.protectedBranches": {
           "type": "array",

@@ -61,6 +61,14 @@ import {
 } from "./views/gitContentProvider";
 import { GitLogViewProvider } from "./views/gitLogViewProvider";
 import { buildGitContentUri } from "./views/gitUri";
+import {
+  emptyLanguageResult,
+  openLocation,
+  parseLanguageQuery,
+  parseTargets,
+  runLanguageQuery,
+  sideDocumentUri,
+} from "./views/languageQuery";
 import { MergeEditorManager } from "./views/mergeEditorManager";
 import { PushPanel } from "./views/pushPanel";
 import type { RollbackFileInfo } from "./views/rollbackPanel";
@@ -1272,6 +1280,32 @@ export async function activate(context: vscode.ExtensionContext) {
       await vscode.env.openExternal(absPath);
     }
     return { success: true };
+  });
+
+  // The language channel: hover, definition and outline for a diff side,
+  // through the provider commands VS Code exposes for every language. The
+  // side is mapped to the document the providers know (the file on disk,
+  // or a porcelain: revision) and the answer comes back as plain data. A
+  // side with no document, and a repo that is gone, both mean "no answer".
+  messageRouter.handle("languageQuery", async (params, ctx) => {
+    const query = parseLanguageQuery(params);
+    if (!query) throw new Error("Malformed language query");
+    if (!ctx) return emptyLanguageResult(query.kind);
+    const uri = sideDocumentUri(
+      { repoId: ctx.repoId, workTreeRoot: ctx.paths.workTreeRoot },
+      query.ref,
+      query.path,
+    );
+    if (!uri) return emptyLanguageResult(query.kind);
+    return runLanguageQuery(uri, query);
+  });
+
+  // A definition target always opens in the native editor, whichever side
+  // it was found from and wherever it points: one rule, and the editor
+  // that already knows how to show every URI a provider can return.
+  messageRouter.handle("openLocation", async (params) => {
+    const opened = await openLocation(parseTargets(params.targets));
+    return { opened };
   });
 
   messageRouter.handle("showInputBox", async (params) => {

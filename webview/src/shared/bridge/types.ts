@@ -94,6 +94,64 @@ export interface WindowState {
   focused: boolean;
 }
 
+/** A position in a document, 0-based on both axes, as the VS Code API counts. */
+export interface DocumentPosition {
+  line: number;
+  character: number;
+}
+
+export interface DocumentRange {
+  start: DocumentPosition;
+  end: DocumentPosition;
+}
+
+/**
+ * What the language channel asks the host's providers for on a diff side's
+ * behalf: the hover at a position, the definition of the symbol there, or
+ * the document's symbol outline. Mirrors the host's `protocol.ts`.
+ */
+export type LanguageQueryKind = "hover" | "definition" | "symbols";
+
+/** Every hover provider's answer, flattened to markdown. */
+export interface HoverResult {
+  kind: "hover";
+  contents: string[];
+  /** The span the first hover claimed, when it named one. */
+  range: DocumentRange | null;
+}
+
+/** One place a definition lives: a URI the native editor can open. */
+export interface DefinitionTarget {
+  uri: string;
+  range: DocumentRange;
+}
+
+export interface DefinitionResult {
+  kind: "definition";
+  targets: DefinitionTarget[];
+  /** The symbol's own span at the queried position, when a provider said. */
+  origin: DocumentRange | null;
+}
+
+/** One node of a document's outline, `vscode.DocumentSymbol` made plain. */
+export interface DocumentSymbolNode {
+  name: string;
+  /** `vscode.SymbolKind`, by number. */
+  kind: number;
+  range: DocumentRange;
+  children: DocumentSymbolNode[];
+}
+
+export interface SymbolsResult {
+  kind: "symbols";
+  symbols: DocumentSymbolNode[];
+}
+
+export type LanguageQueryResult =
+  | HoverResult
+  | DefinitionResult
+  | SymbolsResult;
+
 /** What both sides of a diff are, independent of what they contain. */
 export interface DiffSidesMeta {
   filePath: string;
@@ -268,6 +326,8 @@ export type CommandType =
   | "confirmCancelMerge"
   | "closeMergeEditor"
   | "openFile"
+  | "languageQuery"
+  | "openLocation"
   | "checkoutBranch"
   | "createBranch"
   | "createBranchFromCommit"
