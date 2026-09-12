@@ -130,6 +130,8 @@ export function useLanguageHover(options: LanguageHoverOptions): LanguageHover {
   /** The last definition answer, for the card's status line. */
   const known = useRef<{ key: string; result: DefinitionResult } | null>(null);
   const noticed = useRef(false);
+  /** Bumped by every reset: an answer from before it speaks of other text. */
+  const generation = useRef(0);
 
   const api = useMemo(() => {
     const clear = (timer: { current: number | null }) => {
@@ -244,8 +246,11 @@ export function useLanguageHover(options: LanguageHoverOptions): LanguageHover {
         }
         return;
       }
+      const asked = generation.current;
       const result = await hoverAt(target.side, target.line, span);
-      // Only a pointer still resting on the word gets its answer.
+      // Only a pointer still resting on the word, over text that has not
+      // moved on, gets its answer.
+      if (asked !== generation.current || suppressed(target.side)) return;
       const current = targetRef.current;
       if (!current || targetKey(current) !== key) return;
       if (result.contents.length === 0) return;
@@ -268,7 +273,9 @@ export function useLanguageHover(options: LanguageHoverOptions): LanguageHover {
         setLink(null);
         return;
       }
+      const asked = generation.current;
       const result = await definitionAt(target.side, target.line, span);
+      if (asked !== generation.current || suppressed(target.side)) return;
       const current = targetRef.current;
       if (!current || targetKey(current) !== key || !modifierRef.current) {
         return;
@@ -358,7 +365,9 @@ export function useLanguageHover(options: LanguageHoverOptions): LanguageHover {
       const anchor = caretAnchor();
       if (!anchor) return;
       const key = keyOf(target.side, target.line, target.span);
+      const asked = generation.current;
       void hoverAt(target.side, target.line, target.span).then((result) => {
+        if (asked !== generation.current || suppressed(target.side)) return;
         if (result.contents.length === 0) return;
         clear(hide);
         setCard({
@@ -406,6 +415,7 @@ export function useLanguageHover(options: LanguageHoverOptions): LanguageHover {
       reset: () => {
         // Answers still in flight speak of the old text; nothing waits on
         // them any more, and a fresh rest asks afresh.
+        generation.current += 1;
         hovers.current.clear();
         definitions.current.clear();
         known.current = null;
@@ -453,16 +463,19 @@ export function useLanguageHover(options: LanguageHoverOptions): LanguageHover {
 
   // The card is anchored to a point on screen: scrolling anything under it
   // moves the text out from under it, and a press anywhere but on the card
-  // is the reader turning to something else.
+  // is the reader turning to something else. Scrolling the card itself is
+  // reading it.
   useEffect(() => {
-    const onScroll = () => {
-      if (cardRef.current) api.dismiss();
+    const outsideCard = (event: Event): boolean => {
+      if (!cardRef.current) return false;
+      const target = event.target as Element | null;
+      return !target?.closest?.(".diff-hover");
+    };
+    const onScroll = (event: Event) => {
+      if (outsideCard(event)) api.dismiss();
     };
     const onMouseDown = (event: MouseEvent) => {
-      if (!cardRef.current) return;
-      const target = event.target as Element | null;
-      if (target?.closest?.(".diff-hover")) return;
-      api.dismiss();
+      if (outsideCard(event)) api.dismiss();
     };
     document.addEventListener("scroll", onScroll, true);
     document.addEventListener("mousedown", onMouseDown, true);

@@ -102,6 +102,7 @@ export function HoverCard({
       card: { width: box.width, height: box.height },
       viewport: { width: window.innerWidth, height: window.innerHeight },
     });
+    card.style.maxHeight = `${next.maxHeight}px`;
     setPlaced((previous) =>
       previous &&
       previous.top === next.top &&

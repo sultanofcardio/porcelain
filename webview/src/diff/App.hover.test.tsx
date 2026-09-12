@@ -271,6 +271,47 @@ describe("hover and go to definition over the diff", () => {
     await show();
     fireEvent.mouseDown(document.body);
     expect(card()).toBeNull();
+
+    // Scrolling the card itself is reading it.
+    await show();
+    fireEvent.scroll(card() as HTMLElement);
+    expect(card()).not.toBeNull();
+  });
+
+  it("drops a hover answer that lands after the side was edited", async () => {
+    mount({ rightRef: WORKING_TREE_REF });
+    let answer: (value: unknown) => void = () => {};
+    const mounted = mocks.request.getMockImplementation() as (
+      command: string,
+      params: Record<string, unknown>,
+    ) => Promise<unknown>;
+    mocks.request.mockImplementation(
+      (command: string, params: Record<string, unknown>) => {
+        if (command === "languageQuery" && params.kind === "hover") {
+          queries.push(params);
+          return new Promise((resolve) => {
+            answer = resolve;
+          });
+        }
+        return mounted(command, params);
+      },
+    );
+    const { right } = await renderLoaded();
+    fireEvent.mouseMove(right, over(1, 1));
+    await settle(300);
+    expect(hoverQueries()).toHaveLength(1);
+    act(() =>
+      useDiffStore
+        .getState()
+        .editAt(
+          { anchor: { line: 0, col: 0 }, head: { line: 0, col: 0 } },
+          "x",
+          null,
+        ),
+    );
+    act(() => answer(HOVER));
+    await settle(0);
+    expect(card()).toBeNull();
   });
 
   it("asks nothing with editor.hover.enabled off", async () => {

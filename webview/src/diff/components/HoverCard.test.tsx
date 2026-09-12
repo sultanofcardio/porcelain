@@ -105,6 +105,37 @@ describe("HoverCard", () => {
     expect(card.querySelector(".diff-hover-status")).toBeNull();
   });
 
+  it("keeps its height clamp on the element once placed", () => {
+    // Taller than the room on either side of a line near the bottom.
+    const tall = 900;
+    const measure = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const height = this.style.maxHeight
+          ? Math.min(tall, Number.parseFloat(this.style.maxHeight))
+          : tall;
+        return { width: 200, height, top: 0, left: 0 } as DOMRect;
+      });
+    vi.stubGlobal("innerWidth", 1000);
+    vi.stubGlobal("innerHeight", 600);
+    try {
+      const low = { left: 40, right: 100, top: 500, bottom: 520 };
+      const { rerender } = render(
+        <HoverCard anchor={low} contents={["x"]} highlighter={null} />,
+      );
+      const card = screen.getByRole("tooltip");
+      expect(card.style.maxHeight).toBe("494px");
+      expect(card.style.top).toBe("4px");
+      // Another render with the same placement: the clamp stays put.
+      rerender(<HoverCard anchor={low} contents={["x"]} highlighter={null} />);
+      expect(card.style.maxHeight).toBe("494px");
+      expect(card.style.top).toBe("4px");
+    } finally {
+      measure.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("tells the pointer's coming and going", () => {
     const onPointerEnter = vi.fn();
     const onPointerLeave = vi.fn();
