@@ -240,6 +240,64 @@ describe("hover and go to definition over the diff", () => {
     expect(card()).toBeNull();
   });
 
+  it("forgets the pointer was on a card that Escape took away", async () => {
+    mount();
+    const { right } = await renderLoaded();
+    fireEvent.mouseMove(right, over(1, 1));
+    await settle(300);
+    fireEvent.mouseLeave(right);
+    fireEvent.mouseEnter(card() as HTMLElement);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(card()).toBeNull();
+    fireEvent.mouseMove(right, over(2, 1));
+    await settle(300);
+    expect(card()).not.toBeNull();
+    fireEvent.mouseLeave(right);
+    await settle(300);
+    expect(card()).toBeNull();
+  });
+
+  it("forgets a definition answer that lands after the text moved on", async () => {
+    mount({ rightRef: WORKING_TREE_REF });
+    let answer: (value: unknown) => void = () => {};
+    const mounted = mocks.request.getMockImplementation() as (
+      command: string,
+      params: Record<string, unknown>,
+    ) => Promise<unknown>;
+    mocks.request.mockImplementation(
+      (command: string, params: Record<string, unknown>) => {
+        if (command === "languageQuery" && params.kind === "definition") {
+          queries.push(params);
+          return new Promise((resolve) => {
+            answer = resolve;
+          });
+        }
+        return mounted(command, params);
+      },
+    );
+    const { left } = await renderLoaded();
+    fireEvent.mouseMove(left, { ...over(1, 1), metaKey: true, ctrlKey: true });
+    await settle(0);
+    expect(queries.filter((q) => q.kind === "definition")).toHaveLength(1);
+    act(() =>
+      useDiffStore
+        .getState()
+        .editAt(
+          { anchor: { line: 0, col: 0 }, head: { line: 0, col: 0 } },
+          "x",
+          null,
+        ),
+    );
+    act(() => answer(DEFINITION));
+    await settle(0);
+    fireEvent.keyUp(window, { key: "Meta", metaKey: false, ctrlKey: false });
+    fireEvent.mouseLeave(left);
+    fireEvent.mouseMove(left, over(1, 1));
+    await settle(300);
+    expect(card()).not.toBeNull();
+    expect(card()?.querySelector(".diff-hover-status")).toBeNull();
+  });
+
   it("dismisses on Escape, on scrolling and on a press elsewhere", async () => {
     mount();
     const { right } = await renderLoaded();

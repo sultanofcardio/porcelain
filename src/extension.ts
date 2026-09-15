@@ -54,6 +54,7 @@ import {
 import { DiffEditorManager } from "./views/diffEditorManager";
 import { DiffViewerManager, refLabel } from "./views/diffViewerManager";
 import { DiffWindow } from "./views/diffWindow";
+import { noteWrite } from "./views/diskSync";
 import { caretSelection, openAtCaret } from "./views/editSource";
 import {
   GitContentProvider,
@@ -1213,6 +1214,7 @@ export async function activate(context: vscode.ExtensionContext) {
       { existsSync, realpathSync },
     );
     await nodefs.writeFile(target, content, "utf-8");
+    noteWrite(target);
     messageRouter.broadcastEvent("gitStateChanged", {
       scope: "status",
       repoId: ctx.repoId,

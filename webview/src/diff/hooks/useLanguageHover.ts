@@ -144,6 +144,7 @@ export function useLanguageHover(options: LanguageHoverOptions): LanguageHover {
     const dismiss = (): boolean => {
       clear(dwell);
       clear(hide);
+      overCard.current = false;
       const shown = cardRef.current !== null;
       if (shown) setCard(null);
       return shown;
@@ -153,7 +154,8 @@ export function useLanguageHover(options: LanguageHoverOptions): LanguageHover {
       clear(hide);
       hide.current = window.setTimeout(() => {
         hide.current = null;
-        if (!overCard.current) setCard(null);
+        if (overCard.current) return;
+        setCard(null);
       }, HIDE_DELAY);
     };
 
@@ -205,12 +207,15 @@ export function useLanguageHover(options: LanguageHoverOptions): LanguageHover {
 
     const definitionAt = (side: Side, line: number, span: LineSpan) => {
       const key = keyOf(side, line, span);
+      const asked = generation.current;
       return inFlight(definitions.current, key, () =>
         query<DefinitionResult>("definition", side, line, span.start).then(
           (result) => {
             const answer =
               result?.kind === "definition" ? result : EMPTY_DEFINITION;
-            known.current = { key, result: answer };
+            if (asked === generation.current) {
+              known.current = { key, result: answer };
+            }
             return answer;
           },
           () => EMPTY_DEFINITION,

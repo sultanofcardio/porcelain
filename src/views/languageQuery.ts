@@ -11,6 +11,13 @@ import type {
   LanguageQueryResult,
   SymbolsResult,
 } from "../messages/protocol";
+import {
+  DISK_SETTLE_MS,
+  readText,
+  reloadedFrom,
+  sameLines,
+  writtenWithin,
+} from "./diskSync";
 import { buildGitContentUri } from "./gitUri";
 import {
   EMPTY_CONTENT_REF,
@@ -297,62 +304,32 @@ async function provide<T>(
   }
 }
 
-/** How long a working-tree document gets to catch up with its file on disk. */
-const DISK_SETTLE_MS = 2000;
-
-async function readText(uri: vscode.Uri): Promise<string | null> {
-  try {
-    return new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Resolve true once `document` holds `onDisk`, false if that has not happened
- * within `timeoutMs`. A change that leaves the document dirty is the reader
- * typing in a native tab, and the disk will not be arriving.
- */
-function reloadedFrom(
-  document: vscode.TextDocument,
-  onDisk: string,
-  timeoutMs: number,
-): Promise<boolean> {
-  return new Promise((resolve) => {
-    const done = (reloaded: boolean) => {
-      clearTimeout(timer);
-      listener.dispose();
-      resolve(reloaded);
-    };
-    const listener = vscode.workspace.onDidChangeTextDocument((event) => {
-      if (event.document !== document) return;
-      if (event.document.getText() === onDisk) done(true);
-      else if (event.document.isDirty) done(false);
-    });
-    const timer = setTimeout(() => done(false), timeoutMs);
-  });
-}
-
 /**
  * The document a working-tree query runs over, once it holds what the file
  * on disk holds. The diff writes the file with plain fs, and VS Code only
  * refreshes a document it already has open through its watcher, a beat
  * later; a query sent the moment the write resolved would otherwise be
- * answered from the text before the save. A document VS Code has not seen
- * yet is read fresh from disk, and one that already matches waits for
- * nothing; a dirty document, or one still behind after the bound, is what
- * the providers get.
+ * answered from the text before the save. The wait exists for that window
+ * alone: a file the diff has not just written, a document VS Code has not
+ * seen yet, a dirty one, or one already reading the same line by line waits
+ * for nothing, and one still behind after the bound is what the providers
+ * get.
  */
 async function settledDocument(uri: vscode.Uri): Promise<vscode.TextDocument> {
   const open = vscode.workspace.textDocuments.find(
     (candidate) => candidate.uri.toString() === uri.toString(),
   );
-  if (!open || uri.scheme !== "file" || open.isDirty) {
-    return open ?? vscode.workspace.openTextDocument(uri);
+  if (!open) return vscode.workspace.openTextDocument(uri);
+  if (
+    uri.scheme !== "file" ||
+    open.isDirty ||
+    !writtenWithin(uri.fsPath, DISK_SETTLE_MS)
+  ) {
+    return open;
   }
   const onDisk = await readText(uri);
-  if (onDisk !== null && open.getText() !== onDisk) {
-    await reloadedFrom(open, onDisk, DISK_SETTLE_MS);
+  if (onDisk !== null && !sameLines(open.getText(), onDisk)) {
+    await reloadedFrom(open, onDisk, DISK_SETTLE_MS, sameLines);
   }
   return open;
 }

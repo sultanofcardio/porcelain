@@ -3,6 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { noteWrite } from "../../views/diskSync";
 import {
   emptyLanguageResult,
   flattenHover,
@@ -408,7 +409,7 @@ describe("runLanguageQuery and openLocation in the editor", () => {
     });
   });
 
-  it("answers from the disk after the file is rewritten under an open document", async function () {
+  it("answers from the disk after the diff rewrote the file under an open document", async function () {
     this.timeout(15000);
     await vscode.commands.executeCommand("vscode.open", file, {
       preview: false,
@@ -423,6 +424,7 @@ describe("runLanguageQuery and openLocation in the editor", () => {
     });
     assert.deepStrictEqual(before, { kind: "hover", contents: ["**delta**"] });
     await fs.writeFile(file.fsPath, "alpha beta\nomega sigma\n");
+    noteWrite(file.fsPath);
     const after = await runLanguageQuery(file, {
       kind: "hover",
       ref: WORKING_TREE_REF,
@@ -431,6 +433,51 @@ describe("runLanguageQuery and openLocation in the editor", () => {
       character: 7,
     });
     assert.deepStrictEqual(after, { kind: "hover", contents: ["**sigma**"] });
+  });
+
+  it("waits for nothing on a file the diff did not just write, mixed line endings included", async function () {
+    this.timeout(15000);
+    await fs.writeFile(file.fsPath, "alpha beta\r\ngamma delta\nepsilon\n");
+    await vscode.commands.executeCommand("vscode.open", file, {
+      preview: false,
+    });
+    await sleep(300);
+    const document = vscode.window.activeTextEditor?.document;
+    assert.ok(document);
+    assert.notStrictEqual(
+      document.getText(),
+      "alpha beta\r\ngamma delta\nepsilon\n",
+    );
+    const started = Date.now();
+    const result = await runLanguageQuery(file, {
+      kind: "hover",
+      ref: WORKING_TREE_REF,
+      path: "notes.txt",
+      line: 1,
+      character: 7,
+    });
+    assert.deepStrictEqual(result, { kind: "hover", contents: ["**delta**"] });
+    assert.ok(Date.now() - started < 1000, "answered without a settle wait");
+  });
+
+  it("settles a just-written file with mixed line endings once the lines agree", async function () {
+    this.timeout(15000);
+    await vscode.commands.executeCommand("vscode.open", file, {
+      preview: false,
+    });
+    await sleep(300);
+    await fs.writeFile(file.fsPath, "alpha beta\r\nomega sigma\nepsilon\n");
+    noteWrite(file.fsPath);
+    const started = Date.now();
+    const result = await runLanguageQuery(file, {
+      kind: "hover",
+      ref: WORKING_TREE_REF,
+      path: "notes.txt",
+      line: 1,
+      character: 7,
+    });
+    assert.deepStrictEqual(result, { kind: "hover", contents: ["**sigma**"] });
+    assert.ok(Date.now() - started < 1500, "settled before the bound");
   });
 
   it("clamps a position past the document rather than failing", async function () {
