@@ -63,3 +63,30 @@ describe("FoldRow", () => {
     expect(button.style.paddingLeft).toBe("72px");
   });
 });
+
+describe("FoldRow scope badge", () => {
+  afterEach(cleanup);
+
+  const body = Array.from({ length: 40 }, (_, i) => `line${i}`);
+  const chunks = computeChunks(
+    lines("old", ...body, "tail-old"),
+    lines("new", ...body, "tail-new"),
+  );
+  const [fold] = computeFolds(chunks);
+
+  it("writes the scope ahead of the count and into the name", () => {
+    render(<FoldRow fold={fold} end="tail" scope="handle()" />);
+    const button = screen.getByRole("button", {
+      name: "Show 4 of 34 unchanged lines below in handle()",
+    });
+    expect(button.querySelector(".diff-fold-scope")?.textContent).toBe(
+      "handle()",
+    );
+    expect(button.textContent).toBe("handle()34 unchanged lines");
+  });
+
+  it("leaves the count alone without one", () => {
+    render(<FoldRow fold={fold} end="tail" scope={null} />);
+    expect(document.querySelector(".diff-fold-scope")).toBeNull();
+  });
+});

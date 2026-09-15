@@ -30,6 +30,12 @@ import {
   syntaxSpans,
 } from "../utils/highlight";
 import { needsReveal, positionAt } from "../utils/positionAt";
+import {
+  type LinkRange,
+  linkModifierHeld,
+  type PointerTarget,
+  pointerTarget,
+} from "../utils/text-target";
 import { FoldRow } from "./FoldRow";
 import {
   CARET_WIDTH,
@@ -117,6 +123,18 @@ interface DiffPaneProps {
   onRevealX?: (from: number, to: number) => void;
   /** Accessible name for a pane that takes focus for its caret. */
   label?: string;
+  /**
+   * The pointer rests on text: which word, and where it is drawn. Null
+   * when it leaves the text. What the hover card and the definition link
+   * are driven by.
+   */
+  onPointerText?: (target: PointerTarget | null) => void;
+  /** The definition link to underline, when it is on this side. */
+  linkRange?: LinkRange | null;
+  /** A modifier-click on a word: follow it to its definition. */
+  onActivateLink?: (target: PointerTarget) => void;
+  /** The scope a fold's hidden run starts inside, for its row's badge. */
+  foldScope?: (fold: FoldRegion) => string | null;
 }
 
 /**
@@ -169,6 +187,10 @@ export function DiffPane({
   onRevealRow,
   onRevealX,
   label,
+  onPointerText,
+  linkRange,
+  onActivateLink,
+  foldScope,
 }: DiffPaneProps) {
   const highlighter = useShiki();
 
@@ -195,30 +217,66 @@ export function DiffPane({
     [folds, side, toSourceLine],
   );
 
+  // The pane's pointer geometry, read against a fresh bounding box: every
+  // pointer resolution on this pane goes through the one `positionAt` rule.
+  const geometryOf = useCallback(
+    (host: HTMLDivElement, rect: DOMRect) => ({
+      rect,
+      offset,
+      scrollX: host.scrollLeft,
+      charWidth,
+      toSourceLine,
+      lines,
+    }),
+    [offset, charWidth, toSourceLine, lines],
+  );
+
   const onMouseDown = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
       const host = hostRef.current;
-      if (!host || !onPlaceCaret) return;
+      if (!host) return;
       // Fold rows are buttons with their own behaviour; buttons stay buttons.
       if ((event.target as HTMLElement).closest("button")) return;
       const bounds = host.getBoundingClientRect();
       // A press in the horizontal scrollbar's band belongs to the scrollbar.
       if (event.clientY >= bounds.top + host.clientHeight) return;
-      const position = positionAt(event, {
-        rect: bounds,
-        offset,
-        scrollX: host.scrollLeft,
-        charWidth,
-        toSourceLine,
-        lines,
-      });
+      const geometry = geometryOf(host, bounds);
+      // A modifier-click follows the word under the pointer to its
+      // definition. The caret still moves there, as it does in the editor.
+      if (onActivateLink && event.button === 0 && linkModifierHeld(event)) {
+        const target = pointerTarget(event, geometry, side);
+        if (target?.word) onActivateLink(target);
+      }
+      if (!onPlaceCaret) return;
+      const position = positionAt(event, geometry);
       if (!position) return;
       // The default is left alone: native text selection still works on a
       // read-only pane, and focusing the pane is the default too.
       goalRef.current = null;
       onPlaceCaret(position);
     },
-    [onPlaceCaret, offset, charWidth, toSourceLine, lines],
+    [onPlaceCaret, onActivateLink, geometryOf, side],
+  );
+
+  const onMouseMove = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const host = hostRef.current;
+      if (!host || !onPointerText) return;
+      const bounds = host.getBoundingClientRect();
+      if (
+        (event.target as HTMLElement).closest("button") ||
+        event.clientY >= bounds.top + host.clientHeight
+      ) {
+        onPointerText(null);
+        return;
+      }
+      onPointerText(pointerTarget(event, geometryOf(host, bounds), side));
+    },
+    [onPointerText, geometryOf, side],
+  );
+  const onMouseLeave = useCallback(
+    () => onPointerText?.(null),
+    [onPointerText],
   );
 
   const onKeyDown = useCallback(
@@ -431,6 +489,10 @@ export function DiffPane({
         activeMatch && activeMatch.side === side && activeMatch.line === index
           ? { start: activeMatch.start, end: activeMatch.end }
           : null;
+      const link =
+        linkRange && linkRange.side === side && linkRange.line === index
+          ? { start: linkRange.start, end: linkRange.end }
+          : null;
 
       rendered.push({
         row,
@@ -442,6 +504,7 @@ export function DiffPane({
           ranges,
           matchesByLine.get(index) ?? [],
           active,
+          link,
         ),
       });
     }
@@ -458,6 +521,7 @@ export function DiffPane({
     highlighter,
     matchesByLine,
     activeMatch,
+    linkRange,
     folds,
     overrideKinds,
   ]);
@@ -478,12 +542,18 @@ export function DiffPane({
         anchor.row >= offset - 2 && anchor.row <= offset + visibleLines + 2,
     );
 
+  const linking =
+    linkRange !== null && linkRange !== undefined && linkRange.side === side;
+
   return (
     <div
-      className="diff-pane"
+      className={`diff-pane${linking ? " diff-pane-linking" : ""}`}
+      data-side={side}
       ref={setHost}
       onScroll={(event) => onScrollX?.(event.currentTarget.scrollLeft)}
-      onMouseDown={onPlaceCaret ? onMouseDown : undefined}
+      onMouseDown={onPlaceCaret || onActivateLink ? onMouseDown : undefined}
+      onMouseMove={onPointerText ? onMouseMove : undefined}
+      onMouseLeave={onPointerText ? onMouseLeave : undefined}
       onKeyDown={onPlaceCaret ? onKeyDown : undefined}
       // Only a pane with a caret takes focus: the keys above need somewhere
       // to land, and a screen reader needs a name for where it landed. A
@@ -537,6 +607,7 @@ export function DiffPane({
                   end={foldEnd?.(row.fold) ?? "head"}
                   onReveal={onRevealFold}
                   width={paneWidth}
+                  scope={foldScope?.(row.fold) ?? null}
                 />
               );
             }
@@ -564,6 +635,7 @@ export function DiffPane({
                               : piece.found
                                 ? "diff-found"
                                 : "",
+                            piece.link ? "diff-link" : "",
                           ]
                             .filter(Boolean)
                             .join(" ") || undefined

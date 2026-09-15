@@ -7,13 +7,13 @@ src/                    Extension Host (TypeScript + Node.js)
   ├── extension.ts        Entry point, command registration & MessageRouter handlers
   ├── git/                Git CLI wrappers (gitService, graphLayout, types)
   ├── messages/           Communication protocol (protocol, messageRouter)
-  └── views/              Webview managers (mergeEditorManager, conflictsManager, diffEditorManager, diffViewerManager, html)
+  └── views/              Webview managers (mergeEditorManager, conflictsManager, diffEditorManager, diffViewerManager, html); languageQuery runs VS Code's hover, definition and document-symbol providers for the diff viewer
 webview/                Webview Frontend (React 19 + Vite)
   └── src/
       ├── panel/          Git Log panel (Graph, CommitList, BranchTree, DetailPanel)
       ├── conflicts/      Conflict list page
       ├── merge/          3-Way merge editor on the diff stack (result buffer, conflict regions, gutter verbs, fully editable result pane)
-      ├── diff/           Porcelain diff viewer (side-by-side + unified views, find, folds, change stripe, editable working-tree sides); editor/ is the hand-built editor core (editor-model, EditablePane) behind both editable surfaces: the merge result pane and the working-tree diff side
+      ├── diff/           Porcelain diff viewer (side-by-side + unified views, find, folds with scope badges, change stripe, editable working-tree sides, hover and go to definition through the language servers); editor/ is the hand-built editor core (editor-model, EditablePane) behind both editable surfaces: the merge result pane and the working-tree diff side
       ├── shared/         Shared modules (bridge, store, hooks, components, theme)
       └── main.tsx        Router entry (mode: panel | merge | conflicts | commit | push | rollback | compare | changes | diff)
 ```
@@ -28,7 +28,7 @@ webview/                Webview Frontend (React 19 + Vite)
 ### Tech Stack
 
 - **Extension Host**: TypeScript, Node.js, child_process (execFile), esbuild
-- **Webview**: React 19, Zustand, allotment, @tanstack/react-virtual, shiki, diff, node-diff3
+- **Webview**: React 19, Zustand, allotment, @tanstack/react-virtual, shiki, diff, node-diff3, marked (tokeniser only; hover markdown is rendered through an allow-list of React elements)
 - **Communication**: postMessage request-response + event broadcast (MessageRouter)
 - **Graph Rendering**: SVG + DOM (not Canvas)
 - **Package Manager**: pnpm (monorepo, pnpm-workspace.yaml)

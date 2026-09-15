@@ -4,6 +4,7 @@ import {
   caretAt,
   clampPosition,
   colAtVisual,
+  colContaining,
   deletionRange,
   documentEnd,
   EditHistory,
@@ -273,5 +274,29 @@ describe("EditHistory", () => {
     history.record(snap(""), "type", 100);
     expect(history.depth).toBe(1);
     expect(history.canRedo).toBe(false);
+  });
+});
+
+describe("colContaining", () => {
+  it("names the character whose cell holds the visual column", () => {
+    expect(colContaining("abc", 0)).toBe(0);
+    expect(colContaining("abc", 0.99)).toBe(0);
+    expect(colContaining("abc", 1)).toBe(1);
+    expect(colContaining("abc", 2.5)).toBe(2);
+  });
+
+  it("is null before the line and past its end", () => {
+    expect(colContaining("abc", -0.1)).toBeNull();
+    expect(colContaining("abc", 3)).toBeNull();
+    expect(colContaining("", 0)).toBeNull();
+  });
+
+  it("gives a tab every cell up to its stop, and a surrogate pair one cell", () => {
+    expect(colContaining("\tx", 0)).toBe(0);
+    expect(colContaining("\tx", 7.9)).toBe(0);
+    expect(colContaining("\tx", 8)).toBe(1);
+    expect(colContaining("a\tb", 3)).toBe(1);
+    expect(colContaining("😀b", 0.5)).toBe(0);
+    expect(colContaining("😀b", 1.5)).toBe(2);
   });
 });

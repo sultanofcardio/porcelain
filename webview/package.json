@@ -30,6 +30,7 @@
     "@tanstack/react-virtual": "^3.13.18",
     "allotment": "^1.20.5",
     "diff": "^8.0.3",
+    "marked": "18.0.12",
     "node-diff3": "^3.2.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

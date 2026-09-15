@@ -90,6 +90,13 @@ describe("host/Webview protocol parity", () => {
     );
   });
 
+  it("keeps the language query kinds synchronized", () => {
+    assert.deepStrictEqual(
+      stringUnion(HOST_PROTOCOL, "LanguageQueryKind"),
+      stringUnion(WEBVIEW_PROTOCOL, "LanguageQueryKind"),
+    );
+  });
+
   it("keeps event unions synchronized and covers every emitted host event", () => {
     const hostEvents = stringUnion(HOST_PROTOCOL, "EventType");
     const webviewEvents = stringUnion(WEBVIEW_PROTOCOL, "EventType");

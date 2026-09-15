@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { readText, reloadedFrom } from "./diskSync";
 
 /**
  * The selection Edit Source opens a file with, from the caret a diff webview
@@ -82,39 +83,4 @@ async function keepCaret(
     selection,
     vscode.TextEditorRevealType.InCenterIfOutsideViewport,
   );
-}
-
-async function readText(uri: vscode.Uri): Promise<string | null> {
-  try {
-    return new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
-  } catch {
-    // Unreadable means nothing to compare against.
-    return null;
-  }
-}
-
-/**
- * Resolve true once `document` holds `onDisk`, false if that has not happened
- * within `timeoutMs`. Changes that leave the document short of the disk text
- * are steps of a reload still in flight; one that leaves it dirty is the
- * reader typing, and their caret is theirs to keep.
- */
-function reloadedFrom(
-  document: vscode.TextDocument,
-  onDisk: string,
-  timeoutMs: number,
-): Promise<boolean> {
-  return new Promise((resolve) => {
-    const done = (reloaded: boolean) => {
-      clearTimeout(timer);
-      listener.dispose();
-      resolve(reloaded);
-    };
-    const listener = vscode.workspace.onDidChangeTextDocument((event) => {
-      if (event.document !== document) return;
-      if (event.document.getText() === onDisk) done(true);
-      else if (event.document.isDirty) done(false);
-    });
-    const timer = setTimeout(() => done(false), timeoutMs);
-  });
 }
