@@ -4,7 +4,7 @@ import os
 import re
 from datetime import date
 
-SRC = os.environ.get("CHANGELOG", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "idea-git", "CHANGELOG.md"))
+SRC = os.environ.get("CHANGELOG", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "porcelain", "CHANGELOG.md"))
 REPO = "https://github.com/sultanofcardio/porcelain"
 TAGS = {"v0.8.0", "v0.9.0"}  # tags that exist on GitHub
 CJK = re.compile(r"[　-鿿＀-￯]")
@@ -18,7 +18,7 @@ SHOTS = {
     "Multi-branch filter": ("log-branch-filter", "The Branch filter stays open while you tick branches."),
     "Worktrees": ("worktrees", "Worktrees…: the list, then New worktree… and Prune stale records."),
     "Git Operations popup": ("git-operations", "The Git Operations popup."),
-    "Hover and go to definition in the diff viewer": ("diff-hover", "The hover in a diff: the TypeScript server's signature and docs, with the go-to-definition hint at the foot."),
+    "Hover and go to definition in the diff viewer": ("diff-hover", "The hover in a diff: the TypeScript server's signature and docs."),
     "Fold rows name their scope": ("diff-fold-row", "Collapsed runs on both sides, each separator naming the scope its hidden lines start in."),
     "Diff ignore policies": ("diff-settings-window", "The diff settings menu, with the four whitespace policies."),
     "Blame": ("blame", "Annotate with Git Blame: initials and date per line, shaded by age, and the hover card."),

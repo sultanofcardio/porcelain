@@ -36,15 +36,15 @@ title: Diffs
 
         <h2 id="hover">Hover and go to definition</h2>
         <figure>
-          <img src="assets/images/diff-hover.png" alt="A HEAD versus working tree diff of router.ts. On the working-tree side a hover card sits under response.setHeader with the TypeScript signature, the method's documentation and its @param lines, and a footer reading: ⌘ click to go to definition · F12 from the caret. Both panes show a collapsed run whose separator reads Handler, 38 unchanged lines.">
-          <figcaption>The hover in a diff: the TypeScript server's signature and docs, with the go-to-definition hint at the foot.</figcaption>
+          <img src="assets/images/diff-hover.png" alt="A HEAD versus working tree diff of router.ts in its own window. On the working-tree side a hover card sits under response.setHeader with the TypeScript signature, the method's documentation and its @param lines. Both panes show a collapsed run whose separator reads Handler, 38 unchanged lines.">
+          <figcaption>The hover in a diff: the TypeScript server's signature and docs.</figcaption>
         </figure>
         <p>Rest the pointer on a symbol and the language server's hover appears, rendered from its markdown the way the editor's own hover widget renders it, fenced code coloured. Hold <kbd>⌘</kbd> (<kbd>Ctrl</kbd> elsewhere) and a symbol with a definition underlines; click it, or press <kbd>F12</kbd> from the caret, and the definition opens in the native editor, with a pick when there are several. <span class="keys"><kbd>⌘</kbd><kbd>K</kbd></span> <span class="keys"><kbd>⌘</kbd><kbd>I</kbd></span> shows the hover at the caret. <code>editor.hover.enabled</code> and <code>editor.hover.delay</code> apply, since these are VS Code's own providers answering.</p>
         <p>The working tree is asked about as the file on disk. History and index sides go through their <code>porcelain:</code> documents, where the built-in JSON, CSS and HTML servers answer and TypeScript's doesn't, so a <code>.ts</code> file's HEAD side stays quiet. A side with unsaved edits stays quiet too, until the next save: the server sees the file on disk, and positions would disagree with what you're looking at. With autosave off it says so once.</p>
 
         <h2 id="unchanged-runs">Unchanged runs</h2>
         <figure>
-          <img src="assets/images/diff-fold-row.png" alt="The top of a split diff of router.ts. Under the first few lines on each side a wavy separator reads Handler, 38 unchanged lines, and the visible lines continue below it.">
+          <img src="assets/images/diff-fold-row.png" alt="A HEAD versus working tree diff of router.ts in its own window, with two differences. Under the first lines on each side a wavy separator reads Handler, 38 unchanged lines, and the changed lines follow below it, each pane with its caret.">
           <figcaption>Collapsed runs on both sides, each separator naming the scope its hidden lines start in.</figcaption>
         </figure>
         <p>With <strong>Collapse unchanged fragments</strong> on, a long unchanged run folds behind a wavy separator carrying the hidden count and, read from the document's symbol outline, the function or class the hidden lines start in, the way IntelliJ labels a fold. A click opens the run in stages: 4 lines, then 8 more, then the rest, always from the end nearest the caret, so the separator moves away from where you're reading. Hovering the row tints the edge the lines will appear on.</p>
