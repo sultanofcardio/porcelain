@@ -1,6 +1,6 @@
 # Changelog / 更新日志
 
-## [Unreleased]
+## [0.10.0] - 2026-09-15
 
 ### Added
 - **A caret in every diff pane** - the porcelain diff surface now carries a caret on each side, read-only revisions included. It starts on the file's first changed line, moves to wherever you click, and walks with the arrow keys, Home, End and the page keys, in the split panes and the unified view alike. A vertical move steps over a collapsed run and lands on the first visible line past it, the way IntelliJ's caret passes a fold; the run stays collapsed (#3)
