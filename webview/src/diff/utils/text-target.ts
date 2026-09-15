@@ -49,16 +49,14 @@ export interface TextAnchor {
 }
 
 /**
- * What the pointer rests on: the character under it, the word around that
- * character, and where the word is drawn. What the hover card anchors to,
- * what a held modifier underlines, and what a modifier-click follows.
+ * What the pointer rests on: the word around the character under it, and
+ * where the word is drawn. What the hover card anchors to, what a held
+ * modifier underlines, and what a modifier-click follows.
  */
 export interface PointerTarget {
   side: Side;
   line: number;
-  /** The character under the pointer. */
-  col: number;
-  /** The word around it, when it sits in one. */
+  /** The word around the character under the pointer, when it sits in one. */
   word: LineSpan | null;
   /** The word's box on screen, or the character's outside a word. */
   anchor: TextAnchor;
@@ -121,7 +119,6 @@ export function pointerTarget(
   return {
     side,
     line: at.line,
-    col: at.col,
     word,
     anchor: {
       left: origin + visualCol(text, span.start) * charWidth,

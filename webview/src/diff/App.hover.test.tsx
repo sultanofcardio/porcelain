@@ -36,7 +36,6 @@ const over = (line: number, col: number) => ({
 const HOVER = {
   kind: "hover",
   contents: ["```typescript\nconst TWO: string\n```", "The **second** word"],
-  range: null,
 };
 const DEFINITION = {
   kind: "definition",

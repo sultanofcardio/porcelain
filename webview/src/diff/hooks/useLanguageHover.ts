@@ -72,7 +72,7 @@ export interface LanguageHover {
  */
 const HIDE_DELAY = 300;
 
-const EMPTY_HOVER: HoverResult = { kind: "hover", contents: [], range: null };
+const EMPTY_HOVER: HoverResult = { kind: "hover", contents: [] };
 const EMPTY_DEFINITION: DefinitionResult = {
   kind: "definition",
   targets: [],

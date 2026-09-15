@@ -111,7 +111,6 @@ describe("pointerTarget", () => {
     expect(pointerTarget(at(7.5 * CELL, 5), geometry, "left")).toEqual({
       side: "left",
       line: 0,
-      col: 7,
       word: { start: 6, end: 10 },
       anchor: {
         left: 50 + PANE_TEXT_PADDING + 6 * CELL,
@@ -133,7 +132,7 @@ describe("pointerTarget", () => {
     // Row 0 of the viewport shows line 2 ("delta x"); x resolves through the
     // scroll to the space, which is no word, and the box is the space's own.
     const target = pointerTarget(at(2 * CELL, 5), rows, "right");
-    expect(target).toMatchObject({ side: "right", line: 2, col: 5 });
+    expect(target).toMatchObject({ side: "right", line: 2 });
     expect(target?.word).toBeNull();
     expect(target?.anchor).toEqual({
       left: 50 + PANE_TEXT_PADDING + 2 * CELL,
@@ -143,7 +142,6 @@ describe("pointerTarget", () => {
     });
     expect(pointerTarget(at(0, 5), rows, "right")).toMatchObject({
       line: 2,
-      col: 3,
       word: { start: 0, end: 5 },
       anchor: { left: 50 + PANE_TEXT_PADDING - 3 * CELL, top: 100 },
     });

@@ -102,7 +102,7 @@ export function emptyLanguageResult(
 ): LanguageQueryResult {
   switch (kind) {
     case "hover":
-      return { kind, contents: [], range: null };
+      return { kind, contents: [] };
     case "definition":
       return { kind, targets: [], origin: null };
     case "symbols":
@@ -143,22 +143,19 @@ function markdownOf(
 /**
  * Every provider's hover, flattened to the markdown strings the card
  * renders in order. Blank contents are dropped: a provider that answers
- * with an empty string has said nothing. The range is the first one any
- * hover claimed.
+ * with an empty string has said nothing.
  */
 export function flattenHover(
   hovers: readonly vscode.Hover[] | null | undefined,
 ): HoverResult {
   const contents: string[] = [];
-  let range: DocumentRange | null = null;
   for (const hover of hovers ?? []) {
     for (const content of hover.contents ?? []) {
       const markdown = markdownOf(content);
       if (markdown.trim() !== "") contents.push(markdown);
     }
-    if (range === null && hover.range) range = serializeRange(hover.range);
   }
-  return { kind: "hover", contents, range };
+  return { kind: "hover", contents };
 }
 
 function isRange(value: unknown): value is vscode.Range {
@@ -300,6 +297,66 @@ async function provide<T>(
   }
 }
 
+/** How long a working-tree document gets to catch up with its file on disk. */
+const DISK_SETTLE_MS = 2000;
+
+async function readText(uri: vscode.Uri): Promise<string | null> {
+  try {
+    return new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve true once `document` holds `onDisk`, false if that has not happened
+ * within `timeoutMs`. A change that leaves the document dirty is the reader
+ * typing in a native tab, and the disk will not be arriving.
+ */
+function reloadedFrom(
+  document: vscode.TextDocument,
+  onDisk: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    const done = (reloaded: boolean) => {
+      clearTimeout(timer);
+      listener.dispose();
+      resolve(reloaded);
+    };
+    const listener = vscode.workspace.onDidChangeTextDocument((event) => {
+      if (event.document !== document) return;
+      if (event.document.getText() === onDisk) done(true);
+      else if (event.document.isDirty) done(false);
+    });
+    const timer = setTimeout(() => done(false), timeoutMs);
+  });
+}
+
+/**
+ * The document a working-tree query runs over, once it holds what the file
+ * on disk holds. The diff writes the file with plain fs, and VS Code only
+ * refreshes a document it already has open through its watcher, a beat
+ * later; a query sent the moment the write resolved would otherwise be
+ * answered from the text before the save. A document VS Code has not seen
+ * yet is read fresh from disk, and one that already matches waits for
+ * nothing; a dirty document, or one still behind after the bound, is what
+ * the providers get.
+ */
+async function settledDocument(uri: vscode.Uri): Promise<vscode.TextDocument> {
+  const open = vscode.workspace.textDocuments.find(
+    (candidate) => candidate.uri.toString() === uri.toString(),
+  );
+  if (!open || uri.scheme !== "file" || open.isDirty) {
+    return open ?? vscode.workspace.openTextDocument(uri);
+  }
+  const onDisk = await readText(uri);
+  if (onDisk !== null && open.getText() !== onDisk) {
+    await reloadedFrom(open, onDisk, DISK_SETTLE_MS);
+  }
+  return open;
+}
+
 /**
  * Answer a query over `uri`. The document is opened first so the position
  * can be clamped into it: the webview's buffer and the document can differ
@@ -309,7 +366,7 @@ export async function runLanguageQuery(
   uri: vscode.Uri,
   query: LanguageQuery,
 ): Promise<LanguageQueryResult> {
-  const document = await vscode.workspace.openTextDocument(uri);
+  const document = await settledDocument(uri);
   const position = document.validatePosition(
     new vscode.Position(query.line, query.character),
   );

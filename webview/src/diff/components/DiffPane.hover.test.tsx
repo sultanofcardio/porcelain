@@ -48,7 +48,6 @@ describe("DiffPane pointer text", () => {
     expect(onPointerText).toHaveBeenLastCalledWith({
       side: "left",
       line: 2,
-      col: 7,
       word: { start: 6, end: 11 },
       anchor: {
         left: PANE_TEXT_PADDING + 6 * CELL,

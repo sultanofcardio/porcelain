@@ -134,7 +134,6 @@ describe("emptyLanguageResult", () => {
     assert.deepStrictEqual(emptyLanguageResult("hover"), {
       kind: "hover",
       contents: [],
-      range: null,
     });
     assert.deepStrictEqual(emptyLanguageResult("definition"), {
       kind: "definition",
@@ -167,11 +166,10 @@ describe("flattenHover: every provider's hover as markdown", () => {
         "Plain *markdown*",
         '```json\n{ "a": 1 }\n```',
       ],
-      range: plain(2, 4, 2, 9),
     });
   });
 
-  it("drops blank contents and reads no range where none was claimed", () => {
+  it("drops blank contents", () => {
     const result = flattenHover([
       new vscode.Hover(["", "  \n", new vscode.MarkdownString("")]),
       new vscode.Hover("kept"),
@@ -179,7 +177,6 @@ describe("flattenHover: every provider's hover as markdown", () => {
     assert.deepStrictEqual(result, {
       kind: "hover",
       contents: ["kept"],
-      range: null,
     });
     assert.deepStrictEqual(flattenHover(undefined).contents, []);
     assert.deepStrictEqual(flattenHover(null).contents, []);
@@ -408,8 +405,32 @@ describe("runLanguageQuery and openLocation in the editor", () => {
     assert.deepStrictEqual(result, {
       kind: "hover",
       contents: ["**delta**"],
-      range: plain(1, 6, 1, 11),
     });
+  });
+
+  it("answers from the disk after the file is rewritten under an open document", async function () {
+    this.timeout(15000);
+    await vscode.commands.executeCommand("vscode.open", file, {
+      preview: false,
+    });
+    await sleep(300);
+    const before = await runLanguageQuery(file, {
+      kind: "hover",
+      ref: WORKING_TREE_REF,
+      path: "notes.txt",
+      line: 1,
+      character: 7,
+    });
+    assert.deepStrictEqual(before, { kind: "hover", contents: ["**delta**"] });
+    await fs.writeFile(file.fsPath, "alpha beta\nomega sigma\n");
+    const after = await runLanguageQuery(file, {
+      kind: "hover",
+      ref: WORKING_TREE_REF,
+      path: "notes.txt",
+      line: 1,
+      character: 7,
+    });
+    assert.deepStrictEqual(after, { kind: "hover", contents: ["**sigma**"] });
   });
 
   it("clamps a position past the document rather than failing", async function () {

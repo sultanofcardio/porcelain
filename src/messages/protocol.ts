@@ -101,8 +101,6 @@ export type LanguageQueryKind = "hover" | "definition" | "symbols";
 export interface HoverResult {
   kind: "hover";
   contents: string[];
-  /** The span the first hover claimed, when it named one. */
-  range: DocumentRange | null;
 }
 
 /** One place a definition lives: a URI the native editor can open. */
