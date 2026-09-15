@@ -64,6 +64,7 @@
   th { color: var(--ink-dim); font-weight: 600; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
   .tablewrap { overflow-x: auto; border: 1px solid var(--card-border); border-radius: 10px; background: var(--card-bg); }
   .tablewrap table td, .tablewrap table th { border-color: #262b34; }
+  .tablewrap table th { white-space: nowrap; }
   tr:last-child td { border-bottom: 0; }
 
   .callout { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 12px 0 16px; }
@@ -76,19 +77,16 @@
 
   /* Site mock */
   .site { position: relative; display: grid; grid-template-columns: 228px minmax(0, 1fr); min-height: 100vh; }
-  .site.collapsed { grid-template-columns: minmax(0, 1fr); }
-  .site.collapsed nav { display: none; }
   .site .page { grid-column: 2; }
-  .site.collapsed .page { grid-column: 1; padding-left: 52px; }
-  .site nav .brand .navhide, .site .navrail { background: none; border: 0; color: var(--ink-faint); width: 26px; height: 26px; border-radius: 6px; display: grid; place-items: center; cursor: pointer; padding: 0; margin: 0; flex: none; font: inherit; }
-  .site nav .brand .navhide:hover, .site .navrail:hover { background: rgba(255,255,255,.06); color: var(--ink); }
-  .navhide svg, .navrail svg { width: 16px; height: 16px; fill: currentColor; }
+  .site nav .brand .navhide, .site nav .brand .navclose, .site .navrail { background: none; border: 0; color: var(--ink-faint); width: 26px; height: 26px; border-radius: 6px; display: grid; place-items: center; cursor: pointer; padding: 0; margin: 0; flex: none; font: inherit; }
+  .site nav .brand .navhide:hover, .site nav .brand .navclose:hover, .site .navrail:hover { background: rgba(255,255,255,.06); color: var(--ink); }
+  .navhide svg, .navclose svg, .navrail svg { width: 16px; height: 16px; fill: currentColor; }
   .site .navrail { position: absolute; left: 10px; top: 10px; z-index: 2; background: var(--card-bg); border: 1px solid var(--card-border); }
   .navrail[hidden] { display: none; }
   .site nav { border-right: 1px solid var(--card-border); padding: 16px 10px; background: #161920; }
-  .site nav .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; padding: 4px 4px 14px 8px; }
+  .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; padding: 4px 4px 14px 8px; color: var(--ink); text-decoration: none; }
   .site nav .brand span { flex: 1; min-width: 0; }
-  .site nav .brand img { width: 24px; height: 24px; border-radius: 6px; }
+  .brand img { width: 24px; height: 24px; border-radius: 6px; }
   .site nav button { display: block; width: 100%; text-align: left; background: none; border: 0; color: var(--ink); font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
   .site nav button:hover { background: rgba(255,255,255,.05); }
   .site nav button.active { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
@@ -118,8 +116,18 @@
 
 
   /* fixed, not sticky: under CSS zoom Chrome sizes 100vh from the unzoomed viewport, and a sticky panel taller than the window gets pushed up at the end of the page */
-  .site nav { position: fixed; top: 0; bottom: 0; left: 0; width: 228px; overflow-y: auto; }
-  .site .navrail { position: fixed; }
+  /* The nav is a popover so phones get a drawer (top layer, backdrop, light dismiss) with no script. Desktop overrides the
+     user-agent popover box (inset/margin/border/padding/colour) and forces it visible while closed. */
+  .topbar { display: none; }
+  .site nav .brand .navclose { display: none; }
+  @media (min-width: 761px) {
+    .site nav { display: block; position: fixed; inset: 0 auto 0 0; width: 228px; height: auto; margin: 0; padding: 16px 10px; overflow-y: auto; color: inherit; border: 0; border-right: 1px solid var(--card-border); background: #161920; }
+    .site .page { grid-column: 2; }
+    .site.collapsed { grid-template-columns: minmax(0, 1fr); }
+    .site.collapsed nav { display: none; }
+    .site.collapsed .page { grid-column: 1; padding-left: 52px; }
+    .site .navrail { position: fixed; }
+  }
   /* the reviewed mock reads right at about 170%, so that is the default on desktop widths */
   @media (min-width: 1200px) { html { zoom: 1.7; } }
   @media (min-width: 800px) and (max-width: 1199px) { html { zoom: 1.35; } }
@@ -128,7 +136,22 @@
   .site nav a.item.active { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
   .site .page > :first-child { margin-top: 0; }
   .site .page .kicker { font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #7fb0ea; margin-bottom: 8px; }
-  @media (max-width: 760px) { .site { grid-template-columns: 1fr; } .site nav { position: static; width: auto; border-right: 0; border-bottom: 1px solid var(--card-border); } .site .page { grid-column: auto; padding: 20px 16px 32px; } .site.collapsed .page { grid-column: auto; } }
+  @media (max-width: 760px) {
+    .site { grid-template-columns: minmax(0, 1fr); }
+    .site .page { grid-column: auto; padding: 20px 16px 32px; }
+    .topbar { display: flex; align-items: center; gap: 4px; position: sticky; top: 0; z-index: 2; padding: 8px 10px; border-bottom: 1px solid var(--card-border); background: #161920; }
+    .topbar .brand { padding: 4px 6px; }
+    .navopen { background: none; border: 0; color: var(--ink); width: 32px; height: 32px; border-radius: 6px; display: grid; place-items: center; cursor: pointer; padding: 0; }
+    .navopen:hover { background: rgba(255,255,255,.06); }
+    .navopen svg { width: 16px; height: 16px; }
+    .site nav .brand .navhide, .site .navrail { display: none; }
+    .site nav .brand .navclose { display: grid; }
+    .site nav { inset: 0 auto 0 0; width: min(280px, 85vw); height: auto; margin: 0; padding: 16px 10px; overflow-y: auto; color: inherit; border: 0; border-right: 1px solid var(--card-border); background: #161920; }
+    .site nav::backdrop { background: rgba(0,0,0,.55); }
+    .site nav { transition: transform .22s ease, overlay .22s allow-discrete, display .22s allow-discrete; transform: translateX(-100%); }
+    .site nav:popover-open { transform: translateX(0); }
+    @starting-style { .site nav:popover-open { transform: translateX(-100%); } }
+  }
 
   /* Changelog */
   .cl-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 0 0 24px; font-size: 13px; }

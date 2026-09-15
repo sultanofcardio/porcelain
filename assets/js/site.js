@@ -3,10 +3,14 @@
   const R = window.ROADMAP || {AREAS: {}, NEXT: [], COLS: 22, ABOVE: 0, TOTAL: 0};
   const AREAS = R.AREAS;
   const NEXT = new Set(R.NEXT);
-  (function(){ const hide=document.getElementById('navhide'), rail=document.getElementById('navrail'), site=document.querySelector('.site'); if(!hide) return;
+  // sidebar collapse (desktop only; on phones the nav is a popover drawer driven by popovertarget buttons, no script)
+  (function(){ const hide=document.getElementById('navhide'), rail=document.getElementById('navrail'), nav=document.getElementById('nav'), site=document.querySelector('.site'); if(!hide) return;
     let c=false; try { c=localStorage.getItem('pc-nav')==='collapsed'; } catch(e) {}
     function set(v){ c=v; site.classList.toggle('collapsed',c); rail.hidden=!c; try { localStorage.setItem('pc-nav',c?'collapsed':'open'); } catch(e) {} requestAnimationFrame(()=>{ window.drawSeam && window.drawSeam(); window.drawLog && window.drawLog(); }); }
-    set(c); hide.addEventListener('click',()=>set(true)); rail.addEventListener('click',()=>set(false)); })();
+    set(c); hide.addEventListener('click',()=>set(true)); rail.addEventListener('click',()=>set(false));
+    // a drawer left open while the window grows past the breakpoint would stay in the top layer; close it there
+    const desktop=window.matchMedia('(min-width: 761px)');
+    desktop.addEventListener('change',e=>{ if(e.matches && nav.matches(':popover-open')) nav.hidePopover(); }); })();
   document.querySelectorAll('[data-goto]').forEach(a => a.addEventListener('click', e => { e.preventDefault(); show(a.dataset.goto); }));
 
 
