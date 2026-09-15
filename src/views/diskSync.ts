@@ -58,9 +58,18 @@ export function reloadedFrom(
 
 const recentWrites = new Map<string, number>();
 
+/**
+ * One key for a file however its path was spelt: the write handler holds the
+ * resolved path, the language channel a document's `fsPath`, and on Windows
+ * the two differ in the drive letter's case.
+ */
+function writeKey(fsPath: string): string {
+  return vscode.Uri.file(fsPath).toString();
+}
+
 /** Record that the diff surface just wrote `fsPath`. */
 export function noteWrite(fsPath: string, now = Date.now()): void {
-  recentWrites.set(fsPath, now);
+  recentWrites.set(writeKey(fsPath), now);
 }
 
 /** Whether the diff surface wrote `fsPath` within the last `withinMs`. */
@@ -69,10 +78,11 @@ export function writtenWithin(
   withinMs: number,
   now = Date.now(),
 ): boolean {
-  const at = recentWrites.get(fsPath);
+  const key = writeKey(fsPath);
+  const at = recentWrites.get(key);
   if (at === undefined) return false;
   if (now - at > withinMs) {
-    recentWrites.delete(fsPath);
+    recentWrites.delete(key);
     return false;
   }
   return true;

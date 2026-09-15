@@ -424,7 +424,7 @@ describe("runLanguageQuery and openLocation in the editor", () => {
     });
     assert.deepStrictEqual(before, { kind: "hover", contents: ["**delta**"] });
     await fs.writeFile(file.fsPath, "alpha beta\nomega sigma\n");
-    noteWrite(file.fsPath);
+    noteWrite(path.join(dir, "notes.txt"));
     const after = await runLanguageQuery(file, {
       kind: "hover",
       ref: WORKING_TREE_REF,
@@ -467,7 +467,7 @@ describe("runLanguageQuery and openLocation in the editor", () => {
     });
     await sleep(300);
     await fs.writeFile(file.fsPath, "alpha beta\r\nomega sigma\nepsilon\n");
-    noteWrite(file.fsPath);
+    noteWrite(path.join(dir, "notes.txt"));
     const started = Date.now();
     const result = await runLanguageQuery(file, {
       kind: "hover",
