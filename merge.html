@@ -27,7 +27,7 @@ title: Merge & conflicts
           <li>The Result pane is a real editor. Click anywhere and type; typing inside a conflict resolves it. Selection, clipboard, IME composition and word movement all work, and one undo/redo timeline covers typed edits and gutter verbs alike.</li>
           <li>A side that's still takeable stays red, with its connector tapering to the exact row an accept would splice at. A side that landed, or a conflict resolved by typing, goes green.</li>
           <li><strong>Apply non-conflicting changes</strong> takes every region only one side touched. <strong>Resolve automatically</strong> combines both sides wherever their edits hit different base lines, and deliberately leaves anything overlapping for you.</li>
-          <li>Conflict stepping, collapse of unchanged regions and per-pane find (<span class="keys"><kbd>⌘</kbd><kbd>F</kbd></span>) come with the shared diff stack.</li>
+          <li>Conflict stepping, collapse of unchanged regions and per-pane find (<span class="keys"><kbd>⌘</kbd><kbd>F</kbd></span>) come with the shared diff stack. A collapsed run opens in stages from the end nearest the caret, as in the <a href="diffs.html#unchanged-runs">diff viewer</a>; the merge's separators carry the count alone.</li>
           <li><strong>Apply</strong> stays disabled until every conflict is resolved. Cancelling confirms first.</li>
         </ul>
         <p>Porcelain also registers with VS Code's Source Control view, so a conflicted file there offers <strong>Open in Porcelain Merge Editor</strong>, and conflicts raised by a terminal merge land in the same places.</p>

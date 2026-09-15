@@ -3,7 +3,7 @@ layout: default
 title: Known limits
 ---
         <h1>Known limits</h1>
-        <p>What I know is missing or rough as of 0.9.0. Most of these have a line on the <a href="roadmap.html">roadmap</a>.</p>
+        <p>What I know is missing or rough as of 0.10.0. Most of these have a line on the <a href="roadmap.html">roadmap</a>.</p>
         <ul>
           <li>Syntax highlighting in diffs covers six (6) grammars. Everything else is plain text, which I'd rather have than the wrong colours.</li>
           <li>There's no automatic fetch. Ahead/behind and incoming/outgoing counts are as fresh as your last fetch.</li>
@@ -12,6 +12,8 @@ title: Known limits
           <li>Text diffs past 25,000 lines and images past 10 MB per side show a placeholder with a way through.</li>
           <li>The commit message box has no inspections yet; git's own hooks are the only check.</li>
           <li>Diff settings are per window and forgotten when it closes.</li>
+          <li>Hover and go to definition on a history or index side depend on the language server answering for a <code>porcelain:</code> document. The built-in JSON, CSS and HTML servers do; TypeScript's doesn't, so those sides stay quiet for <code>.ts</code> and <code>.js</code>. The working tree is always asked about as the file on disk.</li>
+          <li>A working-tree side with unsaved edits gets no hover or definition until the next save.</li>
           <li>In <strong>New worktree…</strong>, the grey <code>../feature-worktree</code> in the path box is a placeholder. Pressing Enter on an empty box cancels silently, so type the path.</li>
           <li>Porcelain isn't on Open VSX yet, so Cursor installs go through the VSIX.</li>
           <li>Settings and command IDs may still change in a minor version before 1.0.</li>

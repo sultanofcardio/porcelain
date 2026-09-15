@@ -28,7 +28,9 @@ log|done|Branch filter, multi-select
 branches|done|New branch from HEAD or from a commit
 commit|done|Amend, and Commit and Push
 diff|done|Side-by-side and unified layouts
-diff|done|Editable working-tree side with ⌘S to save
+diff|done|Editable working-tree side, saved with ⌘S or by files.autoSave
+diff|done|Hover and go to definition through the language servers
+diff|done|A caret in every pane, read-only sides included
 commit|done|Per-hunk and line-range inclusion from the diff gutter
 log|done|Commit context actions: checkout, reset, revert, cherry-pick, drop
 diff|done|Floating diff windows, one reused for every file, pin to keep
@@ -118,6 +120,7 @@ blame|done|History Up to Here, Open Repository Version, Show Diff from history
 blame|done|Search Commits by message or hash
 diff|done|Highlight granularity: line, word, character, off
 diff|done|Collapse unchanged fragments; synchronised scrolling toggle
+diff|done|Folds open in stages from the caret and name their scope
 diff|done|Change stripe with click to jump; live difference count
 diff|done|Diff titles carry position and both revisions
 diff|done|Binary and image diffs side by side; large-file placeholder with Show anyway
@@ -131,7 +134,7 @@ diff|done|Conflict stepping, per-pane find, collapse unchanged in the merge
 diff|done|Open in Porcelain Merge Editor from the VS Code Source Control view
 platform|done|Worktrees: list, open, create on a new branch, remove, prune
 platform|done|Workspace trust: disabled until the folder is trusted
-platform|done|Edit Source from any diff
+platform|done|Edit Source from any diff, opening at the caret
 commit|v1|Author completion from history
 commit|v1|Shelf: rename, recently deleted with restore
 branches|v1|Set or unset the tracked branch from the tree

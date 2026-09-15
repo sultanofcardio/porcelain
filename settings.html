@@ -16,6 +16,16 @@ title: Settings & shortcuts
           </tbody>
         </table></div>
 
+        <h3>VS Code settings Porcelain follows</h3>
+        <p>The diff viewer reads these from VS Code rather than keeping its own copies, so what you've set for the editor holds in a diff too.</p>
+        <div class="tablewrap"><table>
+          <thead><tr><th style="width:32%">Setting</th><th>Where it applies</th></tr></thead>
+          <tbody>
+            <tr><td><code>files.autoSave</code>, <code>files.autoSaveDelay</code></td><td>The editable working-tree side of a diff, in all four modes. Flipping the setting takes effect in an open diff.</td></tr>
+            <tr><td><code>editor.hover.enabled</code>, <code>editor.hover.delay</code></td><td>The hover card in a diff pane.</td></tr>
+          </tbody>
+        </table></div>
+
         <h2>Editor shortcuts</h2>
         <p>These are VS Code keybindings, so they show in the Keyboard Shortcuts editor and can be rebound. Windows and Linux use <kbd>Ctrl</kbd> for <kbd>⌘</kbd> and <kbd>Alt</kbd> for <kbd>⌥</kbd>.</p>
         <div class="tablewrap"><table>
@@ -38,6 +48,9 @@ title: Settings & shortcuts
             <tr><td><span class="keys"><kbd>⌥</kbd><kbd>⌘</kbd><kbd>Z</kbd></span></td><td>Rollback the selected files</td></tr>
             <tr><td><span class="keys"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>U</kbd></span></td><td>Unshelve</td></tr>
             <tr><td><span class="keys"><kbd>⌘</kbd><kbd>F</kbd></span></td><td>Find, in a diff or a merge pane</td></tr>
+            <tr><td><kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd>, <kbd>Home</kbd>, <kbd>End</kbd>, <kbd>PgUp</kbd>, <kbd>PgDn</kbd></td><td>Move the caret in a diff pane; a vertical move steps over a collapsed run</td></tr>
+            <tr><td><kbd>F12</kbd></td><td>Go to definition from the caret, in a diff pane; <kbd>⌘</kbd> click does the same for the symbol under the pointer</td></tr>
+            <tr><td><span class="keys"><kbd>⌘</kbd><kbd>K</kbd></span> <span class="keys"><kbd>⌘</kbd><kbd>I</kbd></span></td><td>Show the hover at the caret, in a diff pane</td></tr>
             <tr><td><span class="keys"><kbd>⌘</kbd><kbd>S</kbd></span></td><td>Save the working-tree side of a diff (a read-only side ignores it)</td></tr>
             <tr><td><span class="keys"><kbd>⌘</kbd><kbd>Z</kbd></span> / <span class="keys"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>Z</kbd></span></td><td>Undo and redo in an editable pane, covering typed edits and gutter verbs</td></tr>
             <tr><td><span class="keys"><kbd>⌘</kbd><kbd>A</kbd></span></td><td>Select all in an editable pane</td></tr>

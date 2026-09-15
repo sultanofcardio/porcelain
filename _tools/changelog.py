@@ -18,6 +18,8 @@ SHOTS = {
     "Multi-branch filter": ("log-branch-filter", "The Branch filter stays open while you tick branches."),
     "Worktrees": ("worktrees", "Worktrees…: the list, then New worktree… and Prune stale records."),
     "Git Operations popup": ("git-operations", "The Git Operations popup."),
+    "Hover and go to definition in the diff viewer": ("diff-hover", "The hover in a diff: the TypeScript server's signature and docs, with the go-to-definition hint at the foot."),
+    "Fold rows name their scope": ("diff-fold-row", "Collapsed runs on both sides, each separator naming the scope its hidden lines start in."),
     "Diff ignore policies": ("diff-settings-window", "The diff settings menu, with the four whitespace policies."),
     "Blame": ("blame", "Annotate with Git Blame: initials and date per line, shaded by age, and the hover card."),
     "Push options and sync counts": ("push-panel", "The push panel, with the options under the Push dropdown."),
@@ -119,7 +121,7 @@ def render():
                 if it["subs"]:
                     h += "<ul>" + "".join("<li>%s</li>" % bullet(x)[0] for x in it["subs"]) + "</ul>"
                 shot = ""
-                if title and v in ("0.9.0", "0.7.0"):
+                if title and v in ("0.10.0", "0.9.0", "0.7.0"):
                     for key, (name, cap) in SHOTS.items():
                         if title.startswith(key):
                             shot = '<figure class="cl-shot"><img src="assets/images/%s.png" alt="%s"><figcaption>%s</figcaption></figure>' % (name, e(cap), e(cap)); break
